@@ -3,9 +3,10 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { MEALS, NUTRIENTS } from '../src/types.ts'
 import type {
-  DayView, Entry, Food, Goals, NewEntry, Nutrients, PublicSettings, Settings,
+  Amount, DayView, Entry, Food, FoodSource, Goals, NewEntry, Nutrients, PerServing, PublicSettings, Settings, SourceLink,
 } from '../src/types.ts'
 import { DEFAULT_GOALS, isDateString, scale, sumDay } from '../src/lib/nutrition.ts'
+import { multiply } from '../src/lib/units.ts'
 
 /**
  * Everything is kept on the machine running the server, so the log is shared
@@ -57,12 +58,64 @@ function cleanGrams(v: unknown): number | null {
   return v
 }
 
+const cleanSource = (v: unknown): FoodSource =>
+  (v === 'usda' || v === 'off' || v === 'web' ? v : 'custom')
+
+const cleanLabel = (v: unknown, label: string): string => {
+  const s = typeof v === 'string' ? v.trim() : ''
+  if (!s) throw new ValidationError(`${label} is required`)
+  return s.slice(0, 100)
+}
+
+/** 1.5 x "1 cup"; the unit's weight when known. */
+function cleanAmount(input: unknown): Amount {
+  const a = input as Partial<Amount> | null
+  if (!a || typeof a !== 'object') throw new ValidationError('amount is invalid')
+  const q = a.quantity
+  if (typeof q !== 'number' || !Number.isFinite(q) || q <= 0 || q > 10_000) {
+    throw new ValidationError('amount.quantity must be a positive number')
+  }
+  return {
+    quantity: q,
+    unit: cleanLabel(a.unit, 'amount.unit'),
+    unitGrams: a.unitGrams == null ? null : cleanGrams(a.unitGrams),
+  }
+}
+
+function cleanPerServing(input: unknown): PerServing | undefined {
+  if (input == null) return undefined
+  const ps = input as Partial<PerServing>
+  return {
+    label: cleanLabel(ps.label, 'perServing.label'),
+    grams: ps.grams == null ? null : cleanGrams(ps.grams),
+    nutrients: cleanNutrients(ps.nutrients, 'perServing.nutrients'),
+  }
+}
+
+/** Only http(s) links, so a looked-up food can't carry a javascript: URL into the page. */
+function cleanSources(input: unknown): SourceLink[] | undefined {
+  if (!Array.isArray(input)) return undefined
+  const out: SourceLink[] = []
+  for (const item of input.slice(0, 5)) {
+    const url = typeof item?.url === 'string' ? item.url.trim() : ''
+    try {
+      const parsed = new URL(url)
+      if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') continue
+    } catch {
+      continue
+    }
+    const title = typeof item?.title === 'string' && item.title.trim() ? item.title.trim().slice(0, 200) : url
+    out.push({ title, url: url.slice(0, 500) })
+  }
+  return out.length ? out : undefined
+}
+
 export interface StoreOptions {
   dir?: string
 }
 
 export class Store {
-  private dataDir: string
+  readonly dataDir: string
   private logPath: string
   private settingsPath: string
   private log: LogFile
@@ -142,14 +195,22 @@ export class Store {
   addEntry(input: NewEntry): Entry {
     if (!isDateString(input?.date)) throw new ValidationError('date must be YYYY-MM-DD')
     if (!MEALS.includes(input.meal)) throw new ValidationError(`meal must be one of ${MEALS.join(', ')}`)
-    const grams = cleanGrams(input.grams)
+    let grams = cleanGrams(input.grams)
+    const amount = input.amount == null ? undefined : cleanAmount(input.amount)
 
     let per100g: Nutrients | undefined
+    let perUnit: Nutrients | undefined
     let nutrients: Nutrients
     if (input.per100g) {
       if (grams == null) throw new ValidationError('grams is required with per100g')
       per100g = cleanNutrients(input.per100g, 'per100g')
       nutrients = scale(per100g, grams)
+    } else if (input.perUnit) {
+      // A food known per serving: the amount says how many servings.
+      if (!amount) throw new ValidationError('amount is required with perUnit')
+      perUnit = cleanNutrients(input.perUnit, 'perUnit')
+      nutrients = multiply(perUnit, amount.quantity)
+      grams = amount.unitGrams == null ? null : Math.round(amount.unitGrams * amount.quantity * 10) / 10
     } else {
       nutrients = cleanNutrients(input.nutrients, 'nutrients')
     }
@@ -161,10 +222,12 @@ export class Store {
       name: cleanName(input.name),
       brand: typeof input.brand === 'string' && input.brand.trim() ? input.brand.trim().slice(0, MAX_NAME) : undefined,
       grams,
+      amount,
       nutrients,
       per100g,
+      perUnit,
       foodId: typeof input.foodId === 'string' ? input.foodId.slice(0, 200) : undefined,
-      source: input.source === 'usda' || input.source === 'off' ? input.source : 'custom',
+      source: cleanSource(input.source),
       createdAt: Date.now(),
     }
     this.refresh()
@@ -182,8 +245,13 @@ export class Store {
     return null
   }
 
-  /** Change the weight, meal or name. A new weight rescales from per100g. */
-  updateEntry(id: string, patch: { grams?: number; meal?: string; name?: string; nutrients?: Nutrients }): Entry {
+  /**
+   * Change the amount, meal or name. A new quantity rescales in the unit the
+   * entry was logged in; a new weight rescales from per100g.
+   */
+  updateEntry(id: string, patch: {
+    grams?: number; quantity?: number; meal?: string; name?: string; nutrients?: Nutrients; perUnit?: Nutrients
+  }): Entry {
     const hit = this.find(id)
     if (!hit) throw new ValidationError('no such entry')
     const entry = { ...hit.list[hit.index]! }
@@ -193,14 +261,35 @@ export class Store {
       entry.meal = patch.meal as Entry['meal']
     }
     if (patch.name !== undefined) entry.name = cleanName(patch.name)
+    if (patch.perUnit !== undefined) {
+      // Your own numbers for one serving; a database's stay as published.
+      if (!entry.perUnit || entry.source !== 'custom') throw new ValidationError('only your own entries can change their numbers')
+      entry.perUnit = cleanNutrients(patch.perUnit, 'perUnit')
+      entry.nutrients = multiply(entry.perUnit, entry.amount?.quantity ?? 1)
+    }
+    if (patch.quantity !== undefined) {
+      if (!entry.amount) throw new ValidationError('this entry has no serving to count')
+      const amount = cleanAmount({ ...entry.amount, quantity: patch.quantity })
+      entry.amount = amount
+      const grams = amount.unitGrams == null ? null : Math.round(amount.unitGrams * amount.quantity * 10) / 10
+      if (entry.perUnit) {
+        entry.nutrients = multiply(entry.perUnit, amount.quantity)
+        entry.grams = grams
+      } else if (entry.per100g && grams != null) {
+        entry.grams = grams
+        entry.nutrients = scale(entry.per100g, grams)
+      }
+    }
     if (patch.grams !== undefined) {
       const grams = cleanGrams(patch.grams)
       if (grams == null) throw new ValidationError('grams must be a positive number')
       entry.grams = grams
       if (entry.per100g) entry.nutrients = scale(entry.per100g, grams)
+      // Now measured by weight, not in the old unit.
+      if (patch.quantity === undefined) delete entry.amount
     }
     if (patch.nutrients !== undefined) {
-      if (entry.per100g) throw new ValidationError('nutrients follow from the weight for a database food')
+      if (entry.per100g || entry.perUnit) throw new ValidationError('nutrients follow from the amount for a database food')
       entry.nutrients = cleanNutrients(patch.nutrients, 'nutrients')
     }
 
@@ -236,17 +325,18 @@ export class Store {
     const out: Food[] = []
     for (const e of all) {
       const key = e.foodId || `${e.name}|${e.brand ?? ''}`
-      if (seen.has(key) || !e.per100g) continue
+      if (seen.has(key) || !(e.per100g || (e.perUnit && e.amount))) continue
       seen.add(key)
-      out.push({
-        id: e.foodId || `recent:${key}`,
-        name: e.name,
-        brand: e.brand,
-        source: e.source,
-        per100g: e.per100g,
-        // The weight last used is the most likely next one.
-        servings: e.grams ? [{ label: `last time (${e.grams} g)`, grams: e.grams }] : undefined,
-      })
+      const food: Food = { id: e.foodId || `recent:${key}`, name: e.name, brand: e.brand, source: e.source }
+      if (e.per100g) {
+        food.per100g = e.per100g
+        // The unit last used is the most likely next one.
+        if (e.amount?.unitGrams) food.servings = [{ label: e.amount.unit, grams: e.amount.unitGrams }]
+        else if (e.grams) food.servings = [{ label: `last time (${e.grams} g)`, grams: e.grams }]
+      } else if (e.perUnit && e.amount) {
+        food.perServing = { label: e.amount.unit, grams: e.amount.unitGrams, nutrients: e.perUnit }
+      }
+      out.push(food)
       if (out.length >= limit) break
     }
     return out
@@ -257,9 +347,12 @@ export class Store {
       id: typeof input.id === 'string' && input.id ? input.id.slice(0, 200) : `custom:${randomUUID()}`,
       name: cleanName(input.name),
       brand: typeof input.brand === 'string' && input.brand.trim() ? input.brand.trim().slice(0, MAX_NAME) : undefined,
-      source: input.source === 'usda' || input.source === 'off' ? input.source : 'custom',
+      source: cleanSource(input.source),
       sourceId: typeof input.sourceId === 'string' ? input.sourceId.slice(0, 100) : undefined,
-      per100g: cleanNutrients(input.per100g, 'per100g'),
+      per100g: input.per100g == null ? undefined : cleanNutrients(input.per100g, 'per100g'),
+      perServing: cleanPerServing(input.perServing),
+      sources: cleanSources(input.sources),
+      note: typeof input.note === 'string' && input.note.trim() ? input.note.trim().slice(0, 1000) : undefined,
       servings: Array.isArray(input.servings)
         ? input.servings
           .filter((s) => s && typeof s.label === 'string' && typeof s.grams === 'number' && s.grams > 0)
@@ -267,6 +360,7 @@ export class Store {
           .map((s) => ({ label: s.label.slice(0, 100), grams: s.grams }))
         : undefined,
     }
+    if (!food.per100g && !food.perServing) throw new ValidationError('a food needs per100g or perServing nutrition')
     this.refresh()
     const i = this.log.foods.findIndex((f) => f.id === food.id)
     if (i === -1) this.log.foods.push(food)
@@ -307,21 +401,47 @@ export class Store {
   }
 
   getSettings(): Settings {
+    const defaults: Settings = { usdaApiKey: '', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: '', researchModel: '' }
     try {
       const raw = JSON.parse(fs.readFileSync(this.settingsPath, 'utf8')) as Partial<Settings>
-      return { usdaApiKey: typeof raw.usdaApiKey === 'string' ? raw.usdaApiKey : '' }
+      const str = (v: unknown, fallback: string): string => (typeof v === 'string' ? v : fallback)
+      return {
+        usdaApiKey: str(raw.usdaApiKey, ''),
+        lmStudioUrl: str(raw.lmStudioUrl, defaults.lmStudioUrl) || defaults.lmStudioUrl,
+        lmStudioToken: str(raw.lmStudioToken, ''),
+        researchModel: str(raw.researchModel, ''),
+      }
     } catch {
-      return { usdaApiKey: '' }
+      return defaults
     }
   }
 
   getPublicSettings(): PublicSettings {
-    return { hasUsdaKey: Boolean(this.getSettings().usdaApiKey) }
+    const s = this.getSettings()
+    return {
+      hasUsdaKey: Boolean(s.usdaApiKey),
+      hasLmStudioToken: Boolean(s.lmStudioToken),
+      lmStudioUrl: s.lmStudioUrl,
+      researchModel: s.researchModel,
+    }
   }
 
   setSettings(input: Partial<Settings>): PublicSettings {
     const next = this.getSettings()
     if (typeof input.usdaApiKey === 'string') next.usdaApiKey = input.usdaApiKey.trim().slice(0, 100)
+    if (typeof input.lmStudioToken === 'string') next.lmStudioToken = input.lmStudioToken.trim().slice(0, 300)
+    if (typeof input.researchModel === 'string') next.researchModel = input.researchModel.trim().slice(0, 200)
+    if (typeof input.lmStudioUrl === 'string') {
+      const url = input.lmStudioUrl.trim().replace(/\/+$/, '')
+      if (url) {
+        try {
+          if (!/^https?:$/.test(new URL(url).protocol)) throw new Error('bad protocol')
+        } catch {
+          throw new ValidationError('LM Studio address must be an http(s) URL')
+        }
+      }
+      next.lmStudioUrl = url || 'http://127.0.0.1:1234'
+    }
     this.write(this.settingsPath, next)
     return this.getPublicSettings()
   }

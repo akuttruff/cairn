@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Drawer } from 'vaul'
-import { ArrowLeft, Search, Star, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, Globe, Search, Star, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
-import type { SearchResult } from '../lib/api.ts'
-import { calorieMismatch, scale } from '../lib/nutrition.ts'
+import type { ResearchJob, SearchResult } from '../lib/api.ts'
+import { calorieMismatch } from '../lib/nutrition.ts'
+import { describeAmount, gramsFor, headline, nutrientsFor, unitsFor } from '../lib/units.ts'
 import { MEAL_LABELS, emptyDraft, fmt, parseNum } from '../lib/format.ts'
 import type { NutrientDraft } from '../lib/format.ts'
 import { MEALS, NUTRIENTS } from '../types.ts'
@@ -102,7 +103,10 @@ function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddS
 // ---------------------------------------------------------------------------
 
 function FoodRow({ food, onPick }: { food: Food; onPick: (f: Food) => void }) {
-  const p = food.per100g
+  // Per serving for a food known that way ("/1 bowl"), else per 100 g.
+  const h = headline(food)
+  if (!h) return null
+  const p = h.nutrients
   // Crowd-sourced entries sometimes have a typo; flag ones whose calories
   // disagree with their own macros.
   const doubtful = calorieMismatch(p)
@@ -115,7 +119,7 @@ function FoodRow({ food, onPick }: { food: Food; onPick: (f: Food) => void }) {
       <div className="entry-nums">
         <span className="entry-kcal">
           {doubtful && <TriangleAlert size={12} className="doubt" aria-label="Numbers don't add up" />}
-          {fmt('calories', p.calories)}<small> /100g</small>
+          {fmt('calories', p.calories)}<small> /{h.label}</small>
         </span>
         <span className="entry-macros">
           P {fmt('protein', p.protein)} · F {fmt('fat', p.fat)} · C {fmt('carbs', p.carbs)} · Fib {fmt('fiber', p.fiber)}
@@ -163,6 +167,18 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
 
   const errorFor = (source: 'usda' | 'off') => result?.errors.find((e) => e.source === source)?.message
 
+  // An online lookup outlives this sheet -- and the page, if the phone locks
+  // -- so pick a recent one back up, with the words it was for.
+  const [job, setJob] = useState<ResearchJob | null>(null)
+  useEffect(() => {
+    const saved = readSavedJob()
+    if (!saved) return
+    api.research(saved).then((j) => {
+      setJob(j)
+      setQ((cur) => cur || j.query)
+    }).catch(() => forgetJob())
+  }, [])
+
   return (
     <>
       <div className="search-box">
@@ -207,6 +223,7 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
               </>
             )
         )}
+        {searchable && <OnlineLookup query={query} job={job} onJob={setJob} onPick={onPick} />}
         {!query && (
           <div className="hint center">
             Whole foods come from USDA FoodData Central; packaged foods from
@@ -276,10 +293,17 @@ function MineTab({ onPick }: { onPick: (f: Food) => void }) {
 
 // ---------------------------------------------------------------------------
 
-/** Pick how much of a chosen food. Everything is in grams underneath. */
+/**
+ * Pick how much of a chosen food: a number of any of its servings ("1.5" x
+ * "1 cup, sliced"), or a weight in g or oz when its per-100g values are known.
+ */
 function Amount({ food, onLog }: { food: Food; onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => Promise<void> }) {
   const [servings, setServings] = useState<Serving[]>(food.servings ?? [])
-  const [grams, setGrams] = useState(String(food.servings?.[0]?.grams ?? 100))
+  const units = useMemo(() => unitsFor({ ...food, servings }), [food, servings])
+  const first = units[0]
+  const [unitKey, setUnitKey] = useState(first?.key ?? 'g')
+  const [qty, setQty] = useState(first?.key === 'g' ? '100' : '1')
+  const touched = useRef(false)
   const [save, setSave] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -291,19 +315,31 @@ function Amount({ food, onLog }: { food: Food; onLog: (e: Omit<NewEntry, 'date' 
     api.portions(food.sourceId).then((p) => {
       if (!live || p.length === 0) return
       setServings((prev) => [...prev, ...p.filter((s) => !prev.some((x) => x.label === s.label))])
-      // Prefer a real household measure over the 100 g default -- unless the
-      // food already had servings, or you've already typed something.
-      if (!food.servings?.length) setGrams((g) => (g === '100' ? String(p[0]!.grams) : g))
-    }).catch(() => { /* grams still work */ })
+      // Prefer a real household measure over 100 g -- unless the food already
+      // had servings, or you've already chosen something.
+      if (!food.servings?.length && !touched.current) {
+        setUnitKey('s0')
+        setQty('1')
+      }
+    }).catch(() => { /* weights still work */ })
     return () => { live = false }
   }, [food])
 
-  const g = parseNum(grams)
-  const valid = g != null && g > 0 && g <= 10_000
-  const nutrients = useMemo(() => (valid ? scale(food.per100g, g) : null), [food, g, valid])
+  const unit = units.find((u) => u.key === unitKey) ?? first
+  const q = parseNum(qty)
+  const grams = unit && q != null ? gramsFor(unit, q) : null
+  const valid = unit != null && q != null && q > 0 && q <= 10_000 && (grams == null || grams <= 10_000)
+  const nutrients = valid && unit && q != null ? nutrientsFor(food, unit, q) : null
+  const chips = units.filter((u) => u.key !== 'g' && u.key !== 'oz')
+
+  const choose = (key: string, quantity?: string): void => {
+    touched.current = true
+    setUnitKey(key)
+    if (quantity) setQty(quantity)
+  }
 
   const submit = async (): Promise<void> => {
-    if (!valid) return
+    if (!valid || !unit || !nutrients) return
     setBusy(true)
     if (save) {
       try {
@@ -312,9 +348,12 @@ function Amount({ food, onLog }: { food: Food; onLog: (e: Omit<NewEntry, 'date' 
         toast.error(`Couldn't save to My foods: ${(err as Error).message}`)
       }
     }
-    await onLog({
-      name: food.name, brand: food.brand, grams: g, per100g: food.per100g, foodId: food.id, source: food.source,
-    })
+    const base = { name: food.name, brand: food.brand, foodId: food.id, source: food.source }
+    // Plain grams need no unit; anything else is remembered as measured.
+    const amount = unit.key === 'g' ? undefined : { quantity: q!, unit: unit.label, unitGrams: unit.grams }
+    await onLog(unit.nutrients
+      ? { ...base, grams, perUnit: unit.nutrients, amount }
+      : { ...base, grams, per100g: food.per100g, amount })
     setBusy(false)
   }
 
@@ -337,51 +376,184 @@ function Amount({ food, onLog }: { food: Food; onLog: (e: Omit<NewEntry, 'date' 
           </button>
         </div>
 
-        {servings.length > 0 && (
+        {chips.length > 0 && (
           <div className="chips">
-            {servings.map((s) => (
+            {chips.map((u) => (
               <button
                 type="button"
-                key={s.label}
-                className={`chip${g === s.grams ? ' on' : ''}`}
-                onClick={() => setGrams(String(s.grams))}
+                key={u.key}
+                className={`chip${unitKey === u.key ? ' on' : ''}`}
+                onClick={() => choose(u.key, '1')}
               >
-                {s.label}
+                {u.label}
               </button>
             ))}
           </div>
         )}
 
-        <div className="field grams">
-          <label htmlFor="amount-grams">Amount (g)</label>
-          <input
-            id="amount-grams"
-            type="text"
-            inputMode="decimal"
-            value={grams}
-            onChange={(e) => setGrams(e.target.value)}
-          />
+        <div className="amount-row">
+          <div className="field grams">
+            <label htmlFor="amount-qty">Amount</label>
+            <input
+              id="amount-qty"
+              type="text"
+              inputMode="decimal"
+              value={qty}
+              onChange={(e) => { touched.current = true; setQty(e.target.value) }}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="amount-unit">Unit</label>
+            <select
+              id="amount-unit"
+              value={unit?.key ?? ''}
+              onChange={(e) => choose(e.target.value, e.target.value === 'g' ? '100' : e.target.value === 'oz' ? '1' : undefined)}
+            >
+              {units.map((u) => (
+                <option key={u.key} value={u.key}>
+                  {u.label}{u.grams != null && u.key !== 'g' && u.key !== 'oz' ? ` (${fmt('protein', u.grams)} g)` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
+        {valid && grams != null && unit?.key !== 'g' && <div className="hint">= {fmt('protein', grams)} g</div>}
 
-        {nutrients ? <Preview nutrients={nutrients} /> : <div className="hint bad">Enter a weight between 0 and 10,000 g.</div>}
-        {calorieMismatch(food.per100g) && (
+        {nutrients ? <Preview nutrients={nutrients} /> : <div className="hint bad">Enter an amount greater than 0.</div>}
+        {headline(food) && calorieMismatch(headline(food)!.nutrients) && (
           <div className="hint warn" role="status">
             <TriangleAlert size={13} aria-hidden="true" /> This entry&apos;s calories don&apos;t match its
             protein, fat and carbs. It may have a typo — check the label if you have it.
           </div>
         )}
-        {NUTRIENTS.some((k) => food.per100g[k] == null) && (
+        {food.source === 'web' && <FoundOnline food={food} />}
+        {nutrients && NUTRIENTS.some((k) => nutrients[k] == null) && (
           <div className="hint">— means the source doesn&apos;t report it; it won&apos;t count as zero.</div>
         )}
       </div>
       <div className="drawer-actions">
         <div className="row">
-          <button type="button" className="primary" disabled={!valid || busy} onClick={() => void submit()}>
-            Log {valid ? `${fmt('protein', g)} g` : ''}
+          <button type="button" className="primary" disabled={!valid || !nutrients || busy} onClick={() => void submit()}>
+            Log {valid && unit ? describeAmount({ quantity: q!, unit: unit.label }) : ''}
           </button>
         </div>
       </div>
     </>
+  )
+}
+
+/** Where a looked-up food's numbers came from, and the model's caveats. */
+function FoundOnline({ food }: { food: Food }) {
+  return (
+    <div className="found-online">
+      <div className="hint">
+        <Globe size={12} aria-hidden="true" /> Found online by your LM Studio model — worth a
+        glance at the source before you rely on it.
+      </div>
+      {food.note && <div className="hint">{food.note}</div>}
+      {food.sources?.map((s) => (
+        <a key={s.url} className="source-link" href={s.url} target="_blank" rel="noopener noreferrer">{s.title}</a>
+      ))}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Online lookup
+
+const JOB_KEY = 'macros.research'
+const POLL_MS = 2000
+
+function readSavedJob(): string | null {
+  try { return localStorage.getItem(JOB_KEY) } catch { return null }
+}
+function saveJob(id: string): void {
+  try { localStorage.setItem(JOB_KEY, id) } catch { /* private mode: just not restored */ }
+}
+function forgetJob(): void {
+  try { localStorage.removeItem(JOB_KEY) } catch { /* nothing to forget */ }
+}
+
+/**
+ * Ask LM Studio -- a local model with the deep-research MCP -- to find the
+ * food online. For what the databases miss: restaurant dishes, store items, a
+ * particular build of a bowl. Takes a minute or two, so it runs on the server
+ * and this polls.
+ */
+function OnlineLookup({ query, job, onJob, onPick }: {
+  query: string
+  job: ResearchJob | null
+  onJob: (j: ResearchJob | null) => void
+  onPick: (f: Food) => void
+}) {
+  const [now, setNow] = useState(() => Date.now())
+  const running = job?.status === 'running'
+  const jobId = job?.id
+
+  useEffect(() => {
+    if (!running || !jobId) return
+    const tick = setInterval(() => setNow(Date.now()), 1000)
+    const poll = setInterval(() => {
+      api.research(jobId).then(onJob).catch(() => { forgetJob(); onJob(null) })
+    }, POLL_MS)
+    return () => { clearInterval(tick); clearInterval(poll) }
+  }, [running, jobId, onJob])
+
+  const start = async (): Promise<void> => {
+    try {
+      const j = await api.startResearch(query)
+      saveJob(j.id)
+      onJob(j)
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
+  const mine = job && job.query.toLowerCase() === query.toLowerCase() ? job : null
+
+  if (!mine) {
+    return (
+      <section className="result-group" aria-label="Online">
+        <h3 className="sheet-h">Not listed? <span className="src">LM Studio + deep-research</span></h3>
+        <button type="button" className="lookup-btn" onClick={() => void start()} disabled={running}>
+          <Globe size={15} aria-hidden="true" /> Look up “{query}” online
+        </button>
+        <div className="hint">
+          {running
+            ? `Still looking up “${job!.query}”.`
+            : 'Your LM Studio model searches the web for the brand’s or restaurant’s own nutrition info. Takes a minute or two; be specific — “chipotle chicken bowl, white rice, black beans”.'}
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="result-group" aria-label="Online" aria-live="polite">
+      <h3 className="sheet-h">
+        Online{' '}
+        <span className="src">
+          {mine.status === 'done' && mine.result ? `via ${mine.result.model} · ${mine.result.seconds}s` : 'LM Studio + deep-research'}
+        </span>
+      </h3>
+      {mine.status === 'running' && (
+        <div className="lookup-status">
+          <span className="spinner" aria-hidden="true" />
+          <span>Looking it up… {mine.step} · {Math.max(0, Math.round((now - mine.startedAt) / 1000))}s</span>
+          <button type="button" className="link-btn" onClick={() => void api.cancelResearch(mine.id)}>Cancel</button>
+        </div>
+      )}
+      {mine.status === 'error' && (
+        <>
+          <div className="hint bad">{mine.error}</div>
+          <button type="button" className="lookup-btn" onClick={() => void start()}>Try again</button>
+        </>
+      )}
+      {mine.status === 'done' && mine.result && (
+        mine.result.foods.length
+          ? mine.result.foods.map((f) => <FoodRow key={f.id} food={f} onPick={onPick} />)
+          : <div className="hint">Nothing reliable found. {mine.result.note}</div>
+      )}
+    </section>
   )
 }
 
@@ -391,10 +563,14 @@ function toNutrients(draft: NutrientDraft): Nutrients {
   return out
 }
 
-/** A label, a restaurant guess, a recipe: type the numbers in. */
+/**
+ * A label, a restaurant guess, a recipe: type the numbers in for one
+ * serving, however you'd describe it. The weight is optional.
+ */
 function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => Promise<void> }) {
   const [name, setName] = useState('')
   const [brand, setBrand] = useState('')
+  const [serving, setServing] = useState('')
   const [grams, setGrams] = useState('')
   const [draft, setDraft] = useState<NutrientDraft>(emptyDraft)
   const [save, setSave] = useState(false)
@@ -402,6 +578,7 @@ function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => P
 
   const n = toNutrients(draft)
   const g = parseNum(grams)
+  const label = serving.trim() || '1 serving'
   const badNumber = NUTRIENTS.some((k) => draft[k].trim() && (n[k] == null || n[k]! < 0))
   const badGrams = grams.trim() !== '' && (g == null || g <= 0 || g > 10_000)
   const valid = name.trim() !== '' && n.calories != null && !badNumber && !badGrams
@@ -412,21 +589,26 @@ function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => P
     setBusy(true)
     const trimmed = name.trim()
     const b = brand.trim() || undefined
-    if (save && g) {
-      const per100g = {} as Nutrients
-      for (const k of NUTRIENTS) per100g[k] = n[k] == null ? null : Math.round((n[k]! * 1000) / g) / 10
+    const amount = { quantity: 1, unit: label, unitGrams: g }
+    let foodId: string | undefined
+    if (save) {
+      const food: Food = {
+        id: '', name: trimmed, brand: b, source: 'custom',
+        perServing: { label, grams: g, nutrients: n },
+      }
+      if (g) {
+        const per100g = {} as Nutrients
+        for (const k of NUTRIENTS) per100g[k] = n[k] == null ? null : Math.round((n[k]! * 1000) / g) / 10
+        food.per100g = per100g
+        food.servings = [{ label, grams: g }]
+      }
       try {
-        const food = await api.saveFood({
-          id: '', name: trimmed, brand: b, source: 'custom', per100g, servings: [{ label: `1 serving (${g} g)`, grams: g }],
-        })
-        await onLog({ name: trimmed, brand: b, grams: g, per100g, foodId: food.id, source: 'custom' })
-        setBusy(false)
-        return
+        foodId = (await api.saveFood(food)).id
       } catch (err) {
         toast.error(`Couldn't save to My foods: ${(err as Error).message}`)
       }
     }
-    await onLog({ name: trimmed, brand: b, grams: g, nutrients: n, source: 'custom' })
+    await onLog({ name: trimmed, brand: b, grams: g, perUnit: n, amount, foodId, source: 'custom' })
     setBusy(false)
   }
 
@@ -441,10 +623,17 @@ function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => P
           <label htmlFor="manual-brand">Brand (optional)</label>
           <input id="manual-brand" type="text" value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="e.g. Trader Joe's" />
         </div>
-        <div className="field">
-          <label htmlFor="manual-grams">Weight (g, optional)</label>
-          <input id="manual-grams" type="text" inputMode="decimal" value={grams} onChange={(e) => setGrams(e.target.value)} />
+        <div className="amount-row">
+          <div className="field">
+            <label htmlFor="manual-serving">Serving</label>
+            <input id="manual-serving" type="text" value={serving} onChange={(e) => setServing(e.target.value)} placeholder="1 serving" />
+          </div>
+          <div className="field">
+            <label htmlFor="manual-grams">Weighs (g, optional)</label>
+            <input id="manual-grams" type="text" inputMode="decimal" value={grams} onChange={(e) => setGrams(e.target.value)} />
+          </div>
         </div>
+        <div className="hint">Numbers below are for {label}: “1 bowl”, “2 cookies”, “1 cup”.</div>
         <NutrientFields idPrefix="manual" value={draft} onChange={setDraft} />
         {badNumber && <div className="hint bad">Amounts must be non-negative numbers.</div>}
         {badGrams && <div className="hint bad">Weight must be between 0 and 10,000 g.</div>}
@@ -455,13 +644,13 @@ function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => P
           </div>
         )}
         <label className="check">
-          <input type="checkbox" checked={save} disabled={!g} onChange={(e) => setSave(e.target.checked)} />
-          Save to My foods {g ? '' : '(needs a weight)'}
+          <input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} />
+          Save to My foods
         </label>
       </div>
       <div className="drawer-actions">
         <div className="row">
-          <button type="button" className="primary" disabled={!valid || busy} onClick={() => void submit()}>Log</button>
+          <button type="button" className="primary" disabled={!valid || busy} onClick={() => void submit()}>Log {label}</button>
         </div>
       </div>
     </>

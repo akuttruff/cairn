@@ -365,3 +365,27 @@ button:disabled { opacity: 0.45; cursor: default; }
 .pv.carbs dt { color: var(--c-carbs); }
 .pv.fiber dt { color: var(--c-fiber); }
 .doubt { color: var(--amber); margin-right: 4px; vertical-align: -1px; }
+
+/* --- amounts and online lookup --- */
+.amount-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; }
+.amount-row .field select { width: 100%; }
+.lookup-btn {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 12px 14px; margin: 4px 0 6px;
+  background: none; border: 1px dashed var(--moss-dim); border-radius: 10px;
+  color: var(--moss); font-size: 14px; text-align: left; cursor: pointer;
+}
+.lookup-btn:disabled { opacity: 0.5; cursor: default; }
+.lookup-status { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--paper-dim); padding: 10px 0; }
+.lookup-status span:nth-child(2) { flex: 1; min-width: 0; }
+.link-btn { background: none; border: none; color: var(--rust); font-size: 13px; padding: 4px; cursor: pointer; }
+.spinner {
+  width: 14px; height: 14px; flex: 0 0 auto; border-radius: 50%;
+  border: 2px solid var(--line, rgba(128,128,128,0.3)); border-top-color: var(--moss);
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+.found-online { margin: 6px 0 10px; }
+.found-online .hint svg { vertical-align: -1px; }
+.source-link { display: inline-block; font-size: 12px; color: var(--moss); margin-right: 12px; word-break: break-all; }

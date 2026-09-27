@@ -107,7 +107,7 @@ describe('editing', () => {
 
   it('will not let a database food drift from its own weight', () => {
     const e = store.addEntry(banana())
-    expect(() => store.updateEntry(e.id, { nutrients: BANANA_100G })).toThrow(/follow from the weight/)
+    expect(() => store.updateEntry(e.id, { nutrients: BANANA_100G })).toThrow(/follow from the amount/)
   })
 
   it('deletes', () => {
@@ -171,9 +171,9 @@ describe('goals and settings', () => {
   })
 
   it('never exposes the USDA key', () => {
-    store.setSettings({ usdaApiKey: 'SECRETKEY' })
+    store.setSettings({ usdaApiKey: 'SECRETKEY', lmStudioToken: 'sk-lm-SECRET' })
     const pub = store.getPublicSettings()
-    expect(pub).toEqual({ hasUsdaKey: true })
+    expect(pub).toEqual({ hasUsdaKey: true, hasLmStudioToken: true, lmStudioUrl: 'http://127.0.0.1:1234', researchModel: '' })
     expect(JSON.stringify(pub)).not.toMatch(/SECRET/)
   })
 
@@ -213,5 +213,76 @@ describe('safety', () => {
     const other = new Store({ dir })
     other.addEntry(banana())
     expect(store.getDay(DAY).entries).toHaveLength(2)
+  })
+})
+
+describe('servings', () => {
+  const BOWL = { calories: 660, protein: 50, fat: 21, carbs: 68, fiber: null }
+  const bowl = (over: Partial<NewEntry> = {}): NewEntry => ({
+    date: DAY, meal: 'lunch', name: 'Chicken burrito bowl', brand: 'Chipotle', grams: null,
+    perUnit: BOWL, amount: { quantity: 1, unit: '1 bowl', unitGrams: null }, source: 'web', ...over,
+  })
+
+  it('logs a food known only per serving, by how many servings', () => {
+    const e = store.addEntry(bowl({ amount: { quantity: 1.5, unit: '1 bowl', unitGrams: null } }))
+    expect(e.nutrients).toEqual({ calories: 990, protein: 75, fat: 31.5, carbs: 102, fiber: null })
+    expect(e.grams).toBeNull()
+    expect(e.source).toBe('web')
+  })
+
+  it('works out the weight when the serving has one', () => {
+    const e = store.addEntry(bowl({ amount: { quantity: 2, unit: '1 cup', unitGrams: 163 } }))
+    expect(e.grams).toBe(326)
+  })
+
+  it('needs an amount to go with per-serving nutrition', () => {
+    expect(() => store.addEntry(bowl({ amount: undefined }))).toThrow(/amount is required/)
+    expect(() => store.addEntry(bowl({ amount: { quantity: 0, unit: '1 bowl', unitGrams: null } }))).toThrow(/quantity/)
+  })
+
+  it('records the unit of a food logged by weight, and rescales in it', () => {
+    const e = store.addEntry(banana({ grams: 236, amount: { quantity: 2, unit: '1 medium', unitGrams: 118 } }))
+    const edited = store.updateEntry(e.id, { quantity: 1 })
+    expect(edited.amount).toEqual({ quantity: 1, unit: '1 medium', unitGrams: 118 })
+    expect(edited.grams).toBe(118)
+    expect(edited.nutrients.calories).toBe(105)
+  })
+
+  it('rescales a per-serving entry by quantity', () => {
+    const e = store.addEntry(bowl())
+    expect(store.updateEntry(e.id, { quantity: 0.5 }).nutrients.calories).toBe(330)
+  })
+
+  it('switches to plain weight when the grams are edited directly', () => {
+    const e = store.addEntry(banana({ grams: 118, amount: { quantity: 1, unit: '1 medium', unitGrams: 118 } }))
+    expect(store.updateEntry(e.id, { grams: 150 }).amount).toBeUndefined()
+  })
+
+  it('offers a per-serving food again under Recent, in its serving', () => {
+    store.addEntry(bowl())
+    const [recent] = store.recentFoods()
+    expect(recent!.perServing).toEqual({ label: '1 bowl', grams: null, nutrients: BOWL })
+    expect(recent!.per100g).toBeUndefined()
+  })
+
+  it('saves a per-serving food with its sources, keeping only http(s) links', () => {
+    const food = store.saveFood({
+      id: '', name: 'Burrito bowl', source: 'web',
+      perServing: { label: '1 bowl', grams: null, nutrients: BOWL },
+      sources: [{ title: 'Chipotle', url: 'https://www.chipotle.com/nutrition-calculator' }, { title: 'x', url: 'javascript:alert(1)' }],
+      note: 'Sum of published ingredient values',
+    })
+    expect(food.sources).toEqual([{ title: 'Chipotle', url: 'https://www.chipotle.com/nutrition-calculator' }])
+    expect(food.perServing!.label).toBe('1 bowl')
+  })
+
+  it('refuses a food with no nutrition basis at all', () => {
+    expect(() => store.saveFood({ id: '', name: 'Nothing', source: 'custom' })).toThrow(/per100g or perServing/)
+  })
+
+  it('keeps the LM Studio settings, rejecting a non-http address', () => {
+    store.setSettings({ lmStudioUrl: 'http://192.168.1.5:1234/', researchModel: 'qwen/qwen3.8-27b' })
+    expect(store.getSettings()).toMatchObject({ lmStudioUrl: 'http://192.168.1.5:1234', researchModel: 'qwen/qwen3.8-27b' })
+    expect(() => store.setSettings({ lmStudioUrl: 'file:///etc' })).toThrow(/http/)
   })
 })

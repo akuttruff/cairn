@@ -84,7 +84,7 @@ describe('App', () => {
     await waitFor(() => expect(calls.some((c) => c.url !== `/api/day/${TODAY}` && c.url.startsWith('/api/day/'))).toBe(true))
   })
 
-  it('searches, picks a USDA food with a household portion, and logs it by weight', async () => {
+  it('searches, picks a USDA food, and logs it in its household portion', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([]),
@@ -99,15 +99,41 @@ describe('App', () => {
     await user.click(await screen.findByText('Bananas, raw', {}, { timeout: 2000 }))
 
     // The household measure replaces the 100 g default once it arrives.
-    await waitFor(() => expect(screen.getByLabelText('Amount (g)')).toHaveValue('118'))
+    await waitFor(() => expect(screen.getByLabelText('Unit')).toHaveDisplayValue('1 medium (118 g)'))
+    expect(screen.getByLabelText('Amount')).toHaveValue('1')
     expect(screen.getByRole('button', { name: '1 medium' })).toBeInTheDocument()
     expect(screen.getByText('105')).toBeInTheDocument() // 89 kcal/100 g × 1.18
 
-    await user.click(screen.getByRole('button', { name: /^Log 118 g/ }))
+    // Two of them, then log -- recorded as measured, with the weight worked out.
+    await user.clear(screen.getByLabelText('Amount'))
+    await user.type(screen.getByLabelText('Amount'), '2')
+    expect(screen.getByText('= 236 g')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Log 2 medium/ }))
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/entries')).toBe(true))
     const post = calls.find((c) => c.method === 'POST')!
     expect(post.body).toMatchObject({
-      date: TODAY, meal: 'lunch', name: 'Bananas, raw', grams: 118, per100g: banana.per100g, source: 'usda',
+      date: TODAY, meal: 'lunch', name: 'Bananas, raw', grams: 236, per100g: banana.per100g, source: 'usda',
+      amount: { quantity: 2, unit: '1 medium', unitGrams: 118 },
+    })
+  })
+
+  it('still logs by weight in grams or ounces', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/search': { usda: [banana], off: [], errors: [] },
+      'GET /api/portions/173944': [],
+      'POST /api/entries': entry(),
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.type(await screen.findByLabelText('Search foods'), 'banana')
+    await user.click(await screen.findByText('Bananas, raw', {}, { timeout: 2000 }))
+    await user.selectOptions(screen.getByLabelText('Unit'), 'oz')
+    await user.click(screen.getByRole('button', { name: /^Log 1 oz/ }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
+    expect(calls.find((c) => c.method === 'POST')!.body).toMatchObject({
+      grams: 28.3, amount: { quantity: 1, unit: 'oz' },
     })
   })
 
@@ -176,11 +202,13 @@ describe('App', () => {
     await user.type(screen.getByLabelText('Calories (kcal)'), '650')
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Log' }))
+    await user.type(screen.getByLabelText('Serving'), '1 burrito')
+    await user.click(screen.getByRole('button', { name: 'Log 1 burrito' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
     expect(calls.find((c) => c.method === 'POST')!.body).toMatchObject({
       name: 'Burrito', brand: "Trader Joe's", grams: null, source: 'custom',
-      nutrients: { calories: 650, protein: 30, fat: 25, carbs: 80, fiber: null },
+      perUnit: { calories: 650, protein: 30, fat: 25, carbs: 80, fiber: null },
+      amount: { quantity: 1, unit: '1 burrito', unitGrams: null },
     })
   })
 
@@ -225,5 +253,67 @@ describe('App', () => {
     expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ protein: 160, calories: 2000 })
     // No key typed, so the saved one is left alone.
     expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/settings')).toBe(false)
+  })
+
+  it('looks a food up online, then logs it by the serving the source gave', async () => {
+    const user = userEvent.setup()
+    const bowl: Food = {
+      id: 'web:chipotle-bowl', name: 'Chicken Burrito Bowl', brand: 'Chipotle', source: 'web',
+      perServing: { label: '1 bowl', grams: null, nutrients: { calories: 660, protein: 50, fat: 21, carbs: 68, fiber: null } },
+      sources: [{ title: 'chipotle.com', url: 'https://www.chipotle.com/nutrition-calculator' }],
+      note: 'Sum of published per-ingredient values.',
+    }
+    let polls = 0
+    const job = { id: 'j1', query: 'chipotle chicken bowl', startedAt: Date.now() }
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/search': { usda: [], off: [], errors: [] },
+      'POST /api/research': { ...job, status: 'running', step: 'starting' },
+      'GET /api/research/j1': () => (++polls < 2
+        ? { ...job, status: 'running', step: 'reading chipotle.com' }
+        : { ...job, status: 'done', step: 'done', result: { query: job.query, foods: [bowl], model: 'qwen/qwen3.8-27b', seconds: 74 } }),
+      'POST /api/entries': entry(),
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.type(await screen.findByLabelText('Search foods'), 'chipotle chicken bowl')
+    await user.click(await screen.findByRole('button', { name: /Look up “chipotle chicken bowl” online/ }, { timeout: 2000 }))
+    expect(calls.find((c) => c.url === '/api/research')!.body).toEqual({ q: 'chipotle chicken bowl' })
+
+    expect(await screen.findByText(/reading chipotle\.com/, {}, { timeout: 5000 })).toBeInTheDocument()
+    await user.click(await screen.findByText('Chicken Burrito Bowl', {}, { timeout: 5000 }))
+
+    // Per serving, with where the numbers came from.
+    expect(screen.getByLabelText('Unit')).toHaveDisplayValue('1 bowl')
+    expect(screen.getByRole('link', { name: 'chipotle.com' })).toHaveAttribute('href', 'https://www.chipotle.com/nutrition-calculator')
+    await user.clear(screen.getByLabelText('Amount'))
+    await user.type(screen.getByLabelText('Amount'), '0.5')
+    expect(screen.getByText('330')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Log 0.5 bowl/ }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/entries')).toBe(true))
+    expect(calls.find((c) => c.url === '/api/entries')!.body).toMatchObject({
+      name: 'Chicken Burrito Bowl', grams: null, source: 'web',
+      perUnit: bowl.perServing!.nutrients, amount: { quantity: 0.5, unit: '1 bowl', unitGrams: null },
+    })
+  }, 15_000)
+
+  it('shows a logged serving the way it was measured, and edits it in that unit', async () => {
+    const user = userEvent.setup()
+    const served = entry({
+      name: 'Orange chicken', grams: 244.5, amount: { quantity: 1.5, unit: '1 cup', unitGrams: 163 },
+      per100g: { calories: 196.3, protein: 13.5, fat: 6.1, carbs: 21.5, fiber: null },
+    })
+    const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([served]), 'PATCH /api/entries/e1': served })
+    render(<App />)
+    expect(await screen.findByText('1.5 cup')).toBeInTheDocument()
+    await user.click(screen.getByText('Orange chicken'))
+    const qty = await screen.findByLabelText('Amount (1 cup)')
+    expect(qty).toHaveValue('1.5')
+    await user.clear(qty)
+    await user.type(qty, '1')
+    expect(screen.getByText('320')).toBeInTheDocument() // 196.3 kcal/100 g × 163 g
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ quantity: 1 })
   })
 })

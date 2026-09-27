@@ -1,5 +1,6 @@
 import { MEALS } from '../types.ts'
 import { MEAL_LABELS, fmt } from '../lib/format.ts'
+import { describeAmount } from '../lib/units.ts'
 import type { Entry, Meal } from '../types.ts'
 
 interface MealListProps {
@@ -28,7 +29,11 @@ export default function MealList({ entries, onOpen, onAdd }: MealListProps) {
                 <div className="entry-main">
                   <span className="entry-name">{e.name}</span>
                   <span className="entry-sub">
-                    {[e.brand, e.grams != null ? `${fmt('protein', e.grams)} g` : null].filter(Boolean).join(' · ')}
+                    {[
+                      e.brand,
+                      // As measured ("1.5 cup"), else the weight.
+                      e.amount ? describeAmount(e.amount) : e.grams != null ? `${fmt('protein', e.grams)} g` : null,
+                    ].filter(Boolean).join(' · ')}
                   </span>
                 </div>
                 <div className="entry-nums">

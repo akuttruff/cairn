@@ -72,12 +72,12 @@ describe('USDA normalisation', () => {
 describe('Open Food Facts normalisation', () => {
   it('reads per-100g values', () => {
     const food = fromOff(OFF_YOGURT)
-    expect(food.per100g.protein).toBe(9.41)
+    expect(food.per100g!.protein).toBe(9.41)
     expect(food.brand).toBe('Chobani')
   })
 
   it('keeps missing fiber as unknown, not zero', () => {
-    expect(fromOff(OFF_YOGURT).per100g.fiber).toBeNull()
+    expect(fromOff(OFF_YOGURT).per100g!.fiber).toBeNull()
   })
 
   it('offers the labelled serving', () => {

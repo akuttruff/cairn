@@ -2,6 +2,17 @@ import type {
   DayView, Entry, Food, Goals, Meal, NewEntry, Nutrients, PublicSettings, Serving,
 } from '../types.ts'
 
+/** An online lookup in progress or finished; see server/research.ts. */
+export interface ResearchJob {
+  id: string
+  query: string
+  status: 'running' | 'done' | 'error'
+  step: string
+  startedAt: number
+  result?: { query: string; foods: Food[]; note?: string; model: string; seconds: number }
+  error?: string
+}
+
 export interface SearchResult {
   usda: Food[]
   off: Food[]
@@ -26,7 +37,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   day: (date: string) => request<DayView>('GET', `/api/day/${date}`),
   addEntry: (entry: NewEntry) => request<Entry>('POST', '/api/entries', entry),
-  updateEntry: (id: string, patch: { grams?: number; meal?: Meal; name?: string; nutrients?: Nutrients }) =>
+  updateEntry: (id: string, patch: {
+    grams?: number; quantity?: number; meal?: Meal; name?: string; nutrients?: Nutrients; perUnit?: Nutrients
+  }) =>
     request<Entry>('PATCH', `/api/entries/${encodeURIComponent(id)}`, patch),
   deleteEntry: (id: string) => request<{ ok: true }>('DELETE', `/api/entries/${encodeURIComponent(id)}`),
   foods: () => request<{ saved: Food[]; recent: Food[] }>('GET', '/api/foods'),
@@ -42,5 +55,9 @@ export const api = {
   goals: () => request<Goals>('GET', '/api/goals'),
   setGoals: (goals: Partial<Goals>) => request<Goals>('PUT', '/api/goals', goals),
   settings: () => request<PublicSettings>('GET', '/api/settings'),
-  setSettings: (s: { usdaApiKey: string }) => request<PublicSettings>('PUT', '/api/settings', s),
+  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string }) =>
+    request<PublicSettings>('PUT', '/api/settings', s),
+  startResearch: (q: string) => request<ResearchJob>('POST', '/api/research', { q }),
+  research: (id: string) => request<ResearchJob>('GET', `/api/research/${encodeURIComponent(id)}`),
+  cancelResearch: (id: string) => request<{ cancelled: boolean }>('DELETE', `/api/research/${encodeURIComponent(id)}`),
 }

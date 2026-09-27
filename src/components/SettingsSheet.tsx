@@ -36,6 +36,9 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
     carbs: String(goals.carbs), fiber: String(goals.fiber),
   }))
   const [key, setKey] = useState('')
+  const [lmUrl, setLmUrl] = useState<string | null>(null)
+  const [lmToken, setLmToken] = useState('')
+  const [lmModel, setLmModel] = useState<string | null>(null)
   const [settings, setSettings] = useState<PublicSettings | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -52,7 +55,12 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
     setBusy(true)
     try {
       await api.setGoals(parsed as Goals)
-      if (key.trim()) await api.setSettings({ usdaApiKey: key.trim() })
+      const changes: Parameters<typeof api.setSettings>[0] = {}
+      if (key.trim()) changes.usdaApiKey = key.trim()
+      if (lmToken.trim()) changes.lmStudioToken = lmToken.trim()
+      if (lmUrl != null && lmUrl.trim() !== settings?.lmStudioUrl) changes.lmStudioUrl = lmUrl.trim()
+      if (lmModel != null && lmModel.trim() !== settings?.researchModel) changes.researchModel = lmModel.trim()
+      if (Object.keys(changes).length) await api.setSettings(changes)
       toast.success('Saved')
       onSaved()
       onClose()
@@ -107,6 +115,54 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
                 an hour. A free key from <b>api.data.gov/signup</b> allows 1,000.
                 It&apos;s kept on the server and never sent back to this page.
               </div>
+            </div>
+
+            <h3 className="sheet-h">Online lookup</h3>
+            <div className="hint">
+              “Look up online” asks your LM Studio model to research a food with the{' '}
+              <b>mcp/deep-research</b> MCP. LM Studio needs that server in its mcp.json.
+            </div>
+            <div className="field">
+              <label htmlFor="lm-url">LM Studio address</label>
+              <input
+                id="lm-url"
+                type="text"
+                inputMode="url"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                value={lmUrl ?? settings?.lmStudioUrl ?? ''}
+                placeholder="http://127.0.0.1:1234"
+                onChange={(e) => setLmUrl(e.target.value)}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="lm-token">LM Studio API token</label>
+              <input
+                id="lm-token"
+                type="text"
+                autoCapitalize="off"
+                autoCorrect="off"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder={settings?.hasLmStudioToken ? 'saved — paste to replace' : 'needed when authentication is on'}
+                value={lmToken}
+                onChange={(e) => setLmToken(e.target.value)}
+              />
+              <div className="hint">Paste it rather than typing: tokens are case-sensitive. Kept on the server only.</div>
+            </div>
+            <div className="field">
+              <label htmlFor="lm-model">Model (optional)</label>
+              <input
+                id="lm-model"
+                type="text"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder="whichever LLM is loaded"
+                value={lmModel ?? settings?.researchModel ?? ''}
+                onChange={(e) => setLmModel(e.target.value)}
+              />
             </div>
           </div>
           <div className="drawer-actions">

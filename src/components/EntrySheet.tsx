@@ -3,6 +3,7 @@ import { Drawer } from 'vaul'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import { scale } from '../lib/nutrition.ts'
+import { multiply } from '../lib/units.ts'
 import { MEAL_LABELS, emptyDraft, parseNum } from '../lib/format.ts'
 import type { NutrientDraft } from '../lib/format.ts'
 import { MEALS, NUTRIENTS } from '../types.ts'
@@ -26,8 +27,9 @@ const toDraft = (n: Nutrients): NutrientDraft => {
 }
 
 /**
- * Edit something already logged. A food from a database is edited by weight
- * (its per-100g values are kept); a manual entry by its numbers.
+ * Edit something already logged: by how many servings, in the unit it was
+ * logged in; by weight for a food that was weighed; and your own entries by
+ * their numbers too. A database food's per-100g values are kept as published.
  */
 export default function EntrySheet({ open, session, entry, onClose, onChanged }: EntrySheetProps) {
   return (
@@ -46,24 +48,51 @@ export default function EntrySheet({ open, session, entry, onClose, onChanged }:
 function EntryForm({ entry, onClose, onChanged }: { entry: Entry; onClose: () => void; onChanged: () => void }) {
   const [meal, setMeal] = useState<Meal>(entry.meal)
   const [grams, setGrams] = useState(entry.grams == null ? '' : String(entry.grams))
-  const [draft, setDraft] = useState<NutrientDraft>(() => toDraft(entry.nutrients))
+  const [qty, setQty] = useState(entry.amount ? String(entry.amount.quantity) : '')
+  const [draft, setDraft] = useState<NutrientDraft>(() => toDraft(entry.perUnit ?? entry.nutrients))
   const [busy, setBusy] = useState(false)
 
-  const byWeight = Boolean(entry.per100g)
+  // Edit in the unit it was logged in ("1.5 cup"); by weight if it was
+  // weighed; by its numbers if it's a one-off with neither.
+  const amount = entry.amount
+  const byQuantity = Boolean(amount && (entry.perUnit || (entry.per100g && amount.unitGrams)))
+  const byWeight = !byQuantity && Boolean(entry.per100g)
+  const ownNumbers = entry.source === 'custom' && (Boolean(entry.perUnit) || (!byWeight && !byQuantity))
+
   const g = parseNum(grams)
   const gramsOk = g != null && g > 0 && g <= 10_000
+  const q = parseNum(qty)
+  const qtyOk = q != null && q > 0 && q <= 10_000
+  const draftNumbers = (): Nutrients => {
+    const n = {} as Nutrients
+    for (const k of NUTRIENTS) n[k] = parseNum(draft[k])
+    return n
+  }
+
+  const preview = (): Nutrients | null => {
+    if (byQuantity && qtyOk) {
+      if (entry.perUnit) return multiply(ownNumbers ? draftNumbers() : entry.perUnit, q!)
+      return scale(entry.per100g!, amount!.unitGrams! * q!)
+    }
+    if (byWeight && gramsOk) return scale(entry.per100g!, g!)
+    return null
+  }
 
   const save = async (): Promise<void> => {
     const patch: Parameters<typeof api.updateEntry>[1] = {}
     if (meal !== entry.meal) patch.meal = meal
-    if (byWeight) {
+    if (byQuantity) {
+      if (!qtyOk) return
+      if (q !== amount!.quantity) patch.quantity = q!
+    } else if (byWeight) {
       if (!gramsOk) return
-      if (g !== entry.grams) patch.grams = g
-    } else {
-      const n = {} as Nutrients
-      for (const k of NUTRIENTS) n[k] = parseNum(draft[k])
+      if (g !== entry.grams) patch.grams = g!
+    }
+    if (ownNumbers) {
+      const n = draftNumbers()
       if (n.calories == null) { toast.error('Calories are required'); return }
-      patch.nutrients = n
+      if (entry.perUnit) patch.perUnit = n
+      else patch.nutrients = n
     }
     setBusy(true)
     try {
@@ -91,6 +120,9 @@ function EntryForm({ entry, onClose, onChanged }: { entry: Entry; onClose: () =>
     }
   }
 
+  const shown = preview()
+  const amountOk = byQuantity ? qtyOk : byWeight ? gramsOk : true
+
   return (
     <>
           <Drawer.Title className="drawer-title">{entry.name}</Drawer.Title>
@@ -102,22 +134,31 @@ function EntryForm({ entry, onClose, onChanged }: { entry: Entry; onClose: () =>
                 {MEALS.map((m) => <option key={m} value={m}>{MEAL_LABELS[m]}</option>)}
               </select>
             </div>
-            {byWeight && entry.per100g
-              ? (
-                <>
-                  <div className="field grams">
-                    <label htmlFor="edit-grams">Amount (g)</label>
-                    <input id="edit-grams" type="text" inputMode="decimal" value={grams} onChange={(e) => setGrams(e.target.value)} />
-                  </div>
-                  {gramsOk ? <Preview nutrients={scale(entry.per100g, g)} /> : <div className="hint bad">Enter a weight between 0 and 10,000 g.</div>}
-                </>
-              )
-              : <NutrientFields idPrefix="edit" value={draft} onChange={setDraft} />}
+            {byQuantity && (
+              <div className="field grams">
+                <label htmlFor="edit-qty">Amount ({amount!.unit})</label>
+                <input id="edit-qty" type="text" inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} />
+              </div>
+            )}
+            {byWeight && (
+              <div className="field grams">
+                <label htmlFor="edit-grams">Amount (g)</label>
+                <input id="edit-grams" type="text" inputMode="decimal" value={grams} onChange={(e) => setGrams(e.target.value)} />
+              </div>
+            )}
+            {!amountOk && <div className="hint bad">Enter an amount greater than 0.</div>}
+            {ownNumbers && (
+              <>
+                {entry.perUnit && <div className="hint">Numbers for {amount?.unit ?? 'one serving'}:</div>}
+                <NutrientFields idPrefix="edit" value={draft} onChange={setDraft} />
+              </>
+            )}
+            {shown && <Preview nutrients={shown} />}
           </div>
           <div className="drawer-actions">
             <div className="row">
               <button type="button" className="danger" disabled={busy} onClick={() => void remove()}>Delete</button>
-              <button type="button" className="primary" disabled={busy || (byWeight && !gramsOk)} onClick={() => void save()}>Save</button>
+              <button type="button" className="primary" disabled={busy || !amountOk} onClick={() => void save()}>Save</button>
             </div>
           </div>
     </>

@@ -120,9 +120,10 @@ describe('foods and goals', () => {
   })
 
   it('never returns the USDA key', async () => {
-    await call('PUT', '/api/settings', { usdaApiKey: 'SECRETKEY' })
+    await call('PUT', '/api/settings', { usdaApiKey: 'SECRETKEY', lmStudioToken: 'sk-lm-SECRET' })
     const res = await call('GET', '/api/settings')
-    expect(res.body).toEqual({ hasUsdaKey: true })
+    expect(res.body).toMatchObject({ hasUsdaKey: true, hasLmStudioToken: true })
+    expect(JSON.stringify(res.body)).not.toMatch(/SECRET/)
   })
 })
 

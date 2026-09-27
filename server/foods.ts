@@ -149,7 +149,7 @@ export interface SearchResult {
   barcode?: boolean
 }
 
-const usable = (f: Food): boolean => f.per100g.calories != null
+const usable = (f: Food): boolean => f.per100g?.calories != null
 
 async function getJson(url: string, fetchImpl: typeof fetch, limited = 'rate limited; try again shortly'): Promise<unknown> {
   const res = await fetchImpl(url, {
@@ -180,7 +180,7 @@ function dedupe(foods: Food[]): Food[] {
   return foods.filter((f) => {
     const keys = [
       f.sourceId ? `code:${f.sourceId.replace(/^0+/, '')}` : null,
-      `name:${f.name.toLowerCase()}|${(f.brand ?? '').toLowerCase()}|${Math.round(f.per100g.calories ?? -1)}`,
+      `name:${f.name.toLowerCase()}|${(f.brand ?? '').toLowerCase()}|${Math.round(f.per100g?.calories ?? -1)}`,
     ].filter((k): k is string => k != null)
     if (keys.some((k) => seen.has(k))) return false
     for (const k of keys) seen.add(k)
