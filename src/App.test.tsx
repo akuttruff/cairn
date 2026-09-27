@@ -127,6 +127,37 @@ describe('App', () => {
     expect(screen.getByText('Banana chips')).toBeInTheDocument()
   })
 
+  it('shows a store-brand search as that brand, with your own matches first', async () => {
+    const user = userEvent.setup()
+    const tjs: Food = { ...banana, id: 'off:1', name: 'Mandarin Orange Chicken', brand: "Trader Joe's", source: 'off', sourceId: '1' }
+    stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/foods': { saved: [{ ...tjs, id: 'off:9', name: 'Hummus' }], recent: [] },
+      'GET /api/search': { usda: [], off: [tjs], errors: [], brand: "Trader Joe's" },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.type(await screen.findByLabelText('Search foods'), 'tjs hummus')
+    expect(await screen.findByRole('region', { name: 'Yours' })).toHaveTextContent('Hummus')
+    const group = await screen.findByRole('region', { name: "Trader Joe's" }, { timeout: 2000 })
+    expect(within(group).getByText('Mandarin Orange Chicken')).toBeInTheDocument()
+    // No empty "Whole foods" section for a brand search.
+    expect(screen.queryByRole('region', { name: 'Whole foods' })).not.toBeInTheDocument()
+  })
+
+  it('flags a search result whose calories contradict its macros', async () => {
+    const user = userEvent.setup()
+    const typo: Food = { ...banana, id: 'off:2', name: 'Granola', source: 'off',
+      per100g: { calories: 45, protein: 10, fat: 20, carbs: 60, fiber: 6 } }
+    stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/search': { usda: [], off: [typo], errors: [] } })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.type(await screen.findByLabelText('Search foods'), 'granola')
+    expect(await screen.findByLabelText("Numbers don't add up", {}, { timeout: 2000 })).toBeInTheDocument()
+    await user.click(screen.getByText('Granola'))
+    expect(screen.getByRole('status')).toHaveTextContent(/may have a typo/)
+  })
+
   it('logs a manual entry, leaving blanks unknown and warning about implausible calories', async () => {
     const user = userEvent.setup()
     const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'POST /api/entries': entry() })
@@ -134,6 +165,7 @@ describe('App', () => {
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
     await user.click(await screen.findByRole('tab', { name: 'Manual' }))
     await user.type(screen.getByLabelText('Name'), 'Burrito')
+    await user.type(screen.getByLabelText('Brand (optional)'), "Trader Joe's")
     await user.type(screen.getByLabelText('Calories (kcal)'), '6500')
     await user.type(screen.getByLabelText('Protein (g)'), '30')
     await user.type(screen.getByLabelText('Fat (g)'), '25')
@@ -147,7 +179,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Log' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
     expect(calls.find((c) => c.method === 'POST')!.body).toMatchObject({
-      name: 'Burrito', grams: null, source: 'custom',
+      name: 'Burrito', brand: "Trader Joe's", grams: null, source: 'custom',
       nutrients: { calories: 650, protein: 30, fat: 25, carbs: 80, fiber: null },
     })
   })

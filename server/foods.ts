@@ -1,5 +1,6 @@
 import { NUTRIENTS } from '../src/types.ts'
 import type { Food, Nutrients, Serving } from '../src/types.ts'
+import { detectBrand, plainTerms, tidyBrand, tidyName } from '../src/lib/brands.ts'
 
 /**
  * Food search across two public databases, normalised to one shape.
@@ -9,6 +10,10 @@ import type { Food, Nutrients, Serving } from '../src/types.ts'
  *    is mediocre and the free demo key allows 30 requests an hour.
  *  - Open Food Facts: packaged and branded products. Broad, but crowd-sourced:
  *    many entries carry no nutrition at all, and fiber is often absent.
+ *
+ * A query naming a store brand ("trader joe's hummus") searches only that
+ * brand's products, and a barcode looks up that one product; neither goes to
+ * USDA, which has nothing useful for them.
  *
  * Results without calories are dropped -- they cannot be logged usefully --
  * but a missing fiber value is kept as null, never coerced to zero.
@@ -113,15 +118,15 @@ export function offNutrients(n: Record<string, unknown> = {}): Nutrients {
 }
 
 export function fromOff(p: OffProduct): Food {
-  const brand = Array.isArray(p.brands) ? p.brands[0] : p.brands?.split(',')[0]
+  const brand = tidyBrand(Array.isArray(p.brands) ? p.brands[0] : p.brands?.split(',')[0])
   const grams = Number(p.serving_quantity)
   const servings: Serving[] = Number.isFinite(grams) && grams > 0
     ? [{ label: p.serving_size?.trim() || `${grams} g`, grams }]
     : []
   return {
     id: `off:${p.code ?? p.product_name}`,
-    name: (p.product_name || 'Unnamed product').trim(),
-    brand: brand?.trim() || undefined,
+    name: tidyName(p.product_name || 'Unnamed product', brand),
+    brand,
     source: 'off',
     sourceId: p.code,
     per100g: offNutrients(p.nutriments),
@@ -138,35 +143,84 @@ export interface SearchResult {
   off: Food[]
   /** Per-source failures, so one database being down does not hide the other. */
   errors: { source: 'usda' | 'off'; message: string }[]
+  /** Set when the query named a store brand and results are that brand's. */
+  brand?: string
+  /** Set when the query was a barcode. */
+  barcode?: boolean
 }
 
 const usable = (f: Food): boolean => f.per100g.calories != null
 
-async function getJson(url: string, fetchImpl: typeof fetch): Promise<unknown> {
+async function getJson(url: string, fetchImpl: typeof fetch, limited = 'rate limited; try again shortly'): Promise<unknown> {
   const res = await fetchImpl(url, {
     headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
     signal: AbortSignal.timeout(TIMEOUT_MS),
   })
-  if (res.status === 429) throw new Error('rate limited; add a free USDA API key in Settings')
+  if (res.status === 429) throw new Error(limited)
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
+
+const USDA_LIMITED = 'rate limited; add a free USDA API key in Settings'
 
 export async function searchUsda(query: string, apiKey: string, fetchImpl = fetch): Promise<Food[]> {
   const url = 'https://api.nal.usda.gov/fdc/v1/foods/search'
     + `?api_key=${encodeURIComponent(apiKey || 'DEMO_KEY')}`
     + `&query=${encodeURIComponent(query)}`
     + '&dataType=Foundation,SR%20Legacy&pageSize=15'
-  const data = await getJson(url, fetchImpl) as { foods?: UsdaFood[] }
+  const data = await getJson(url, fetchImpl, USDA_LIMITED) as { foods?: UsdaFood[] }
   return (data.foods ?? []).map(fromUsda).filter(usable)
 }
 
-export async function searchOff(query: string, fetchImpl = fetch): Promise<Food[]> {
+const OFF_FIELDS = 'code,product_name,brands,serving_size,serving_quantity,nutriments'
+
+/** The same product is often entered twice, e.g. with and without leading zeros on the barcode. */
+function dedupe(foods: Food[]): Food[] {
+  const seen = new Set<string>()
+  return foods.filter((f) => {
+    const keys = [
+      f.sourceId ? `code:${f.sourceId.replace(/^0+/, '')}` : null,
+      `name:${f.name.toLowerCase()}|${(f.brand ?? '').toLowerCase()}|${Math.round(f.per100g.calories ?? -1)}`,
+    ].filter((k): k is string => k != null)
+    if (keys.some((k) => seen.has(k))) return false
+    for (const k of keys) seen.add(k)
+    return true
+  })
+}
+
+async function offQuery(q: string, fetchImpl: typeof fetch): Promise<Food[]> {
   const url = 'https://search.openfoodfacts.org/search'
-    + `?q=${encodeURIComponent(query)}&page_size=15`
-    + '&fields=code,product_name,brands,serving_size,serving_quantity,nutriments'
+    + `?q=${encodeURIComponent(q)}&page_size=24&fields=${OFF_FIELDS}`
   const data = await getJson(url, fetchImpl) as { hits?: OffProduct[] }
-  return (data.hits ?? []).filter((p) => p.product_name).map(fromOff).filter(usable)
+  return dedupe((data.hits ?? []).filter((p) => p.product_name).map(fromOff).filter(usable)).slice(0, 15)
+}
+
+/**
+ * Packaged foods. A store brand in the query becomes a filter on that
+ * brand's products; if that finds nothing, fall back to searching the words.
+ */
+export async function searchOff(query: string, fetchImpl = fetch): Promise<Food[]> {
+  const match = detectBrand(query)
+  if (match) {
+    const filter = match.brand.tags.map((t) => `brands_tags:"${t}"`).join(' OR ')
+    const rest = plainTerms(match.rest)
+    const hits = await offQuery(rest ? `(${filter}) ${rest}` : `(${filter})`, fetchImpl)
+    if (hits.length || !rest) return hits
+  }
+  return offQuery(plainTerms(query), fetchImpl)
+}
+
+export const isBarcode = (q: string): boolean => /^\d{8,14}$/.test(q.replace(/[\s-]/g, ''))
+
+/** One product by the number under its barcode (UPC or EAN). */
+export async function lookupBarcode(code: string, fetchImpl = fetch): Promise<Food[]> {
+  const digits = code.replace(/[\s-]/g, '')
+  if (!/^\d{8,14}$/.test(digits)) return []
+  const url = `https://world.openfoodfacts.org/api/v2/product/${digits}?fields=${OFF_FIELDS}`
+  const data = await getJson(url, fetchImpl) as { status?: number; product?: OffProduct }
+  // Unknown codes still come back "found", as an empty shell.
+  if (data.status !== 1 || !data.product?.product_name) return []
+  return [fromOff({ ...data.product, code: data.product.code || digits })].filter(usable)
 }
 
 /** USDA portion sizes -- "1 medium", "1 cup, sliced" -- fetched on demand. */
@@ -174,7 +228,7 @@ export async function usdaPortions(fdcId: string, apiKey: string, fetchImpl = fe
   if (!/^\d+$/.test(fdcId)) return []
   const url = `https://api.nal.usda.gov/fdc/v1/food/${fdcId}`
     + `?api_key=${encodeURIComponent(apiKey || 'DEMO_KEY')}`
-  const data = await getJson(url, fetchImpl) as {
+  const data = await getJson(url, fetchImpl, USDA_LIMITED) as {
     foodPortions?: { gramWeight?: number; amount?: number; modifier?: string; portionDescription?: string; measureUnit?: { name?: string } }[]
   }
   const out: Serving[] = []
@@ -237,11 +291,18 @@ export async function searchFoods(
   const cached = cache.get(q)
   if (cached) return cached
 
+  const brand = detectBrand(q)?.brand.name
+  const barcode = isBarcode(q)
+  // Only generic food words go to USDA: it has no store brands or barcodes,
+  // and the demo key's hourly allowance is too small to spend on them.
+  const skipUsda = brand != null || barcode
   const [usda, off] = await Promise.allSettled([
-    searchUsda(q, apiKey, fetchImpl),
-    searchOff(q, fetchImpl),
+    skipUsda ? Promise.resolve([]) : searchUsda(q, apiKey, fetchImpl),
+    barcode ? lookupBarcode(q, fetchImpl) : searchOff(q, fetchImpl),
   ])
   const result: SearchResult = { usda: [], off: [], errors: [] }
+  if (brand) result.brand = brand
+  if (barcode) result.barcode = true
   if (usda.status === 'fulfilled') result.usda = usda.value
   else result.errors.push({ source: 'usda', message: String((usda.reason as Error)?.message ?? usda.reason) })
   if (off.status === 'fulfilled') result.off = off.value

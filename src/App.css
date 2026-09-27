@@ -364,3 +364,4 @@ button:disabled { opacity: 0.45; cursor: default; }
 .pv.fat dt { color: var(--c-fat); }
 .pv.carbs dt { color: var(--c-carbs); }
 .pv.fiber dt { color: var(--c-fiber); }
+.doubt { color: var(--amber); margin-right: 4px; vertical-align: -1px; }

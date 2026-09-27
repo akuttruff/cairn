@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
-  TtlCache, fromOff, fromUsda, offNutrients, searchFoods, usdaNutrients, usdaPortions,
+  TtlCache, fromOff, fromUsda, isBarcode, lookupBarcode, offNutrients, searchFoods, searchOff, usdaNutrients, usdaPortions,
 } from './foods.ts'
 import type { SearchResult } from './foods.ts'
 
@@ -189,5 +189,91 @@ describe('TtlCache', () => {
     cache.set('a', 1); cache.set('b', 2); cache.set('c', 3)
     expect(cache.get('a')).toBeUndefined()
     expect(cache.get('c')).toBe(3)
+  })
+})
+
+const TJ_CHICKEN = {
+  code: '0400233893323',
+  product_name: 'Trader Joe\u2019s Mandarin Orange Chicken',
+  brands: 'Trader joe\u2019s',
+  serving_size: '140.0g',
+  serving_quantity: 140,
+  nutriments: { 'energy-kcal_100g': 228.6, proteins_100g: 15, fat_100g: 11.4, carbohydrates_100g: 17.1, fiber_100g: 0.7 },
+}
+
+/** Answers OFF searches by the decoded `q`, so tests can see what was asked. */
+function offByQuery(answer: (q: string) => unknown) {
+  return vi.fn<(url: string) => Promise<unknown>>(async (url) => {
+    const q = new URL(url).searchParams.get('q') ?? ''
+    return { ok: true, status: 200, json: async () => answer(q) }
+  }) as unknown as typeof fetch & { mock: { calls: [string][] } }
+}
+
+describe('store brands', () => {
+  it('searches only that brand for the rest of the words', async () => {
+    const f = offByQuery(() => ({ hits: [TJ_CHICKEN] }))
+    const foods = await searchOff("Trader Joe's mandarin orange chicken", f)
+    expect(new URL(f.mock.calls[0]![0]).searchParams.get('q'))
+      .toBe('(brands_tags:"trader-joe-s") mandarin orange chicken')
+    expect(foods[0]).toMatchObject({ name: 'Mandarin Orange Chicken', brand: "Trader Joe's" })
+    expect(foods[0]!.servings).toEqual([{ label: '140.0g', grams: 140 }])
+  })
+
+  it('falls back to a plain search when the brand has no match', async () => {
+    const f = offByQuery((q) => (q.startsWith('(') ? { hits: [] } : { hits: [TJ_CHICKEN] }))
+    const foods = await searchOff('tjs orange chicken', f)
+    expect(f.mock.calls).toHaveLength(2)
+    expect(new URL(f.mock.calls[1]![0]).searchParams.get('q')).toBe('tjs orange chicken')
+    expect(foods).toHaveLength(1)
+  })
+
+  it('cannot be steered by search syntax typed into the box', async () => {
+    const f = offByQuery(() => ({ hits: [] }))
+    await searchOff('chicken) OR (brands_tags:"x"', f)
+    expect(new URL(f.mock.calls[0]![0]).searchParams.get('q')).toBe('chicken or brands tags x')
+  })
+
+  it('drops duplicate entries of one product', async () => {
+    const f = offByQuery(() => ({ hits: [TJ_CHICKEN, { ...TJ_CHICKEN, code: '400233893323' }, { ...TJ_CHICKEN, code: '999' }] }))
+    expect(await searchOff('trader joes orange chicken', f)).toHaveLength(1)
+  })
+
+  it('skips USDA for a brand search, sparing its hourly allowance', async () => {
+    const f = fakeFetch({ 'search.openfoodfacts.org': { hits: [TJ_CHICKEN] } })
+    const r = await searchFoods("trader joe's orange chicken", 'DEMO_KEY', new TtlCache(60_000), f)
+    const calls = (f as unknown as { mock: { calls: [string][] } }).mock.calls
+    expect(calls.some(([u]) => u.includes('nal.usda.gov'))).toBe(false)
+    expect(r).toMatchObject({ brand: "Trader Joe's", usda: [], errors: [] })
+    expect(r.off).toHaveLength(1)
+  })
+})
+
+describe('barcodes', () => {
+  it('recognises UPC and EAN numbers', () => {
+    expect(isBarcode('0400233893323')).toBe(true)
+    expect(isBarcode('04002 33893')).toBe(true)
+    expect(isBarcode('1234567')).toBe(false)
+    expect(isBarcode('7 up')).toBe(false)
+  })
+
+  it('looks up one product by its code', async () => {
+    const f = fakeFetch({ 'world.openfoodfacts.org/api/v2/product/0400233893323': { status: 1, product: TJ_CHICKEN } })
+    const foods = await lookupBarcode('0400233893323', f)
+    expect(foods).toHaveLength(1)
+    expect(foods[0]!.id).toBe('off:0400233893323')
+  })
+
+  it('treats the empty shell returned for an unknown code as no product', async () => {
+    const f = fakeFetch({ 'world.openfoodfacts.org': { status: 1, product: { code: '1234567890123' } } })
+    expect(await lookupBarcode('1234567890123', f)).toEqual([])
+  })
+
+  it('routes a barcode search to the lookup, not USDA', async () => {
+    const f = fakeFetch({ 'world.openfoodfacts.org': { status: 1, product: TJ_CHICKEN } })
+    const r = await searchFoods('0400233893323', 'KEY', new TtlCache(60_000), f)
+    expect(r.barcode).toBe(true)
+    expect(r.off[0]!.name).toBe('Mandarin Orange Chicken')
+    const calls = (f as unknown as { mock: { calls: [string][] } }).mock.calls
+    expect(calls).toHaveLength(1)
   })
 })

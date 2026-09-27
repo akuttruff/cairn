@@ -11,6 +11,7 @@ import { MEALS, NUTRIENTS } from '../types.ts'
 import type { Food, Meal, NewEntry, Nutrients, Serving } from '../types.ts'
 import NutrientFields from './NutrientFields.tsx'
 import Preview from './Preview.tsx'
+import { matchMine } from '../lib/match.ts'
 
 type Tab = 'search' | 'mine' | 'manual'
 
@@ -25,6 +26,7 @@ interface AddSheetProps {
 }
 
 const SEARCH_DELAY_MS = 450
+
 
 export default function AddSheet({ open, session, onClose, ...rest }: AddSheetProps) {
   return (
@@ -101,6 +103,9 @@ function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddS
 
 function FoodRow({ food, onPick }: { food: Food; onPick: (f: Food) => void }) {
   const p = food.per100g
+  // Crowd-sourced entries sometimes have a typo; flag ones whose calories
+  // disagree with their own macros.
+  const doubtful = calorieMismatch(p)
   return (
     <button type="button" className="food-row" onClick={() => onPick(food)}>
       <div className="entry-main">
@@ -108,7 +113,10 @@ function FoodRow({ food, onPick }: { food: Food; onPick: (f: Food) => void }) {
         {food.brand && <span className="entry-sub">{food.brand}</span>}
       </div>
       <div className="entry-nums">
-        <span className="entry-kcal">{fmt('calories', p.calories)}<small> /100g</small></span>
+        <span className="entry-kcal">
+          {doubtful && <TriangleAlert size={12} className="doubt" aria-label="Numbers don't add up" />}
+          {fmt('calories', p.calories)}<small> /100g</small>
+        </span>
         <span className="entry-macros">
           P {fmt('protein', p.protein)} · F {fmt('fat', p.fat)} · C {fmt('carbs', p.carbs)} · Fib {fmt('fiber', p.fiber)}
         </span>
@@ -128,6 +136,12 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
   const result = current?.result ?? null
   const error = current?.error ?? null
   const input = useRef<HTMLInputElement>(null)
+  const [mine, setMine] = useState<Food[]>([])
+
+  useEffect(() => {
+    api.foods().then((f) => setMine([...f.saved, ...f.recent])).catch(() => { /* search still works */ })
+  }, [])
+  const yours = useMemo(() => (searchable ? matchMine(mine, query) : []), [mine, query, searchable])
 
   useEffect(() => {
     // Focus after Vaul's open animation, or iOS scrolls the page instead.
@@ -156,7 +170,7 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
         <input
           ref={input}
           type="search"
-          placeholder="Search foods"
+          placeholder="Search foods, brands, or a barcode"
           aria-label="Search foods"
           autoCorrect="off"
           enterKeyHint="search"
@@ -165,18 +179,40 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
         />
       </div>
       <div className="drawer-scroll" data-vaul-no-drag>
+        {yours.length > 0 && (
+          <section className="result-group" aria-label="Yours">
+            <h3 className="sheet-h">Yours <span className="src">saved &amp; recent</span></h3>
+            {yours.map((f) => <FoodRow key={f.id} food={f} onPick={onPick} />)}
+          </section>
+        )}
         {busy && <div className="hint center">Searching…</div>}
         {error && <div className="hint bad center">{error}</div>}
         {result && !busy && (
-          <>
-            <ResultGroup title="Whole foods" subtitle="USDA" foods={result.usda} error={errorFor('usda')} onPick={onPick} />
-            <ResultGroup title="Packaged" subtitle="Open Food Facts" foods={result.off} error={errorFor('off')} onPick={onPick} />
-          </>
+          result.barcode || result.brand
+            // A brand or a barcode only makes sense for packaged foods.
+            ? (
+              <ResultGroup
+                title={result.barcode ? 'Barcode' : result.brand!}
+                subtitle="Open Food Facts"
+                foods={result.off}
+                error={errorFor('off')}
+                empty={result.barcode ? 'No product with that barcode yet.' : undefined}
+                onPick={onPick}
+              />
+            )
+            : (
+              <>
+                <ResultGroup title="Whole foods" subtitle="USDA" foods={result.usda} error={errorFor('usda')} onPick={onPick} />
+                <ResultGroup title="Packaged" subtitle="Open Food Facts" foods={result.off} error={errorFor('off')} onPick={onPick} />
+              </>
+            )
         )}
         {!query && (
           <div className="hint center">
-            Whole foods come from USDA FoodData Central; branded and packaged
-            foods from Open Food Facts.
+            Whole foods come from USDA FoodData Central; packaged foods from
+            Open Food Facts. Start with a store — <b>trader joe&apos;s</b>,{' '}
+            <b>costco</b>, <b>whole foods</b> — to search just its products, or
+            type the number under a barcode.
           </div>
         )}
       </div>
@@ -184,14 +220,14 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
   )
 }
 
-function ResultGroup({ title, subtitle, foods, error, onPick }: {
-  title: string; subtitle: string; foods: Food[]; error?: string; onPick: (f: Food) => void
+function ResultGroup({ title, subtitle, foods, error, empty = 'No matches.', onPick }: {
+  title: string; subtitle: string; foods: Food[]; error?: string; empty?: string; onPick: (f: Food) => void
 }) {
   return (
     <section className="result-group" aria-label={title}>
       <h3 className="sheet-h">{title} <span className="src">{subtitle}</span></h3>
       {error && <div className="hint bad">{error}</div>}
-      {!error && foods.length === 0 && <div className="hint">No matches.</div>}
+      {!error && foods.length === 0 && <div className="hint">{empty}</div>}
       {foods.map((f) => <FoodRow key={f.id} food={f} onPick={onPick} />)}
     </section>
   )
@@ -328,6 +364,12 @@ function Amount({ food, onLog }: { food: Food; onLog: (e: Omit<NewEntry, 'date' 
         </div>
 
         {nutrients ? <Preview nutrients={nutrients} /> : <div className="hint bad">Enter a weight between 0 and 10,000 g.</div>}
+        {calorieMismatch(food.per100g) && (
+          <div className="hint warn" role="status">
+            <TriangleAlert size={13} aria-hidden="true" /> This entry&apos;s calories don&apos;t match its
+            protein, fat and carbs. It may have a typo — check the label if you have it.
+          </div>
+        )}
         {NUTRIENTS.some((k) => food.per100g[k] == null) && (
           <div className="hint">— means the source doesn&apos;t report it; it won&apos;t count as zero.</div>
         )}
@@ -352,6 +394,7 @@ function toNutrients(draft: NutrientDraft): Nutrients {
 /** A label, a restaurant guess, a recipe: type the numbers in. */
 function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => Promise<void> }) {
   const [name, setName] = useState('')
+  const [brand, setBrand] = useState('')
   const [grams, setGrams] = useState('')
   const [draft, setDraft] = useState<NutrientDraft>(emptyDraft)
   const [save, setSave] = useState(false)
@@ -368,21 +411,22 @@ function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => P
     if (!valid) return
     setBusy(true)
     const trimmed = name.trim()
+    const b = brand.trim() || undefined
     if (save && g) {
       const per100g = {} as Nutrients
       for (const k of NUTRIENTS) per100g[k] = n[k] == null ? null : Math.round((n[k]! * 1000) / g) / 10
       try {
         const food = await api.saveFood({
-          id: '', name: trimmed, source: 'custom', per100g, servings: [{ label: `1 serving (${g} g)`, grams: g }],
+          id: '', name: trimmed, brand: b, source: 'custom', per100g, servings: [{ label: `1 serving (${g} g)`, grams: g }],
         })
-        await onLog({ name: trimmed, grams: g, per100g, foodId: food.id, source: 'custom' })
+        await onLog({ name: trimmed, brand: b, grams: g, per100g, foodId: food.id, source: 'custom' })
         setBusy(false)
         return
       } catch (err) {
         toast.error(`Couldn't save to My foods: ${(err as Error).message}`)
       }
     }
-    await onLog({ name: trimmed, grams: g, nutrients: n, source: 'custom' })
+    await onLog({ name: trimmed, brand: b, grams: g, nutrients: n, source: 'custom' })
     setBusy(false)
   }
 
@@ -392,6 +436,10 @@ function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => P
         <div className="field">
           <label htmlFor="manual-name">Name</label>
           <input id="manual-name" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Burrito bowl" />
+        </div>
+        <div className="field">
+          <label htmlFor="manual-brand">Brand (optional)</label>
+          <input id="manual-brand" type="text" value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="e.g. Trader Joe's" />
         </div>
         <div className="field">
           <label htmlFor="manual-grams">Weight (g, optional)</label>

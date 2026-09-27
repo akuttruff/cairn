@@ -6,6 +6,8 @@ export interface SearchResult {
   usda: Food[]
   off: Food[]
   errors: { source: 'usda' | 'off'; message: string }[]
+  brand?: string
+  barcode?: boolean
 }
 
 export class ApiError extends Error {}
