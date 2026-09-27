@@ -10,6 +10,7 @@ import { MEALS, NUTRIENTS } from '../types.ts'
 import type { Entry, Meal, Nutrients } from '../types.ts'
 import NutrientFields from './NutrientFields.tsx'
 import Preview from './Preview.tsx'
+import useNutrientDraft from '../hooks/useNutrientDraft.ts'
 
 interface EntrySheetProps {
   open: boolean
@@ -49,7 +50,7 @@ function EntryForm({ entry, onClose, onChanged }: { entry: Entry; onClose: () =>
   const [meal, setMeal] = useState<Meal>(entry.meal)
   const [grams, setGrams] = useState(entry.grams == null ? '' : String(entry.grams))
   const [qty, setQty] = useState(entry.amount ? String(entry.amount.quantity) : '')
-  const [draft, setDraft] = useState<NutrientDraft>(() => toDraft(entry.perUnit ?? entry.nutrients))
+  const [draft, setDraft, caloriesIsAuto] = useNutrientDraft(toDraft(entry.perUnit ?? entry.nutrients))
   const [busy, setBusy] = useState(false)
 
   // Edit in the unit it was logged in ("1.5 cup"); by weight if it was
@@ -150,7 +151,7 @@ function EntryForm({ entry, onClose, onChanged }: { entry: Entry; onClose: () =>
             {ownNumbers && (
               <>
                 {entry.perUnit && <div className="hint">Numbers for {amount?.unit ?? 'one serving'}:</div>}
-                <NutrientFields idPrefix="edit" value={draft} onChange={setDraft} />
+                <NutrientFields idPrefix="edit" value={draft} onChange={setDraft} autoCalories={caloriesIsAuto} />
               </>
             )}
             {shown && <Preview nutrients={shown} />}

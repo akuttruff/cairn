@@ -41,6 +41,20 @@ export function scale(per100g: Nutrients, grams: number): Nutrients {
   return out
 }
 
+/**
+ * Adds several nutrient sets together -- a meal preset's combined total, say.
+ * A key is null only when every one of them left it unknown; otherwise the
+ * ones that stated it are summed, same as a day's own totals do.
+ */
+export function sumNutrients(list: Nutrients[]): Nutrients {
+  const out = emptyNutrients()
+  for (const key of NUTRIENTS) {
+    const known = list.map((n) => n[key]).filter((v): v is number => v != null)
+    out[key] = known.length ? round1(known.reduce((a, b) => a + b, 0)) : null
+  }
+  return out
+}
+
 /** Sum a day's entries, counting which ones were missing each nutrient. */
 export function sumDay(entries: Entry[]): DayTotals {
   const totals = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 }
@@ -63,6 +77,18 @@ export function sumDay(entries: Entry[]): DayTotals {
 export function macroCalories(n: Nutrients): number | null {
   if (n.protein == null || n.carbs == null || n.fat == null) return null
   return round1(n.protein * 4 + n.carbs * 4 + n.fat * 9)
+}
+
+/**
+ * Calories implied by whatever of protein/fat/carbs is typed so far, a blank
+ * one counted as 0 -- so the total updates as each macro is typed, rather
+ * than waiting until all three are filled (contrast macroCalories, which
+ * answers "do the stated macros match the stated calories?" and so needs
+ * all three before it will say anything). Null only when none are typed.
+ */
+export function impliedCalories(protein: number | null, fat: number | null, carbs: number | null): number | null {
+  if (protein == null && fat == null && carbs == null) return null
+  return round1((protein ?? 0) * 4 + (carbs ?? 0) * 4 + (fat ?? 0) * 9)
 }
 
 /**

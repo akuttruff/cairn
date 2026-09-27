@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addDays, calorieMismatch, emptyNutrients, isDateString, localDate,
-  macroCalories, progress, scale, sumDay,
+  addDays, calorieMismatch, emptyNutrients, impliedCalories, isDateString, localDate,
+  macroCalories, progress, scale, sumDay, sumNutrients,
 } from './nutrition.ts'
 import type { Entry, Nutrients } from '../types.ts'
 
@@ -31,6 +31,22 @@ describe('scale', () => {
 
   it('handles a zero-gram portion', () => {
     expect(scale(BANANA, 0).calories).toBe(0)
+  })
+})
+
+describe('sumNutrients', () => {
+  it('adds several nutrient sets together', () => {
+    expect(sumNutrients([n({ calories: 100, protein: 5 }), n({ calories: 50, protein: 2 })]))
+      .toEqual(n({ calories: 150, protein: 7 }))
+  })
+
+  it('is null for a key only when every item left it unknown', () => {
+    expect(sumNutrients([n({ calories: 100, fiber: null }), n({ calories: 50, fiber: 2 })]).fiber).toBe(2)
+    expect(sumNutrients([n({ calories: 100 }), n({ calories: 50 })]).fiber).toBeNull()
+  })
+
+  it('is all-null for an empty list', () => {
+    expect(sumNutrients([])).toEqual(emptyNutrients())
   })
 })
 
@@ -89,6 +105,27 @@ describe('macroCalories and calorieMismatch', () => {
 
   it('has no opinion without enough data', () => {
     expect(calorieMismatch(n({ calories: 300 }))).toBe(false)
+  })
+})
+
+describe('impliedCalories', () => {
+  it('derives energy at 4/4/9, same as macroCalories, once all three are given', () => {
+    expect(impliedCalories(10, 5, 20)).toBe(165)
+  })
+
+  it('treats a missing macro as zero rather than refusing to answer', () => {
+    expect(impliedCalories(10, null, null)).toBe(40) // protein alone
+    expect(impliedCalories(null, 5, null)).toBe(45) // fat alone
+    expect(impliedCalories(null, null, 20)).toBe(80) // carbs alone
+    expect(impliedCalories(10, 5, null)).toBe(85) // protein + fat, no carbs yet
+  })
+
+  it('is null only when nothing has been typed at all', () => {
+    expect(impliedCalories(null, null, null)).toBeNull()
+  })
+
+  it('treats an explicit zero as typed, not as missing', () => {
+    expect(impliedCalories(0, 0, 20)).toBe(80)
   })
 })
 

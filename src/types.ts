@@ -129,6 +129,23 @@ export interface NewEntry {
   source: FoodSource
 }
 
+/** One food's contribution to a saved meal -- exactly how it will be
+ * logged, minus the date and meal-of-day, which are chosen when it's used. */
+export type MealPresetItem = Omit<NewEntry, 'date' | 'meal'>
+
+/**
+ * A named group of foods -- "Breakfast burrito", "Post-workout shake" --
+ * logged together in one action instead of one at a time. Independent of
+ * any of its items still being in My foods: deleting a saved food doesn't
+ * touch a meal that used it, the same way logging one doesn't.
+ */
+export interface MealPreset {
+  id: string
+  name: string
+  items: MealPresetItem[]
+  createdAt: number
+}
+
 export interface Settings {
   /** Free key from api.data.gov; the shared DEMO_KEY allows 30 searches an hour. */
   usdaApiKey: string

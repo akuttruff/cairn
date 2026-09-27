@@ -137,6 +137,31 @@ describe('App', () => {
     })
   })
 
+  it('saves a search result to My foods directly, without opening or logging it', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/search': { usda: [banana], off: [], errors: [] },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.type(await screen.findByLabelText('Search foods'), 'banana')
+    await screen.findByText('Bananas, raw', {}, { timeout: 2000 })
+
+    await user.click(screen.getByRole('button', { name: 'Save Bananas, raw to My foods' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/foods')).toBe(true))
+    expect(calls.find((c) => c.method === 'POST' && c.url === '/api/foods')!.body).toMatchObject(banana)
+    // It's kept, not logged: no amount to pick, nothing posted to /api/entries.
+    expect(screen.queryByLabelText('Amount')).not.toBeInTheDocument()
+    expect(calls.some((c) => c.url === '/api/entries')).toBe(false)
+
+    // The star now offers to undo it.
+    const unsave = await screen.findByRole('button', { name: 'Remove Bananas, raw from My foods' })
+    await user.click(unsave)
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url.startsWith('/api/foods/'))).toBe(true))
+    expect(calls.find((c) => c.method === 'DELETE')!.url).toBe(`/api/foods/${encodeURIComponent(banana.id)}`)
+  })
+
   it('shows one database failing without hiding the other', async () => {
     const user = userEvent.setup()
     stubApi({
@@ -184,7 +209,31 @@ describe('App', () => {
     expect(screen.getByRole('status')).toHaveTextContent(/may have a typo/)
   })
 
-  it('logs a manual entry, leaving blanks unknown and warning about implausible calories', async () => {
+  it('computes calories live from protein, fat and carbs as they are typed', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'POST /api/entries': entry() })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.click(await screen.findByRole('tab', { name: 'Manual' }))
+    await user.type(screen.getByLabelText('Name'), 'Burrito')
+    await user.type(screen.getByLabelText('Protein (g)'), '30')
+    expect(screen.getByLabelText(/^Calories \(kcal\)/)).toHaveValue('120') // 30 * 4, no Calories typed at all
+    await user.type(screen.getByLabelText('Fat (g)'), '25')
+    await user.type(screen.getByLabelText('Carbs (g)'), '80')
+    expect(screen.getByLabelText(/^Calories \(kcal\)/)).toHaveValue('665') // 30*4 + 80*4 + 25*9
+    expect(screen.getByText('· from macros')).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument() // it can't disagree with itself
+
+    await user.type(screen.getByLabelText('Serving'), '1 burrito')
+    await user.click(screen.getByRole('button', { name: 'Log 1 burrito' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
+    expect(calls.find((c) => c.method === 'POST')!.body).toMatchObject({
+      name: 'Burrito', grams: null, source: 'custom',
+      perUnit: { calories: 665, protein: 30, fat: 25, carbs: 80, fiber: null },
+    })
+  })
+
+  it('lets a typed calories value override the macros, still warning when it disagrees', async () => {
     const user = userEvent.setup()
     const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'POST /api/entries': entry() })
     render(<App />)
@@ -192,14 +241,22 @@ describe('App', () => {
     await user.click(await screen.findByRole('tab', { name: 'Manual' }))
     await user.type(screen.getByLabelText('Name'), 'Burrito')
     await user.type(screen.getByLabelText('Brand (optional)'), "Trader Joe's")
-    await user.type(screen.getByLabelText('Calories (kcal)'), '6500')
+    // Before anything is typed, Calories tracks the (still-blank) macros --
+    // getByLabelText needs the loose match while that "from macros" note is showing.
+    await user.type(screen.getByLabelText(/^Calories \(kcal\)/), '6500')
+    expect(screen.queryByText('· from macros')).not.toBeInTheDocument()
     await user.type(screen.getByLabelText('Protein (g)'), '30')
     await user.type(screen.getByLabelText('Fat (g)'), '25')
     await user.type(screen.getByLabelText('Carbs (g)'), '80')
+    expect(screen.getByLabelText('Calories (kcal)')).toHaveValue('6500') // never overwritten by the macros
     expect(screen.getByRole('status')).toHaveTextContent(/about 665 kcal, not 6500/)
 
+    // Clearing it hands control back to the macros -- but only once you edit
+    // one again, not by refilling itself out from under a fresh keystroke.
+    // (Cleared and back in auto mode, the "from macros" note is showing
+    // again, so the loose match is needed here too.)
     await user.clear(screen.getByLabelText('Calories (kcal)'))
-    await user.type(screen.getByLabelText('Calories (kcal)'), '650')
+    await user.type(screen.getByLabelText(/^Calories \(kcal\)/), '650')
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
 
     await user.type(screen.getByLabelText('Serving'), '1 burrito')
@@ -297,6 +354,156 @@ describe('App', () => {
       perUnit: bowl.perServing!.nutrients, amount: { quantity: 0.5, unit: '1 bowl', unitGrams: null },
     })
   }, 15_000)
+
+  it('saves an online lookup result to My foods directly, without logging it', async () => {
+    // The whole point: a repeat lookup can cost a minute or two, so a food
+    // found online should be keepable without going through Amount/Log.
+    const user = userEvent.setup()
+    const bowl: Food = {
+      id: 'web:chipotle-bowl', name: 'Chicken Burrito Bowl', brand: 'Chipotle', source: 'web',
+      perServing: { label: '1 bowl', grams: null, nutrients: { calories: 660, protein: 50, fat: 21, carbs: 68, fiber: null } },
+      sources: [{ title: 'chipotle.com', url: 'https://www.chipotle.com/nutrition-calculator' }],
+      note: 'Sum of published per-ingredient values.',
+    }
+    const job = { id: 'j1', query: 'chipotle chicken bowl', startedAt: Date.now() }
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/search': { usda: [], off: [], errors: [] },
+      'POST /api/research': { ...job, status: 'running', step: 'starting' },
+      'GET /api/research/j1': { ...job, status: 'done', step: 'done', result: { query: job.query, foods: [bowl], model: 'qwen/qwen3.8-27b', seconds: 74 } },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.type(await screen.findByLabelText('Search foods'), 'chipotle chicken bowl')
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/research')).toBe(true), { timeout: 4000 })
+    await screen.findByText('Chicken Burrito Bowl', {}, { timeout: 5000 })
+
+    await user.click(screen.getByRole('button', { name: 'Save Chicken Burrito Bowl to My foods' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/foods')).toBe(true))
+    expect(calls.find((c) => c.method === 'POST' && c.url === '/api/foods')!.body).toMatchObject(bowl)
+    expect(screen.queryByLabelText('Amount')).not.toBeInTheDocument()
+    expect(calls.some((c) => c.url === '/api/entries')).toBe(false)
+  }, 15_000)
+
+  it('shows a search result as already saved when it matches something already in My foods', async () => {
+    const user = userEvent.setup()
+    stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/foods': { saved: [banana], recent: [] },
+      'GET /api/search': { usda: [banana], off: [], errors: [] },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.type(await screen.findByLabelText('Search foods'), 'banana')
+    // It matches both "Yours" (already saved) and the USDA results for the
+    // same query; the USDA copy should read as saved too, by id.
+    const usda = await screen.findByRole('region', { name: 'Whole foods' }, { timeout: 2000 })
+    expect(within(usda).getByRole('button', { name: 'Remove Bananas, raw from My foods' })).toBeInTheDocument()
+  })
+
+  describe('meal presets', () => {
+    const eggs: Food = {
+      id: 'usda:1', name: 'Eggs', source: 'usda',
+      per100g: { calories: 155, protein: 13, fat: 11, carbs: 1.1, fiber: 0 },
+    }
+    const toastFood: Food = {
+      id: 'off:1', name: 'Toast', source: 'off',
+      per100g: { calories: 265, protein: 9, fat: 3.2, carbs: 49, fiber: 2.7 },
+    }
+    const openMineTab = async (user: ReturnType<typeof userEvent.setup>): Promise<void> => {
+      await user.click(await screen.findByRole('button', { name: 'Add food' }))
+      await user.click(await screen.findByRole('tab', { name: 'My foods' }))
+    }
+
+    it('builds a meal from saved foods and saves it', async () => {
+      const user = userEvent.setup()
+      const calls = stubApi({
+        [`GET /api/day/${TODAY}`]: day([]),
+        'GET /api/foods': { saved: [eggs, toastFood], recent: [] },
+        'GET /api/meals': [],
+        'POST /api/meals': { id: 'meal:m1', name: 'Breakfast', items: [{}, {}], createdAt: 0 },
+      })
+      render(<App />)
+      await openMineTab(user)
+      await user.click(await screen.findByRole('button', { name: '+ Create meal' }))
+
+      // Picking, not opening either food's own amount screen.
+      await user.click(await screen.findByText('Eggs'))
+      await user.click(screen.getByText('Toast'))
+      expect(screen.queryByLabelText('Amount')).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Next (2)' }))
+
+      // Each food gets its own amount; defaults are enough to save right away.
+      expect(screen.getByLabelText('Amount of Eggs')).toHaveValue('100')
+      await user.type(screen.getByLabelText('Meal name'), 'Breakfast')
+      await user.click(screen.getByRole('button', { name: 'Save meal' }))
+
+      await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/meals')).toBe(true))
+      const body = calls.find((c) => c.method === 'POST' && c.url === '/api/meals')!.body as { name: string; items: { name: string }[] }
+      expect(body.name).toBe('Breakfast')
+      expect(body.items.map((i) => i.name)).toEqual(['Eggs', 'Toast'])
+
+      // Back on My foods, ready to log without re-fetching.
+      expect(await screen.findByText('2 foods')).toBeInTheDocument()
+    })
+
+    it('logs every food in a saved meal with one tap', async () => {
+      const user = userEvent.setup()
+      const calls = stubApi({
+        [`GET /api/day/${TODAY}`]: day([]),
+        'GET /api/foods': { saved: [], recent: [] },
+        'GET /api/meals': [{
+          id: 'meal:m1', name: 'Breakfast', createdAt: 0,
+          items: [
+            { name: 'Eggs', grams: 100, per100g: eggs.per100g, source: 'usda' },
+            { name: 'Toast', grams: 50, per100g: toastFood.per100g, source: 'off' },
+          ],
+        }],
+        'POST /api/meals/meal%3Am1/apply': [entry({ name: 'Eggs' }), entry({ name: 'Toast' })],
+      })
+      render(<App />)
+      await openMineTab(user)
+      await user.selectOptions(screen.getByLabelText('Meal'), 'lunch')
+      await user.click(await screen.findByRole('button', { name: /^Breakfast/ }))
+
+      await waitFor(() => expect(calls.some((c) => c.url === '/api/meals/meal%3Am1/apply')).toBe(true))
+      const call = calls.find((c) => c.url === '/api/meals/meal%3Am1/apply')!
+      expect(call.body).toEqual({ date: TODAY, meal: 'lunch' })
+    })
+
+    it('deletes a saved meal', async () => {
+      const user = userEvent.setup()
+      const calls = stubApi({
+        [`GET /api/day/${TODAY}`]: day([]),
+        'GET /api/foods': { saved: [], recent: [] },
+        'GET /api/meals': [{ id: 'meal:m1', name: 'Breakfast', createdAt: 0, items: [{ name: 'Eggs', grams: 100, per100g: eggs.per100g, source: 'usda' }] }],
+        'DELETE /api/meals/meal%3Am1': { ok: true },
+      })
+      render(<App />)
+      await openMineTab(user)
+      await user.click(await screen.findByRole('button', { name: 'Delete Breakfast' }))
+      await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/meals/meal%3Am1')).toBe(true))
+      expect(screen.queryByRole('button', { name: /^Breakfast/ })).not.toBeInTheDocument()
+    })
+
+    it('cancels picking without creating anything', async () => {
+      const user = userEvent.setup()
+      const calls = stubApi({
+        [`GET /api/day/${TODAY}`]: day([]),
+        'GET /api/foods': { saved: [eggs], recent: [] },
+        'GET /api/meals': [],
+      })
+      render(<App />)
+      await openMineTab(user)
+      await user.click(await screen.findByRole('button', { name: '+ Create meal' }))
+      await user.click(screen.getByText('Eggs'))
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+      expect(screen.queryByRole('button', { name: 'Next' })).not.toBeInTheDocument()
+      // Picking mode is over: the row is back to its normal Saved-list self.
+      expect(screen.getByRole('button', { name: 'Remove Eggs from My foods' })).toBeInTheDocument()
+      expect(calls.some((c) => c.method === 'POST')).toBe(false)
+    })
+  })
 
   it('shows a logged serving the way it was measured, and edits it in that unit', async () => {
     const user = userEvent.setup()

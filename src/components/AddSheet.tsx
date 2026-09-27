@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Drawer } from 'vaul'
-import { ArrowLeft, Globe, Search, Star, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, Check, Globe, Search, Star, Trash2, TriangleAlert, UtensilsCrossed, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import type { ResearchJob, SearchResult } from '../lib/api.ts'
-import { calorieMismatch } from '../lib/nutrition.ts'
-import { describeAmount, gramsFor, headline, nutrientsFor, unitsFor } from '../lib/units.ts'
-import { MEAL_LABELS, emptyDraft, fmt, parseNum } from '../lib/format.ts'
+import { calorieMismatch, sumNutrients } from '../lib/nutrition.ts'
+import { describeAmount, entryFor, gramsFor, headline, nutrientsFor, resolveNutrients, unitsFor } from '../lib/units.ts'
+import { MEAL_LABELS, fmt, parseNum } from '../lib/format.ts'
 import type { NutrientDraft } from '../lib/format.ts'
 import { MEALS, NUTRIENTS } from '../types.ts'
-import type { Food, Meal, NewEntry, Nutrients, Serving } from '../types.ts'
+import type { Food, Meal, MealPreset, NewEntry, Nutrients, Serving } from '../types.ts'
 import NutrientFields from './NutrientFields.tsx'
 import Preview from './Preview.tsx'
 import { matchMine } from '../lib/match.ts'
+import useNutrientDraft from '../hooks/useNutrientDraft.ts'
 
 type Tab = 'search' | 'mine' | 'manual'
 
@@ -65,6 +66,17 @@ function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddS
     }
   }
 
+  const applyMeal = async (preset: MealPreset): Promise<void> => {
+    try {
+      await api.applyMeal(preset.id, date, meal)
+      toast.success(`Logged ${preset.name}`)
+      onLogged()
+      onClose()
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
   return (
     <>
           <div className="sheet-top">
@@ -98,7 +110,7 @@ function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddS
                   ))}
                 </div>
                 {tab === 'search' && <SearchTab open={open} onPick={setPicked} />}
-                {tab === 'mine' && <MineTab onPick={setPicked} />}
+                {tab === 'mine' && <MineTab onPick={setPicked} onApplyMeal={applyMeal} />}
                 {tab === 'manual' && <ManualTab onLog={log} />}
               </>
             )}
@@ -108,7 +120,34 @@ function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddS
 
 // ---------------------------------------------------------------------------
 
-function FoodRow({ food, onPick }: { food: Food; onPick: (f: Food) => void }) {
+/**
+ * `api.foods()` shaped as declared -- guards against a response that came
+ * back partial (a stripped test double, a server hiccup), which would
+ * otherwise throw deep inside a render (spreading or mapping `undefined`)
+ * rather than failing where it's easy to see why.
+ */
+function normalizeFoods(f: { saved?: Food[]; recent?: Food[] } | null | undefined): { saved: Food[]; recent: Food[] } {
+  return { saved: f?.saved ?? [], recent: f?.recent ?? [] }
+}
+
+/** Ids of every food used by at least one saved meal, for the "in a meal" badge. */
+function mealFoodIds(presets: MealPreset[]): Set<string> {
+  const ids = new Set<string>()
+  for (const p of presets) for (const item of p.items) if (item.foodId) ids.add(item.foodId)
+  return ids
+}
+
+const normalizeMeals = (p: MealPreset[] | null | undefined): MealPreset[] => (Array.isArray(p) ? p : [])
+
+function FoodRow({ food, onPick, favorited, onToggleFavorite, inMeal }: {
+  food: Food
+  onPick: (f: Food) => void
+  /** Already in My foods. Omit favorited/onToggleFavorite together to leave the star off entirely. */
+  favorited?: boolean
+  onToggleFavorite?: (food: Food) => void
+  /** Used by at least one saved meal. */
+  inMeal?: boolean
+}) {
   // Per serving for a food known that way ("/1 bowl"), else per 100 g.
   const h = headline(food)
   if (!h) return null
@@ -116,10 +155,13 @@ function FoodRow({ food, onPick }: { food: Food; onPick: (f: Food) => void }) {
   // Crowd-sourced entries sometimes have a typo; flag ones whose calories
   // disagree with their own macros.
   const doubtful = calorieMismatch(p)
-  return (
+  const row = (
     <button type="button" className="food-row" onClick={() => onPick(food)}>
       <div className="entry-main">
-        <span className="entry-name">{food.name}</span>
+        <span className="entry-name">
+          {food.name}
+          {inMeal && <UtensilsCrossed size={12} className="meal-badge" aria-label="Part of a saved meal" />}
+        </span>
         {food.brand && <span className="entry-sub">{food.brand}</span>}
       </div>
       <div className="entry-nums">
@@ -133,6 +175,64 @@ function FoodRow({ food, onPick }: { food: Food; onPick: (f: Food) => void }) {
       </div>
     </button>
   )
+  if (!onToggleFavorite) return row
+  return (
+    <div className="food-row-wrap">
+      {row}
+      <button
+        type="button"
+        className={`favorite-btn${favorited ? ' on' : ''}`}
+        aria-pressed={favorited ?? false}
+        aria-label={favorited ? `Remove ${food.name} from My foods` : `Save ${food.name} to My foods`}
+        onClick={() => onToggleFavorite(food)}
+      >
+        <Star size={16} fill={favorited ? 'currentColor' : 'none'} aria-hidden="true" />
+      </button>
+    </div>
+  )
+}
+
+interface Favorites {
+  /** Ids of the foods currently in My foods, among the ones this hook was given. */
+  ids: Set<string>
+  toggle: (food: Food) => Promise<void>
+}
+
+/**
+ * Which of a list of foods are already saved to My foods, and a toggle to
+ * save or unsave one directly from a result row -- without picking an
+ * amount or logging it first. Especially worth having for an online
+ * lookup, which can take a minute or two to repeat.
+ */
+function useFavorites(saved: Food[]): Favorites {
+  const [ids, setIds] = useState<Set<string>>(() => new Set(saved.map((f) => f.id)))
+  // Reseed from a freshly (re)fetched saved list, adjusted during render
+  // rather than in an effect -- toggle's own updates are the local state
+  // moving on ahead of `saved`, not a value to resync on every render.
+  const [seededFrom, setSeededFrom] = useState(saved)
+  if (saved !== seededFrom) {
+    setSeededFrom(saved)
+    setIds(new Set(saved.map((f) => f.id)))
+  }
+
+  const toggle = async (food: Food): Promise<void> => {
+    const favorited = ids.has(food.id)
+    try {
+      if (favorited) {
+        await api.deleteFood(food.id)
+        setIds((prev) => { const next = new Set(prev); next.delete(food.id); return next })
+        toast.success(`Removed ${food.name} from My foods`)
+      } else {
+        await api.saveFood(food)
+        setIds((prev) => new Set(prev).add(food.id))
+        toast.success(`Saved ${food.name} to My foods`)
+      }
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
+  return { ids, toggle }
 }
 
 function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void }) {
@@ -146,12 +246,17 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
   const result = current?.result ?? null
   const error = current?.error ?? null
   const input = useRef<HTMLInputElement>(null)
-  const [mine, setMine] = useState<Food[]>([])
+  const [foods, setFoods] = useState<{ saved: Food[]; recent: Food[] }>({ saved: [], recent: [] })
+  const [presets, setPresets] = useState<MealPreset[]>([])
 
   useEffect(() => {
-    api.foods().then((f) => setMine([...f.saved, ...f.recent])).catch(() => { /* search still works */ })
+    api.foods().then((f) => setFoods(normalizeFoods(f))).catch(() => { /* search still works */ })
+    api.meals().then((p) => setPresets(normalizeMeals(p))).catch(() => { /* badge just won't show */ })
   }, [])
+  const mine = useMemo(() => [...foods.saved, ...foods.recent], [foods])
   const yours = useMemo(() => (searchable ? matchMine(mine, query) : []), [mine, query, searchable])
+  const favorites = useFavorites(foods.saved)
+  const inMeal = useMemo(() => mealFoodIds(presets), [presets])
 
   useEffect(() => {
     // Focus after Vaul's open animation, or iOS scrolls the page instead.
@@ -246,13 +351,22 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
         {yours.length > 0 && (
           <section className="result-group" aria-label="Yours">
             <h3 className="sheet-h">Yours <span className="src">saved &amp; recent</span></h3>
-            {yours.map((f) => <FoodRow key={f.id} food={f} onPick={onPick} />)}
+            {yours.map((f) => (
+              <FoodRow
+                key={f.id} food={f} onPick={onPick}
+                favorited={favorites.ids.has(f.id)} onToggleFavorite={(food) => void favorites.toggle(food)}
+                inMeal={inMeal.has(f.id)}
+              />
+            ))}
           </section>
         )}
         {/* Above the databases, whose results land within a second and would
             otherwise push this down just as you reach for it. */}
         {lookupable && (
-          <OnlineLookup query={query} job={job} auto={autoLookup} onJob={setJob} onStart={() => void lookUp(query, true)} onPick={onPick} />
+          <OnlineLookup
+            query={query} job={job} auto={autoLookup} onJob={setJob} onStart={() => void lookUp(query, true)}
+            onPick={onPick} favorites={favorites} inMeal={inMeal}
+          />
         )}
         {busy && <div className="hint center">Searching…</div>}
         {error && <div className="hint bad center">{error}</div>}
@@ -267,12 +381,19 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
                 error={errorFor('off')}
                 empty={result.barcode ? 'No product with that barcode yet.' : undefined}
                 onPick={onPick}
+                favorites={favorites} inMeal={inMeal}
               />
             )
             : (
               <>
-                <ResultGroup title="Whole foods" subtitle="USDA" foods={result.usda} error={errorFor('usda')} onPick={onPick} />
-                <ResultGroup title="Packaged" subtitle="Open Food Facts" foods={result.off} error={errorFor('off')} onPick={onPick} />
+                <ResultGroup
+                  title="Whole foods" subtitle="USDA" foods={result.usda} error={errorFor('usda')}
+                  onPick={onPick} favorites={favorites} inMeal={inMeal}
+                />
+                <ResultGroup
+                  title="Packaged" subtitle="Open Food Facts" foods={result.off} error={errorFor('off')}
+                  onPick={onPick} favorites={favorites} inMeal={inMeal}
+                />
               </>
             )
         )}
@@ -289,25 +410,40 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
   )
 }
 
-function ResultGroup({ title, subtitle, foods, error, empty = 'No matches.', onPick }: {
-  title: string; subtitle: string; foods: Food[]; error?: string; empty?: string; onPick: (f: Food) => void
+function ResultGroup({ title, subtitle, foods, error, empty = 'No matches.', onPick, favorites, inMeal }: {
+  title: string; subtitle: string; foods: Food[]; error?: string; empty?: string
+  onPick: (f: Food) => void; favorites: Favorites; inMeal: Set<string>
 }) {
   return (
     <section className="result-group" aria-label={title}>
       <h3 className="sheet-h">{title} <span className="src">{subtitle}</span></h3>
       {error && <div className="hint bad">{error}</div>}
       {!error && foods.length === 0 && <div className="hint">{empty}</div>}
-      {foods.map((f) => <FoodRow key={f.id} food={f} onPick={onPick} />)}
+      {foods.map((f) => (
+        <FoodRow
+          key={f.id} food={f} onPick={onPick}
+          favorited={favorites.ids.has(f.id)} onToggleFavorite={(food) => void favorites.toggle(food)}
+          inMeal={inMeal.has(f.id)}
+        />
+      ))}
     </section>
   )
 }
 
-function MineTab({ onPick }: { onPick: (f: Food) => void }) {
+function MineTab({ onPick, onApplyMeal }: { onPick: (f: Food) => void; onApplyMeal: (preset: MealPreset) => Promise<void> }) {
   const [foods, setFoods] = useState<{ saved: Food[]; recent: Food[] } | null>(null)
+  const [presets, setPresets] = useState<MealPreset[]>([])
   const [error, setError] = useState<string | null>(null)
+  // Selecting which saved foods go into a new meal, and building it once
+  // they're chosen (see CreateMeal) -- a food is never re-fetched for this,
+  // only the amount of each is picked, same as logging one normally would.
+  const [picking, setPicking] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [building, setBuilding] = useState<Food[] | null>(null)
 
   useEffect(() => {
-    api.foods().then(setFoods).catch((err: Error) => setError(err.message))
+    api.foods().then((f) => setFoods(normalizeFoods(f))).catch((err: Error) => setError(err.message))
+    api.meals().then((p) => setPresets(normalizeMeals(p))).catch(() => { /* meals just won't show */ })
   }, [])
 
   const remove = async (food: Food): Promise<void> => {
@@ -319,27 +455,263 @@ function MineTab({ onPick }: { onPick: (f: Food) => void }) {
     }
   }
 
+  const savedIds = useMemo(() => new Set((foods?.saved ?? []).map((f) => f.id)), [foods])
+  // A recent food's star: same save/unsave as My foods, so it doesn't have
+  // to be re-found to star it after the fact.
+  const toggleFavorite = async (food: Food): Promise<void> => {
+    if (savedIds.has(food.id)) { await remove(food); return }
+    try {
+      await api.saveFood(food)
+      setFoods((f) => f && { ...f, saved: [...f.saved, food] })
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+  const inMeal = useMemo(() => mealFoodIds(presets), [presets])
+
+  const removeMeal = async (preset: MealPreset): Promise<void> => {
+    try {
+      await api.deleteMeal(preset.id)
+      setPresets((list) => list.filter((p) => p.id !== preset.id))
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
+  const toggle = (id: string): void => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  if (building) {
+    return (
+      <CreateMeal
+        items={building}
+        onCancel={() => setBuilding(null)}
+        onSaved={(preset) => {
+          setPresets((list) => [...list.filter((p) => p.id !== preset.id), preset].sort((a, b) => a.name.localeCompare(b.name)))
+          setBuilding(null)
+        }}
+      />
+    )
+  }
+
   return (
-    <div className="drawer-scroll" data-vaul-no-drag>
-      {error && <div className="hint bad center">{error}</div>}
-      {foods && (
-        <>
-          <h3 className="sheet-h">Saved</h3>
-          {foods.saved.length === 0 && <div className="hint">Star a food when logging it to keep it here.</div>}
-          {foods.saved.map((f) => (
-            <div key={f.id} className="saved-row">
-              <FoodRow food={f} onPick={onPick} />
-              <button type="button" className="unsave" aria-label={`Remove ${f.name} from My foods`} onClick={() => void remove(f)}>
-                <Star size={16} fill="currentColor" aria-hidden="true" />
-              </button>
+    <>
+      <div className="drawer-scroll" data-vaul-no-drag>
+        {error && <div className="hint bad center">{error}</div>}
+        {presets.length > 0 && !picking && (
+          <>
+            <h3 className="sheet-h">Meals</h3>
+            {presets.map((p) => (
+              <MealRow key={p.id} preset={p} onApply={() => void onApplyMeal(p)} onDelete={() => void removeMeal(p)} />
+            ))}
+          </>
+        )}
+        {foods && (
+          <>
+            <div className="sheet-h-row">
+              <h3 className="sheet-h">Saved</h3>
+              {!picking && foods.saved.length > 0 && (
+                <button type="button" className="link-btn accent" onClick={() => { setSelected(new Set()); setPicking(true) }}>
+                  + Create meal
+                </button>
+              )}
             </div>
-          ))}
-          <h3 className="sheet-h">Recent</h3>
-          {foods.recent.length === 0 && <div className="hint">Foods you log show up here.</div>}
-          {foods.recent.map((f) => <FoodRow key={f.id} food={f} onPick={onPick} />)}
-        </>
+            {foods.saved.length === 0 && <div className="hint">Star a food when logging it to keep it here.</div>}
+            {foods.saved.map((f) => (
+              picking ? (
+                <PickRow key={f.id} food={f} selected={selected.has(f.id)} onToggle={() => toggle(f.id)} inMeal={inMeal.has(f.id)} />
+              ) : (
+                <div key={f.id} className="saved-row">
+                  <FoodRow food={f} onPick={onPick} inMeal={inMeal.has(f.id)} />
+                  <button type="button" className="unsave" aria-label={`Remove ${f.name} from My foods`} onClick={() => void remove(f)}>
+                    <Star size={16} fill="currentColor" aria-hidden="true" />
+                  </button>
+                </div>
+              )
+            ))}
+            {!picking && (
+              <>
+                <h3 className="sheet-h">Recent</h3>
+                {foods.recent.length === 0 && <div className="hint">Foods you log show up here.</div>}
+                {foods.recent.map((f) => (
+                  <FoodRow
+                    key={f.id} food={f} onPick={onPick}
+                    favorited={savedIds.has(f.id)} onToggleFavorite={(food) => void toggleFavorite(food)}
+                    inMeal={inMeal.has(f.id)}
+                  />
+                ))}
+              </>
+            )}
+          </>
+        )}
+      </div>
+      {picking && (
+        <div className="drawer-actions">
+          <div className="row">
+            <button type="button" onClick={() => setPicking(false)}>Cancel</button>
+            <button
+              type="button" className="primary" disabled={selected.size === 0}
+              onClick={() => {
+                setBuilding((foods?.saved ?? []).filter((f) => selected.has(f.id)))
+                setPicking(false)
+              }}
+            >
+              Next{selected.size > 0 ? ` (${selected.size})` : ''}
+            </button>
+          </div>
+        </div>
       )}
+    </>
+  )
+}
+
+function PickRow({ food, selected, onToggle, inMeal }: { food: Food; selected: boolean; onToggle: () => void; inMeal?: boolean }) {
+  return (
+    <button type="button" className="pick-row" onClick={onToggle} aria-pressed={selected}>
+      <span className={`pick-check${selected ? ' on' : ''}`} aria-hidden="true">
+        {selected && <Check size={13} aria-hidden="true" />}
+      </span>
+      <div className="entry-main">
+        <span className="entry-name">
+          {food.name}
+          {inMeal && <UtensilsCrossed size={12} className="meal-badge" aria-label="Part of a saved meal" />}
+        </span>
+        {food.brand && <span className="entry-sub">{food.brand}</span>}
+      </div>
+    </button>
+  )
+}
+
+/** A saved meal: tap to log every one of its foods at once; the trash can deletes it. */
+function MealRow({ preset, onApply, onDelete }: { preset: MealPreset; onApply: () => void; onDelete: () => void }) {
+  const total = sumNutrients(preset.items.map(resolveNutrients).filter((n): n is Nutrients => n != null))
+  return (
+    <div className="saved-row">
+      <button type="button" className="food-row" onClick={onApply}>
+        <div className="entry-main">
+          <span className="entry-name">{preset.name}</span>
+          <span className="entry-sub">{preset.items.length} food{preset.items.length === 1 ? '' : 's'}</span>
+        </div>
+        <div className="entry-nums">
+          <span className="entry-kcal">{fmt('calories', total.calories)}</span>
+          <span className="entry-macros">
+            P {fmt('protein', total.protein)} · F {fmt('fat', total.fat)} · C {fmt('carbs', total.carbs)} · Fib {fmt('fiber', total.fiber)}
+          </span>
+        </div>
+      </button>
+      <button type="button" className="unsave" aria-label={`Delete ${preset.name}`} onClick={onDelete}>
+        <Trash2 size={16} aria-hidden="true" />
+      </button>
     </div>
+  )
+}
+
+interface MealDraftItem {
+  food: Food
+  unitKey: string
+  qty: string
+}
+
+/**
+ * Name a new meal and pick how much of each selected food it contains --
+ * the same amount-picking as logging one food, once per item, then saved as
+ * a single reusable preset instead of logged right away.
+ */
+function CreateMeal({ items, onCancel, onSaved }: {
+  items: Food[]
+  onCancel: () => void
+  onSaved: (preset: MealPreset) => void
+}) {
+  const [name, setName] = useState('')
+  const [drafts, setDrafts] = useState<MealDraftItem[]>(() => items.map((food) => {
+    const first = unitsFor(food)[0]
+    return { food, unitKey: first?.key ?? 'g', qty: first?.key === 'g' ? '100' : '1' }
+  }))
+  const [busy, setBusy] = useState(false)
+
+  const rows = drafts.map((d) => {
+    const units = unitsFor(d.food)
+    const unit = units.find((u) => u.key === d.unitKey) ?? units[0]
+    const q = parseNum(d.qty)
+    const valid = unit != null && q != null && q > 0
+    return { draft: d, units, unit, valid, nutrients: valid ? nutrientsFor(d.food, unit!, q!) : null }
+  })
+  const allValid = name.trim() !== '' && rows.length > 0 && rows.every((r) => r.valid)
+  const total = sumNutrients(rows.map((r) => r.nutrients).filter((n): n is Nutrients => n != null))
+
+  const update = (id: string, patch: Partial<MealDraftItem>): void => {
+    setDrafts((prev) => prev.map((d) => (d.food.id === id ? { ...d, ...patch } : d)))
+  }
+
+  const submit = async (): Promise<void> => {
+    if (!allValid) return
+    setBusy(true)
+    try {
+      const built = rows.map(({ draft, unit }) => entryFor(draft.food, unit!, parseNum(draft.qty)!))
+      const preset = await api.saveMeal({ name: name.trim(), items: built })
+      toast.success(`Saved ${preset.name}`)
+      onSaved(preset)
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="drawer-scroll" data-vaul-no-drag>
+        <div className="field">
+          <label htmlFor="meal-name">Meal name</label>
+          <input
+            id="meal-name" type="text" value={name} onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Breakfast burrito"
+          />
+        </div>
+        {rows.length === 0 && <div className="hint bad">Every food was removed. Cancel and pick again.</div>}
+        {rows.map(({ draft, units, unit, nutrients }) => (
+          <div key={draft.food.id} className="meal-item">
+            <div className="meal-item-main">
+              <span className="entry-name">{draft.food.name}</span>
+              <span className="entry-sub">{nutrients ? `${fmt('calories', nutrients.calories)} kcal` : 'Enter an amount'}</span>
+            </div>
+            <input
+              type="text" inputMode="decimal" className="meal-item-qty" aria-label={`Amount of ${draft.food.name}`}
+              value={draft.qty} onChange={(e) => update(draft.food.id, { qty: e.target.value })}
+            />
+            <select
+              className="meal-item-unit" aria-label={`Unit for ${draft.food.name}`}
+              value={unit?.key ?? ''} onChange={(e) => update(draft.food.id, { unitKey: e.target.value })}
+            >
+              {units.map((u) => <option key={u.key} value={u.key}>{u.label}</option>)}
+            </select>
+            <button
+              type="button" className="meal-item-remove" aria-label={`Remove ${draft.food.name} from this meal`}
+              onClick={() => setDrafts((prev) => prev.filter((d) => d.food.id !== draft.food.id))}
+            >
+              <X size={14} aria-hidden="true" />
+            </button>
+          </div>
+        ))}
+        {rows.length > 0 && (
+          <>
+            <h3 className="sheet-h">Total</h3>
+            <Preview nutrients={total} />
+          </>
+        )}
+      </div>
+      <div className="drawer-actions">
+        <div className="row">
+          <button type="button" onClick={onCancel}>Cancel</button>
+          <button type="button" className="primary" disabled={!allValid || busy} onClick={() => void submit()}>Save meal</button>
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -400,12 +772,7 @@ function Amount({ food, onLog }: { food: Food; onLog: (e: Omit<NewEntry, 'date' 
         toast.error(`Couldn't save to My foods: ${(err as Error).message}`)
       }
     }
-    const base = { name: food.name, brand: food.brand, foodId: food.id, source: food.source }
-    // Plain grams need no unit; anything else is remembered as measured.
-    const amount = unit.key === 'g' ? undefined : { quantity: q!, unit: unit.label, unitGrams: unit.grams }
-    await onLog(unit.nutrients
-      ? { ...base, grams, perUnit: unit.nutrients, amount }
-      : { ...base, grams, per100g: food.per100g, amount })
+    await onLog(entryFor(food, unit, q!))
     setBusy(false)
   }
 
@@ -538,13 +905,15 @@ const isBarcodeQuery = (q: string): boolean => /^\d{8,14}$/.test(q.replace(/[\s-
  * particular build of a bowl. Takes a minute or two, so it runs on the server
  * and this polls; it starts by itself once typing pauses, unless turned off.
  */
-function OnlineLookup({ query, job, auto, onJob, onStart, onPick }: {
+function OnlineLookup({ query, job, auto, onJob, onStart, onPick, favorites, inMeal }: {
   query: string
   job: ResearchJob | null
   auto: boolean
   onJob: (j: ResearchJob | null) => void
   onStart: () => void
   onPick: (f: Food) => void
+  favorites: Favorites
+  inMeal: Set<string>
 }) {
   const [now, setNow] = useState(() => Date.now())
   const running = job?.status === 'running'
@@ -608,7 +977,13 @@ function OnlineLookup({ query, job, auto, onJob, onStart, onPick }: {
       )}
       {mine.status === 'done' && mine.result && (
         mine.result.foods.length
-          ? mine.result.foods.map((f) => <FoodRow key={f.id} food={f} onPick={onPick} />)
+          ? mine.result.foods.map((f) => (
+            <FoodRow
+              key={f.id} food={f} onPick={onPick}
+              favorited={favorites.ids.has(f.id)} onToggleFavorite={(food) => void favorites.toggle(food)}
+              inMeal={inMeal.has(f.id)}
+            />
+          ))
           : <div className="hint">Nothing reliable found. {mine.result.note}</div>
       )}
     </section>
@@ -630,7 +1005,7 @@ function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => P
   const [brand, setBrand] = useState('')
   const [serving, setServing] = useState('')
   const [grams, setGrams] = useState('')
-  const [draft, setDraft] = useState<NutrientDraft>(emptyDraft)
+  const [draft, setDraft, caloriesIsAuto] = useNutrientDraft()
   const [save, setSave] = useState(false)
   const [busy, setBusy] = useState(false)
 
@@ -692,7 +1067,7 @@ function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => P
           </div>
         </div>
         <div className="hint">Numbers below are for {label}: “1 bowl”, “2 cookies”, “1 cup”.</div>
-        <NutrientFields idPrefix="manual" value={draft} onChange={setDraft} />
+        <NutrientFields idPrefix="manual" value={draft} onChange={setDraft} autoCalories={caloriesIsAuto} />
         {badNumber && <div className="hint bad">Amounts must be non-negative numbers.</div>}
         {badGrams && <div className="hint bad">Weight must be between 0 and 10,000 g.</div>}
         {mismatch && (

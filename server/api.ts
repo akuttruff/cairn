@@ -99,6 +99,26 @@ export function createApi(options: ApiOptions = {}) {
       return json(res, 200, { ok: true })
     }
 
+    // Meal presets: a named group of foods, logged together in one action.
+    if (p === '/api/meals' && method === 'GET') {
+      return json(res, 200, store.listPresets())
+    }
+    if (p === '/api/meals' && method === 'POST') {
+      return json(res, 201, store.savePreset(await readBody(req) as never))
+    }
+    if ((m = /^\/api\/meals\/([^/]+)$/.exec(p)) && method === 'DELETE') {
+      store.deletePreset(decodeURIComponent(m[1]!))
+      return json(res, 200, { ok: true })
+    }
+    if ((m = /^\/api\/meals\/([^/]+)\/apply$/.exec(p)) && method === 'POST') {
+      const { date, meal } = await readBody(req) as { date?: unknown; meal?: unknown }
+      return json(res, 201, store.applyPreset(
+        decodeURIComponent(m[1]!),
+        typeof date === 'string' ? date : '',
+        typeof meal === 'string' ? meal : '',
+      ))
+    }
+
     if (p === '/api/search' && method === 'GET') {
       const q = (url.searchParams.get('q') || '').trim()
       if (q.length < 2) throw new ValidationError('search needs at least 2 characters')

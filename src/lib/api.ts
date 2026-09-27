@@ -1,5 +1,5 @@
 import type {
-  DayView, Entry, Food, Goals, Meal, NewEntry, Nutrients, PublicSettings, Serving,
+  DayView, Entry, Food, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, Serving,
 } from '../types.ts'
 
 /** An online lookup in progress or finished; see server/research.ts. */
@@ -60,4 +60,12 @@ export const api = {
   startResearch: (q: string) => request<ResearchJob>('POST', '/api/research', { q }),
   research: (id: string) => request<ResearchJob>('GET', `/api/research/${encodeURIComponent(id)}`),
   cancelResearch: (id: string) => request<{ cancelled: boolean }>('DELETE', `/api/research/${encodeURIComponent(id)}`),
+  meals: () => request<MealPreset[]>('GET', '/api/meals'),
+  /** Create with no id; save an edit with the id of the meal it replaces. */
+  saveMeal: (meal: { id?: string; name: string; items: MealPresetItem[] }) =>
+    request<MealPreset>('POST', '/api/meals', meal),
+  deleteMeal: (id: string) => request<{ ok: true }>('DELETE', `/api/meals/${encodeURIComponent(id)}`),
+  /** Logs every food in the meal to one date and meal-of-day, in one action. */
+  applyMeal: (id: string, date: string, meal: Meal) =>
+    request<Entry[]>('POST', `/api/meals/${encodeURIComponent(id)}/apply`, { date, meal }),
 }

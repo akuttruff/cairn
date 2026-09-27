@@ -1,5 +1,5 @@
 import { NUTRIENTS } from '../types.ts'
-import type { Amount, Food, Nutrients } from '../types.ts'
+import type { Amount, Food, MealPresetItem, Nutrients } from '../types.ts'
 import { emptyNutrients, scale } from './nutrition.ts'
 
 /**
@@ -73,6 +73,40 @@ export function multiply(n: Nutrients, factor: number): Nutrients {
 /** Grams eaten, when the unit's weight is known. */
 export function gramsFor(unit: Unit, quantity: number): number | null {
   return unit.grams == null ? null : round1(unit.grams * quantity)
+}
+
+/**
+ * `quantity` of `unit` of a food, as something that can be logged (or saved
+ * into a meal preset, applied later) -- plain grams need no unit of their
+ * own; anything else is remembered as measured, same as picking one food's
+ * amount by hand.
+ */
+export function entryFor(
+  food: Pick<Food, 'id' | 'name' | 'brand' | 'source' | 'per100g'>,
+  unit: Unit,
+  quantity: number,
+): MealPresetItem {
+  const base = { name: food.name, brand: food.brand, foodId: food.id, source: food.source }
+  const grams = gramsFor(unit, quantity)
+  const amount = unit.key === 'g' ? undefined : { quantity, unit: unit.label, unitGrams: unit.grams }
+  return unit.nutrients
+    ? { ...base, grams, perUnit: unit.nutrients, amount }
+    : { ...base, grams, per100g: food.per100g, amount }
+}
+
+/**
+ * The nutrients an entry-shaped item amounts to, from whichever basis it
+ * carries -- per100g+grams, perUnit+amount, or bare nutrients, the same
+ * three cases addEntry computes from. For a client-side preview before
+ * anything is actually logged; the server always recomputes for real.
+ */
+export function resolveNutrients(
+  item: Pick<MealPresetItem, 'per100g' | 'perUnit' | 'amount' | 'grams' | 'nutrients'>,
+): Nutrients | null {
+  if (item.per100g && item.grams != null) return scale(item.per100g, item.grams)
+  if (item.perUnit && item.amount) return multiply(item.perUnit, item.amount.quantity)
+  if (item.nutrients) return item.nutrients
+  return null
 }
 
 const trimNumber = (n: number): string => String(Math.round(n * 100) / 100)

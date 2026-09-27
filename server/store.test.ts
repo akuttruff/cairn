@@ -286,3 +286,83 @@ describe('servings', () => {
     expect(() => store.setSettings({ lmStudioUrl: 'file:///etc' })).toThrow(/http/)
   })
 })
+
+describe('meal presets', () => {
+  const eggs = { name: 'Eggs', per100g: { calories: 155, protein: 13, fat: 11, carbs: 1.1, fiber: 0 }, grams: 100, source: 'usda' as const }
+  const toast = {
+    name: 'Toast', perUnit: { calories: 75, protein: 3, fat: 1, carbs: 13, fiber: 1 },
+    amount: { quantity: 2, unit: '1 slice', unitGrams: 28 }, grams: null, source: 'custom' as const,
+  }
+
+  it('saves a group of foods together, and lists it', () => {
+    const preset = store.savePreset({ name: 'Breakfast', items: [eggs, toast] })
+    expect(preset.id).toMatch(/^meal:/)
+    expect(preset.items).toHaveLength(2)
+    expect(preset.items[0]).toMatchObject({ name: 'Eggs', grams: 100 })
+    expect(store.listPresets().map((p) => p.name)).toEqual(['Breakfast'])
+  })
+
+  it('needs at least one food', () => {
+    expect(() => store.savePreset({ name: 'Empty', items: [] })).toThrow(/at least one food/)
+  })
+
+  it('validates each item the same way addEntry does', () => {
+    expect(() => store.savePreset({ name: 'Bad', items: [{ name: 'x' }] })).toThrow(/needs per100g, perUnit or nutrients/)
+    expect(() => store.savePreset({ name: 'Bad', items: [{ name: 'x', per100g: eggs.per100g }] }))
+      .toThrow(/item 1: grams is required/)
+  })
+
+  it('applies every item to one date and meal, in one action', () => {
+    const preset = store.savePreset({ name: 'Breakfast', items: [eggs, toast] })
+    const entries = store.applyPreset(preset.id, DAY, 'breakfast')
+    expect(entries).toHaveLength(2)
+    expect(entries.map((e) => e.name)).toEqual(['Eggs', 'Toast'])
+    expect(entries.every((e) => e.date === DAY && e.meal === 'breakfast')).toBe(true)
+    expect(store.getDay(DAY).entries).toHaveLength(2)
+    // Nutrients are computed fresh, exactly as a normal log would.
+    expect(entries[1]!.nutrients).toEqual({ calories: 150, protein: 6, fat: 2, carbs: 26, fiber: 2 })
+  })
+
+  it('applies to a different date and meal each time, unchanged by earlier uses', () => {
+    const preset = store.savePreset({ name: 'Breakfast', items: [eggs] })
+    store.applyPreset(preset.id, DAY, 'breakfast')
+    store.applyPreset(preset.id, '2026-09-27', 'snack')
+    expect(store.getDay(DAY).entries).toHaveLength(1)
+    expect(store.getDay('2026-09-27').entries).toHaveLength(1)
+    expect(store.getDay('2026-09-27').entries[0]!.meal).toBe('snack')
+  })
+
+  it('checks date and meal before logging anything, not partway through', () => {
+    const preset = store.savePreset({ name: 'Breakfast', items: [eggs, toast] })
+    expect(() => store.applyPreset(preset.id, DAY, 'brunch')).toThrow(/meal must be one of/)
+    expect(store.getDay(DAY).entries).toHaveLength(0) // neither item was logged
+  })
+
+  it('rejects applying a meal that does not exist', () => {
+    expect(() => store.applyPreset('meal:missing', DAY, 'breakfast')).toThrow(/no such meal/)
+  })
+
+  it('updates a preset in place when saved again with its id', () => {
+    const preset = store.savePreset({ name: 'Breakfast', items: [eggs] })
+    const updated = store.savePreset({ id: preset.id, name: 'Big breakfast', items: [eggs, toast] })
+    expect(updated.id).toBe(preset.id)
+    expect(store.listPresets()).toHaveLength(1)
+    expect(store.listPresets()[0]!.items).toHaveLength(2)
+  })
+
+  it('deletes a preset, leaving others and not touching foods it used', () => {
+    store.saveFood({ id: '', name: 'Eggs', source: 'usda', per100g: eggs.per100g })
+    const keep = store.savePreset({ name: 'Keep', items: [eggs] })
+    const gone = store.savePreset({ name: 'Gone', items: [toast] })
+    store.deletePreset(gone.id)
+    expect(store.listPresets().map((p) => p.id)).toEqual([keep.id])
+    expect(store.listFoods()).toHaveLength(1) // saveFood/deletePreset are independent
+    expect(() => store.deletePreset(gone.id)).toThrow(/no such meal/)
+  })
+
+  it('survives a restart', () => {
+    store.savePreset({ name: 'Breakfast', items: [eggs, toast] })
+    const reopened = new Store({ dir })
+    expect(reopened.listPresets().map((p) => p.name)).toEqual(['Breakfast'])
+  })
+})

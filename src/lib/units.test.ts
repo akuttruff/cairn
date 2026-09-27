@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { OUNCE_GRAMS, describeAmount, gramsFor, headline, multiply, nutrientsFor, unitsFor } from './units.ts'
+import { OUNCE_GRAMS, describeAmount, entryFor, gramsFor, headline, multiply, nutrientsFor, resolveNutrients, unitsFor } from './units.ts'
 import type { Food, Nutrients } from '../types.ts'
 
 const n = (calories: number, protein: number | null = null): Nutrients =>
@@ -65,6 +65,33 @@ describe('gramsFor', () => {
   })
 })
 
+describe('entryFor', () => {
+  const appleFood: Food = { id: 'usda:1', name: 'Apple', source: 'usda', ...apple }
+  const bowlFood: Food = { id: 'web:bowl', name: 'Burrito Bowl', brand: 'Chipotle', source: 'web', ...bowl }
+
+  it('records a weighed unit as an amount, with grams worked out', () => {
+    const [medium] = unitsFor(appleFood)
+    expect(entryFor(appleFood, medium!, 2)).toEqual({
+      name: 'Apple', brand: undefined, foodId: 'usda:1', source: 'usda',
+      grams: 364, per100g: appleFood.per100g, amount: { quantity: 2, unit: '1 medium', unitGrams: 182 },
+    })
+  })
+
+  it('needs no unit for plain grams', () => {
+    const g = unitsFor(appleFood).find((u) => u.label === 'g')!
+    expect(entryFor(appleFood, g, 150).amount).toBeUndefined()
+    expect(entryFor(appleFood, g, 150).grams).toBe(150)
+  })
+
+  it('records a weightless serving as perUnit, with its own nutrition', () => {
+    const [serving] = unitsFor(bowlFood)
+    expect(entryFor(bowlFood, serving!, 0.5)).toEqual({
+      name: 'Burrito Bowl', brand: 'Chipotle', foodId: 'web:bowl', source: 'web',
+      grams: null, perUnit: bowlFood.perServing!.nutrients, amount: { quantity: 0.5, unit: '1 bowl', unitGrams: null },
+    })
+  })
+})
+
 describe('describeAmount', () => {
   it('reads naturally', () => {
     expect(describeAmount({ quantity: 2, unit: '1 slice' })).toBe('2 slice')
@@ -86,5 +113,25 @@ describe('headline', () => {
   it('shows a serving food per serving, and a weighed food per 100g', () => {
     expect(headline(bowl)).toEqual({ label: '1 bowl', nutrients: n(660, 50) })
     expect(headline(apple)!.label).toBe('100g')
+  })
+})
+
+describe('resolveNutrients', () => {
+  it('scales per100g by grams', () => {
+    expect(resolveNutrients({ per100g: n(50, 2), grams: 200 })!.calories).toBe(100)
+  })
+
+  it('multiplies perUnit by the amount', () => {
+    expect(resolveNutrients({
+      perUnit: n(660, 50), amount: { quantity: 1.5, unit: '1 bowl', unitGrams: null }, grams: null,
+    })!.calories).toBe(990)
+  })
+
+  it('falls back to bare nutrients', () => {
+    expect(resolveNutrients({ nutrients: n(400), grams: null })).toEqual(n(400))
+  })
+
+  it('is null with no basis at all', () => {
+    expect(resolveNutrients({ grams: null })).toBeNull()
   })
 })

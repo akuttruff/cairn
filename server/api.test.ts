@@ -127,6 +127,39 @@ describe('foods and goals', () => {
   })
 })
 
+describe('meal presets', () => {
+  const eggs = { name: 'Eggs', per100g: BANANA, grams: 100, source: 'usda' }
+
+  it('creates, lists, applies and deletes a meal', async () => {
+    const created = await call('POST', '/api/meals', { name: 'Breakfast', items: [eggs] })
+    expect(created.status).toBe(201)
+    const id = created.body.id as string
+
+    expect(((await call('GET', '/api/meals')).body as unknown as { name: string }[])[0]!.name).toBe('Breakfast')
+
+    const applied = await call('POST', `/api/meals/${id}/apply`, { date: DAY, meal: 'breakfast' })
+    expect(applied.status).toBe(201)
+    expect((applied.body as unknown as Entry[])).toHaveLength(1)
+    const day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
+    expect(day.entries[0]!.name).toBe('Eggs')
+
+    await call('DELETE', `/api/meals/${id}`)
+    expect((await call('GET', '/api/meals')).body as unknown as unknown[]).toEqual([])
+  })
+
+  it('reports a meal with no foods as a 400', async () => {
+    const res = await call('POST', '/api/meals', { name: 'Empty', items: [] })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/at least one food/)
+  })
+
+  it('reports applying a missing meal as a 400', async () => {
+    const res = await call('POST', '/api/meals/meal%3Amissing/apply', { date: DAY, meal: 'breakfast' })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/no such meal/)
+  })
+})
+
 describe('cross-origin protection', () => {
   it('refuses a write from another site', async () => {
     const res = await call('POST', '/api/entries', {}, { Origin: 'https://evil.example' })

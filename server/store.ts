@@ -3,7 +3,8 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { MEALS, NUTRIENTS } from '../src/types.ts'
 import type {
-  Amount, DayView, Entry, Food, FoodSource, Goals, NewEntry, Nutrients, PerServing, PublicSettings, Settings, SourceLink,
+  Amount, DayView, Entry, Food, FoodSource, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients,
+  PerServing, PublicSettings, Settings, SourceLink,
 } from '../src/types.ts'
 import { DEFAULT_GOALS, isDateString, scale, sumDay } from '../src/lib/nutrition.ts'
 import { multiply } from '../src/lib/units.ts'
@@ -17,10 +18,11 @@ interface LogFile {
   /** Keyed by local calendar date, YYYY-MM-DD. */
   entries: Record<string, Entry[]>
   foods: Food[]
+  mealPresets: MealPreset[]
   goals: Goals
 }
 
-const emptyLog = (): LogFile => ({ entries: {}, foods: [], goals: { ...DEFAULT_GOALS } })
+const emptyLog = (): LogFile => ({ entries: {}, foods: [], mealPresets: [], goals: { ...DEFAULT_GOALS } })
 
 export class ValidationError extends Error {}
 
@@ -137,6 +139,7 @@ export class Store {
       return {
         entries: raw.entries ?? {},
         foods: raw.foods ?? [],
+        mealPresets: raw.mealPresets ?? [],
         goals: { ...DEFAULT_GOALS, ...raw.goals },
       }
     } catch {
@@ -192,42 +195,69 @@ export class Store {
     return { date, entries, goals: { ...this.log.goals }, ...sumDay(entries) }
   }
 
+  /**
+   * Validates one entry's contents, without a date or meal -- shared by
+   * addEntry (which supplies its own right after) and meal presets, whose
+   * items are cleaned the same way at save time and applied, unchanged,
+   * through addEntry once a date and meal are chosen for them.
+   */
+  private cleanEntryItem(input: unknown, label = 'entry'): MealPresetItem {
+    const src = (input && typeof input === 'object' ? input : {}) as Partial<NewEntry>
+    const grams = cleanGrams(src.grams)
+    const amount = src.amount == null ? undefined : cleanAmount(src.amount)
+    const per100g = src.per100g == null ? undefined : cleanNutrients(src.per100g, `${label}.per100g`)
+    const perUnit = src.perUnit == null ? undefined : cleanNutrients(src.perUnit, `${label}.perUnit`)
+    const nutrients = src.nutrients == null ? undefined : cleanNutrients(src.nutrients, `${label}.nutrients`)
+    if (per100g) {
+      if (grams == null) throw new ValidationError(`${label}: grams is required with per100g`)
+    } else if (perUnit) {
+      // A food known per serving: the amount says how many servings.
+      if (!amount) throw new ValidationError(`${label}: amount is required with perUnit`)
+    } else if (!nutrients) {
+      throw new ValidationError(`${label} needs per100g, perUnit or nutrients`)
+    }
+    return {
+      name: cleanName(src.name, `${label}.name`),
+      brand: typeof src.brand === 'string' && src.brand.trim() ? src.brand.trim().slice(0, MAX_NAME) : undefined,
+      grams,
+      amount,
+      per100g,
+      perUnit,
+      nutrients,
+      foodId: typeof src.foodId === 'string' ? src.foodId.slice(0, 200) : undefined,
+      source: cleanSource(src.source),
+    }
+  }
+
   addEntry(input: NewEntry): Entry {
     if (!isDateString(input?.date)) throw new ValidationError('date must be YYYY-MM-DD')
     if (!MEALS.includes(input.meal)) throw new ValidationError(`meal must be one of ${MEALS.join(', ')}`)
-    let grams = cleanGrams(input.grams)
-    const amount = input.amount == null ? undefined : cleanAmount(input.amount)
+    const item = this.cleanEntryItem(input)
+    let grams = item.grams
 
-    let per100g: Nutrients | undefined
-    let perUnit: Nutrients | undefined
     let nutrients: Nutrients
-    if (input.per100g) {
-      if (grams == null) throw new ValidationError('grams is required with per100g')
-      per100g = cleanNutrients(input.per100g, 'per100g')
-      nutrients = scale(per100g, grams)
-    } else if (input.perUnit) {
-      // A food known per serving: the amount says how many servings.
-      if (!amount) throw new ValidationError('amount is required with perUnit')
-      perUnit = cleanNutrients(input.perUnit, 'perUnit')
-      nutrients = multiply(perUnit, amount.quantity)
-      grams = amount.unitGrams == null ? null : Math.round(amount.unitGrams * amount.quantity * 10) / 10
+    if (item.per100g) {
+      nutrients = scale(item.per100g, grams!)
+    } else if (item.perUnit) {
+      nutrients = multiply(item.perUnit, item.amount!.quantity)
+      grams = item.amount!.unitGrams == null ? null : Math.round(item.amount!.unitGrams * item.amount!.quantity * 10) / 10
     } else {
-      nutrients = cleanNutrients(input.nutrients, 'nutrients')
+      nutrients = item.nutrients!
     }
 
     const entry: Entry = {
       id: randomUUID(),
       date: input.date,
       meal: input.meal,
-      name: cleanName(input.name),
-      brand: typeof input.brand === 'string' && input.brand.trim() ? input.brand.trim().slice(0, MAX_NAME) : undefined,
+      name: item.name,
+      brand: item.brand,
       grams,
-      amount,
+      amount: item.amount,
       nutrients,
-      per100g,
-      perUnit,
-      foodId: typeof input.foodId === 'string' ? input.foodId.slice(0, 200) : undefined,
-      source: cleanSource(input.source),
+      per100g: item.per100g,
+      perUnit: item.perUnit,
+      foodId: item.foodId,
+      source: item.source,
       createdAt: Date.now(),
     }
     this.refresh()
@@ -375,6 +405,55 @@ export class Store {
     this.log.foods = this.log.foods.filter((f) => f.id !== id)
     if (this.log.foods.length === before) throw new ValidationError('no such food')
     this.flush()
+  }
+
+  // --- meal presets --------------------------------------------------------
+
+  listPresets(): MealPreset[] {
+    this.refresh()
+    return [...this.log.mealPresets].sort((a, b) => a.name.localeCompare(b.name))
+  }
+
+  /** A named group of foods -- create with no id, or save an edit with one. */
+  savePreset(input: { id?: unknown; name?: unknown; items?: unknown }): MealPreset {
+    if (!Array.isArray(input?.items) || input.items.length === 0) {
+      throw new ValidationError('a meal needs at least one food')
+    }
+    if (input.items.length > 30) throw new ValidationError('a meal can have at most 30 foods')
+    const preset: MealPreset = {
+      id: typeof input.id === 'string' && input.id ? input.id.slice(0, 200) : `meal:${randomUUID()}`,
+      name: cleanName(input.name, 'name'),
+      items: input.items.map((item, i) => this.cleanEntryItem(item, `item ${i + 1}`)),
+      createdAt: Date.now(),
+    }
+    this.refresh()
+    const i = this.log.mealPresets.findIndex((p) => p.id === preset.id)
+    if (i === -1) this.log.mealPresets.push(preset)
+    else this.log.mealPresets[i] = preset
+    this.flush()
+    return preset
+  }
+
+  deletePreset(id: string): void {
+    this.refresh()
+    const before = this.log.mealPresets.length
+    this.log.mealPresets = this.log.mealPresets.filter((p) => p.id !== id)
+    if (this.log.mealPresets.length === before) throw new ValidationError('no such meal')
+    this.flush()
+  }
+
+  /**
+   * Logs every food in a saved meal to one date and meal-of-day, in one
+   * action. date/meal are checked once upfront, common to every item, so a
+   * bad one can't log the first few foods and then fail partway through.
+   */
+  applyPreset(id: string, date: string, meal: string): Entry[] {
+    this.refresh()
+    const preset = this.log.mealPresets.find((p) => p.id === id)
+    if (!preset) throw new ValidationError('no such meal')
+    if (!isDateString(date)) throw new ValidationError('date must be YYYY-MM-DD')
+    if (!MEALS.includes(meal as Meal)) throw new ValidationError(`meal must be one of ${MEALS.join(', ')}`)
+    return preset.items.map((item) => this.addEntry({ ...item, date, meal: meal as Meal }))
   }
 
   // --- goals and settings -----------------------------------------------------

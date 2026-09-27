@@ -177,6 +177,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .entry:active, .food-row:active { background: var(--bg-raised); }
 .entry-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .entry-name { font-size: 15px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.meal-badge { margin-left: 5px; color: var(--paper-dim); vertical-align: -1px; }
 .entry-sub { font-size: 12px; color: var(--paper-dim); }
 .entry-nums { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: 0 0 auto; }
 .entry-kcal { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -230,6 +231,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .nf.fat label { color: var(--c-fat); }
 .nf.carbs label { color: var(--c-carbs); }
 .nf.fiber label { color: var(--c-fiber); }
+.auto-tag { font-weight: 400; opacity: 0.6; }
+.nf.calories.auto input { color: var(--paper-dim); font-style: italic; }
 
 .hint { font-size: 12px; color: var(--paper-dim); line-height: 1.5; margin: 4px 0 10px; }
 .hint.center { text-align: center; padding: 18px 8px; }
@@ -281,6 +284,10 @@ button:disabled { opacity: 0.45; cursor: default; }
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   padding-bottom: 24px;
+  /* Vaul sets touch-action: none on the whole drawer to drive its own drag
+     gesture; without this, touch scrolling inside .drawer-scroll is blocked
+     even with data-vaul-no-drag set. */
+  touch-action: pan-y;
 }
 .drawer-actions {
   flex: 0 0 auto;
@@ -299,6 +306,9 @@ button:disabled { opacity: 0.45; cursor: default; }
   color: var(--paper-dim);
 }
 .sheet-h .src { font-weight: 400; text-transform: none; letter-spacing: 0; opacity: 0.7; margin-left: 4px; }
+
+.sheet-h-row { display: flex; align-items: baseline; justify-content: space-between; }
+.sheet-h-row .sheet-h { margin-bottom: 0; }
 
 .sheet-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex: 0 0 auto; }
 .sheet-top .drawer-title { margin: 0; white-space: nowrap; }
@@ -331,6 +341,60 @@ button:disabled { opacity: 0.45; cursor: default; }
 .saved-row { display: flex; align-items: center; }
 .saved-row .food-row { flex: 1; min-width: 0; }
 .unsave { background: none; border: none; color: var(--amber); padding: 10px 4px 10px 12px; }
+
+/* Picking which saved foods go into a new meal. */
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  padding: 11px 2px;
+  color: var(--paper);
+}
+.pick-check {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  color: var(--bg);
+}
+.pick-check.on { background: var(--moss); border-color: var(--moss); }
+
+/* A saved meal's foods, each with its own amount, before it's saved. */
+.meal-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px 96px auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.meal-item-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.meal-item-qty, .meal-item-unit {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  font-size: 14px;
+  color: var(--paper);
+  min-width: 0;
+}
+.meal-item-remove { background: none; border: none; color: var(--paper-dim); padding: 4px; flex: 0 0 auto; }
+
+/* A search/lookup result with its own save-to-My-foods toggle, so a food
+   found once (especially online -- a repeat lookup can take a minute or
+   two) doesn't have to be found again to be kept. */
+.food-row-wrap { display: flex; align-items: center; }
+.food-row-wrap .food-row { flex: 1; min-width: 0; }
+.favorite-btn { background: none; border: none; color: var(--paper-dim); padding: 10px 4px 10px 10px; flex: 0 0 auto; }
+.favorite-btn.on { color: var(--amber); }
 
 .picked-name { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
 .picked-name .entry-name { font-size: 17px; font-weight: 600; }
@@ -379,6 +443,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .lookup-status { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--paper-dim); padding: 10px 0; }
 .lookup-status span:nth-child(2) { flex: 1; min-width: 0; }
 .link-btn { background: none; border: none; color: var(--rust); font-size: 13px; padding: 4px; cursor: pointer; }
+.link-btn.accent { color: var(--moss); }
 .spinner {
   width: 14px; height: 14px; flex: 0 0 auto; border-radius: 50%;
   border: 2px solid var(--line, rgba(128,128,128,0.3)); border-top-color: var(--moss);
