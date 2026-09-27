@@ -195,7 +195,7 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
   // changed) cancels the first, so the model isn't left researching a query
   // nobody is waiting for.
   const jobRef = useRef<ResearchJob | null>(null)
-  jobRef.current = job
+  useEffect(() => { jobRef.current = job }, [job])
   const lookUp = useCallback(async (text: string, again = false): Promise<void> => {
     const prev = jobRef.current
     // Already looked up (or looking up) these words: nothing to start.
