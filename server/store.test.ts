@@ -1,12 +1,24 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { Store, ValidationError } from './store.ts'
 import type { NewEntry, Nutrients } from '../src/types.ts'
 
 let dir: string
 let store: Store
+
+/** A second, read-only-in-spirit connection, for asserting on rows directly. */
+const openRaw = (): DatabaseSync => new DatabaseSync(path.join(dir, 'macros.sqlite'))
+const allRows = (table: string): unknown[] => {
+  const db = openRaw()
+  try {
+    return db.prepare(`SELECT * FROM ${table}`).all()
+  } finally {
+    db.close()
+  }
+}
 
 const BANANA_100G: Nutrients = { calories: 89, protein: 1.09, fat: 0.33, carbs: 22.8, fiber: 2.6 }
 const DAY = '2026-09-26'
@@ -20,7 +32,10 @@ beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'macros-store-'))
   store = new Store({ dir })
 })
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
+afterEach(() => {
+  vi.useRealTimers()
+  fs.rmSync(dir, { recursive: true, force: true })
+})
 
 describe('logging', () => {
   it('scales a database food to the weight eaten', () => {
@@ -177,10 +192,11 @@ describe('goals and settings', () => {
     expect(JSON.stringify(pub)).not.toMatch(/SECRET/)
   })
 
-  it('keeps the key out of the food log', () => {
+  it('keeps the key out of every non-settings table', () => {
     store.setSettings({ usdaApiKey: 'SECRETKEY' })
     store.addEntry(banana())
-    expect(fs.readFileSync(path.join(dir, 'log.json'), 'utf8')).not.toMatch(/SECRET/)
+    const nonSettings = [...allRows('entries'), ...allRows('foods'), ...allRows('meal_presets'), ...allRows('meal_preset_items'), ...allRows('goals')]
+    expect(JSON.stringify(nonSettings)).not.toMatch(/SECRET/)
   })
 })
 
@@ -188,24 +204,27 @@ describe('safety', () => {
   it('keeps its files private', () => {
     store.addEntry(banana())
     expect(fs.statSync(dir).mode & 0o077).toBe(0)
-    expect(fs.statSync(path.join(dir, 'log.json')).mode & 0o077).toBe(0)
+    expect(fs.statSync(path.join(dir, 'macros.sqlite')).mode & 0o077).toBe(0)
   })
 
-  it('backs up before losing more than one entry at once', () => {
-    store.addEntry(banana())
-    store.addEntry(banana())
-    store.addEntry(banana())
-    // Simulate a bug that clears the day in memory.
-    const bugged = new Store({ dir })
-    ;(bugged as unknown as { log: { entries: Record<string, unknown> } }).log.entries = {}
-    bugged.setGoals({ protein: 160 }) // any write
-    expect(fs.readdirSync(path.join(dir, 'backups'))).toHaveLength(1)
-  })
+  it('snapshots once per calendar day, not on every write', () => {
+    const freshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'macros-store-'))
+    try {
+      vi.setSystemTime(new Date('2026-09-26T10:00:00Z'))
+      const first = new Store({ dir: freshDir }) // snapshots once, on construction
+      first.addEntry(banana())
+      first.addEntry(banana())
+      expect(fs.readdirSync(path.join(freshDir, 'backups'))).toHaveLength(1)
 
-  it('does not back up an ordinary single delete', () => {
-    const e = store.addEntry(banana())
-    store.deleteEntry(e.id)
-    expect(fs.existsSync(path.join(dir, 'backups'))).toBe(false)
+      new Store({ dir: freshDir }) // reopening the same day must not add a second snapshot
+      expect(fs.readdirSync(path.join(freshDir, 'backups'))).toHaveLength(1)
+
+      vi.setSystemTime(new Date('2026-09-27T10:00:00Z'))
+      new Store({ dir: freshDir })
+      expect(fs.readdirSync(path.join(freshDir, 'backups'))).toHaveLength(2)
+    } finally {
+      fs.rmSync(freshDir, { recursive: true, force: true })
+    }
   })
 
   it('picks up an edit made to the file while running', () => {
@@ -364,5 +383,44 @@ describe('meal presets', () => {
     store.savePreset({ name: 'Breakfast', items: [eggs, toast] })
     const reopened = new Store({ dir })
     expect(reopened.listPresets().map((p) => p.name)).toEqual(['Breakfast'])
+  })
+})
+
+describe('migrating from log.json', () => {
+  // Migration only runs on the *first* open of a dir, so these tests write
+  // the legacy files before that first `new Store()`, in a dir of their own.
+  let freshDir: string
+  beforeEach(() => {
+    freshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'macros-migrate-'))
+  })
+  afterEach(() => fs.rmSync(freshDir, { recursive: true, force: true }))
+
+  it('imports entries, foods, presets, goals and settings, then renames the JSON aside', () => {
+    const legacyLog = {
+      entries: { [DAY]: [{ ...banana(), id: 'e1', createdAt: 1, nutrients: BANANA_100G }] },
+      foods: [{ id: 'custom:a', name: 'Apple', source: 'custom', per100g: BANANA_100G }],
+      mealPresets: [{ id: 'meal:m1', name: 'Breakfast', createdAt: 1, items: [{ name: 'Eggs', per100g: BANANA_100G, grams: 100, source: 'usda' }] }],
+      goals: { calories: 2200, protein: 170, fat: 70, carbs: 220, fiber: 32 },
+    }
+    fs.writeFileSync(path.join(freshDir, 'log.json'), JSON.stringify(legacyLog))
+    fs.writeFileSync(path.join(freshDir, 'settings.json'), JSON.stringify({ usdaApiKey: 'sk-usda-SECRET', autoLookup: false }))
+
+    const migrated = new Store({ dir: freshDir })
+
+    expect(migrated.getDay(DAY).entries).toHaveLength(1)
+    expect(migrated.listFoods().map((f) => f.name)).toEqual(['Apple'])
+    expect(migrated.listPresets().map((p) => p.name)).toEqual(['Breakfast'])
+    expect(migrated.getGoals()).toEqual(legacyLog.goals)
+    expect(migrated.getPublicSettings()).toMatchObject({ hasUsdaKey: true, autoLookup: false })
+    expect(fs.existsSync(path.join(freshDir, 'log.json'))).toBe(false)
+    expect(fs.existsSync(path.join(freshDir, 'log.json.migrated'))).toBe(true)
+    expect(fs.existsSync(path.join(freshDir, 'settings.json.migrated'))).toBe(true)
+  })
+
+  it('is retried on next open if nothing was migrated yet', () => {
+    const first = new Store({ dir: freshDir })
+    first.setGoals({ protein: 175 })
+    const reopened = new Store({ dir: freshDir })
+    expect(reopened.getGoals().protein).toBe(175)
   })
 })
