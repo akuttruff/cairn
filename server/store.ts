@@ -401,7 +401,9 @@ export class Store {
   }
 
   getSettings(): Settings {
-    const defaults: Settings = { usdaApiKey: '', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: '', researchModel: '' }
+    const defaults: Settings = {
+      usdaApiKey: '', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: '', researchModel: '', autoLookup: true,
+    }
     try {
       const raw = JSON.parse(fs.readFileSync(this.settingsPath, 'utf8')) as Partial<Settings>
       const str = (v: unknown, fallback: string): string => (typeof v === 'string' ? v : fallback)
@@ -410,6 +412,7 @@ export class Store {
         lmStudioUrl: str(raw.lmStudioUrl, defaults.lmStudioUrl) || defaults.lmStudioUrl,
         lmStudioToken: str(raw.lmStudioToken, ''),
         researchModel: str(raw.researchModel, ''),
+        autoLookup: typeof raw.autoLookup === 'boolean' ? raw.autoLookup : true,
       }
     } catch {
       return defaults
@@ -423,6 +426,7 @@ export class Store {
       hasLmStudioToken: Boolean(s.lmStudioToken),
       lmStudioUrl: s.lmStudioUrl,
       researchModel: s.researchModel,
+      autoLookup: s.autoLookup,
     }
   }
 
@@ -431,6 +435,7 @@ export class Store {
     if (typeof input.usdaApiKey === 'string') next.usdaApiKey = input.usdaApiKey.trim().slice(0, 100)
     if (typeof input.lmStudioToken === 'string') next.lmStudioToken = input.lmStudioToken.trim().slice(0, 300)
     if (typeof input.researchModel === 'string') next.researchModel = input.researchModel.trim().slice(0, 200)
+    if (typeof input.autoLookup === 'boolean') next.autoLookup = input.autoLookup
     if (typeof input.lmStudioUrl === 'string') {
       const url = input.lmStudioUrl.trim().replace(/\/+$/, '')
       if (url) {

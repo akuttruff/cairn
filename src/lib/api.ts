@@ -55,7 +55,7 @@ export const api = {
   goals: () => request<Goals>('GET', '/api/goals'),
   setGoals: (goals: Partial<Goals>) => request<Goals>('PUT', '/api/goals', goals),
   settings: () => request<PublicSettings>('GET', '/api/settings'),
-  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string }) =>
+  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; autoLookup?: boolean }) =>
     request<PublicSettings>('PUT', '/api/settings', s),
   startResearch: (q: string) => request<ResearchJob>('POST', '/api/research', { q }),
   research: (id: string) => request<ResearchJob>('GET', `/api/research/${encodeURIComponent(id)}`),

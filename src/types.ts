@@ -137,6 +137,8 @@ export interface Settings {
   lmStudioToken: string
   /** Model to research with; blank uses whichever LLM LM Studio has loaded. */
   researchModel: string
+  /** Start an online lookup by itself once you stop typing. */
+  autoLookup: boolean
 }
 
 /** What the browser may see of the settings: never a key or token itself. */
@@ -145,4 +147,5 @@ export interface PublicSettings {
   hasLmStudioToken: boolean
   lmStudioUrl: string
   researchModel: string
+  autoLookup: boolean
 }

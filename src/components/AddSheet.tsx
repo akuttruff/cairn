@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Drawer } from 'vaul'
 import { ArrowLeft, Globe, Search, Star, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
@@ -27,6 +27,12 @@ interface AddSheetProps {
 }
 
 const SEARCH_DELAY_MS = 450
+/**
+ * How long typing must pause before an automatic online lookup. Longer than
+ * the database search: a lookup occupies the model for a minute or two, so
+ * it shouldn't fire on a half-typed "chipotle chi".
+ */
+export const AUTO_LOOKUP_DELAY_MS = 2000
 
 
 export default function AddSheet({ open, session, onClose, ...rest }: AddSheetProps) {
@@ -174,14 +180,56 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
     const saved = readSavedJob()
     if (!saved) return
     api.research(saved).then((j) => {
+      if (!isJob(j)) return
       setJob(j)
       setQ((cur) => cur || j.query)
     }).catch(() => forgetJob())
   }, [])
 
+  const [autoLookup, setAutoLookup] = useState(true)
+  useEffect(() => {
+    api.settings().then((s) => setAutoLookup(s.autoLookup !== false)).catch(() => { /* keep the default */ })
+  }, [])
+
+  // One lookup at a time from this sheet: starting another (the words
+  // changed) cancels the first, so the model isn't left researching a query
+  // nobody is waiting for.
+  const jobRef = useRef<ResearchJob | null>(null)
+  jobRef.current = job
+  const lookUp = useCallback(async (text: string, again = false): Promise<void> => {
+    const prev = jobRef.current
+    // Already looked up (or looking up) these words: nothing to start.
+    if (!again && prev && prev.query.toLowerCase() === text.toLowerCase()) return
+    if (prev?.status === 'running') void api.cancelResearch(prev.id).catch(() => {})
+    try {
+      const j = await api.startResearch(text)
+      if (!isJob(j)) return
+      saveJob(j.id)
+      setJob(j)
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }, [])
+
+  const lookupable = query.length >= 3 && !isBarcodeQuery(query)
+  useEffect(() => {
+    if (!autoLookup || !lookupable) return
+    const t = setTimeout(() => void lookUp(query), AUTO_LOOKUP_DELAY_MS)
+    return () => clearTimeout(t)
+  }, [autoLookup, lookupable, query, lookUp])
+
   return (
     <>
-      <div className="search-box">
+      <form
+        className="search-box"
+        role="search"
+        onSubmit={(e) => {
+          // The keyboard's Search key: look it up now rather than after the pause.
+          e.preventDefault()
+          if (lookupable) void lookUp(query)
+          input.current?.blur()
+        }}
+      >
         <Search size={16} aria-hidden="true" />
         <input
           ref={input}
@@ -193,13 +241,18 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-      </div>
+      </form>
       <div className="drawer-scroll" data-vaul-no-drag>
         {yours.length > 0 && (
           <section className="result-group" aria-label="Yours">
             <h3 className="sheet-h">Yours <span className="src">saved &amp; recent</span></h3>
             {yours.map((f) => <FoodRow key={f.id} food={f} onPick={onPick} />)}
           </section>
+        )}
+        {/* Above the databases, whose results land within a second and would
+            otherwise push this down just as you reach for it. */}
+        {lookupable && (
+          <OnlineLookup query={query} job={job} auto={autoLookup} onJob={setJob} onStart={() => void lookUp(query, true)} onPick={onPick} />
         )}
         {busy && <div className="hint center">Searching…</div>}
         {error && <div className="hint bad center">{error}</div>}
@@ -223,7 +276,6 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
               </>
             )
         )}
-        {searchable && <OnlineLookup query={query} job={job} onJob={setJob} onPick={onPick} />}
         {!query && (
           <div className="hint center">
             Whole foods come from USDA FoodData Central; packaged foods from
@@ -474,16 +526,24 @@ function forgetJob(): void {
   try { localStorage.removeItem(JOB_KEY) } catch { /* nothing to forget */ }
 }
 
+/** A job as the server describes it -- not an empty or error body. */
+const isJob = (j: unknown): j is ResearchJob =>
+  Boolean(j && typeof (j as ResearchJob).id === 'string' && typeof (j as ResearchJob).query === 'string')
+
+const isBarcodeQuery = (q: string): boolean => /^\d{8,14}$/.test(q.replace(/[\s-]/g, ''))
+
 /**
  * Ask LM Studio -- a local model with the deep-research MCP -- to find the
  * food online. For what the databases miss: restaurant dishes, store items, a
  * particular build of a bowl. Takes a minute or two, so it runs on the server
- * and this polls.
+ * and this polls; it starts by itself once typing pauses, unless turned off.
  */
-function OnlineLookup({ query, job, onJob, onPick }: {
+function OnlineLookup({ query, job, auto, onJob, onStart, onPick }: {
   query: string
   job: ResearchJob | null
+  auto: boolean
   onJob: (j: ResearchJob | null) => void
+  onStart: () => void
   onPick: (f: Food) => void
 }) {
   const [now, setNow] = useState(() => Date.now())
@@ -494,35 +554,27 @@ function OnlineLookup({ query, job, onJob, onPick }: {
     if (!running || !jobId) return
     const tick = setInterval(() => setNow(Date.now()), 1000)
     const poll = setInterval(() => {
-      api.research(jobId).then(onJob).catch(() => { forgetJob(); onJob(null) })
+      api.research(jobId)
+        // Only if it's still the current job: a replaced one may answer late.
+        .then((j) => { if (isJob(j) && j.id === jobId) onJob(j) })
+        .catch(() => { forgetJob(); onJob(null) })
     }, POLL_MS)
     return () => { clearInterval(tick); clearInterval(poll) }
   }, [running, jobId, onJob])
-
-  const start = async (): Promise<void> => {
-    try {
-      const j = await api.startResearch(query)
-      saveJob(j.id)
-      onJob(j)
-    } catch (err) {
-      toast.error((err as Error).message)
-    }
-  }
 
   const mine = job && job.query.toLowerCase() === query.toLowerCase() ? job : null
 
   if (!mine) {
     return (
       <section className="result-group" aria-label="Online">
-        <h3 className="sheet-h">Not listed? <span className="src">LM Studio + deep-research</span></h3>
-        <button type="button" className="lookup-btn" onClick={() => void start()} disabled={running}>
-          <Globe size={15} aria-hidden="true" /> Look up “{query}” online
-        </button>
-        <div className="hint">
-          {running
-            ? `Still looking up “${job!.query}”.`
-            : 'Your LM Studio model searches the web for the brand’s or restaurant’s own nutrition info. Takes a minute or two; be specific — “chipotle chicken bowl, white rice, black beans”.'}
-        </div>
+        <h3 className="sheet-h">Online <span className="src">LM Studio + deep-research</span></h3>
+        {auto
+          ? <div className="hint">Looks this up online once you pause typing, or press Search.</div>
+          : (
+            <button type="button" className="lookup-btn" onClick={onStart}>
+              <Globe size={15} aria-hidden="true" /> Look up “{query}” online
+            </button>
+          )}
       </section>
     )
   }
@@ -539,13 +591,19 @@ function OnlineLookup({ query, job, onJob, onPick }: {
         <div className="lookup-status">
           <span className="spinner" aria-hidden="true" />
           <span>Looking it up… {mine.step} · {Math.max(0, Math.round((now - mine.startedAt) / 1000))}s</span>
-          <button type="button" className="link-btn" onClick={() => void api.cancelResearch(mine.id)}>Cancel</button>
+          <button
+            type="button"
+            className="link-btn"
+            onClick={() => { void api.cancelResearch(mine.id); onJob({ ...mine, status: 'error', error: 'Cancelled.' }) }}
+          >
+            Cancel
+          </button>
         </div>
       )}
       {mine.status === 'error' && (
         <>
           <div className="hint bad">{mine.error}</div>
-          <button type="button" className="lookup-btn" onClick={() => void start()}>Try again</button>
+          <button type="button" className="lookup-btn" onClick={onStart}>Try again</button>
         </>
       )}
       {mine.status === 'done' && mine.result && (

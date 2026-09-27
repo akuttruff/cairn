@@ -173,7 +173,7 @@ describe('goals and settings', () => {
   it('never exposes the USDA key', () => {
     store.setSettings({ usdaApiKey: 'SECRETKEY', lmStudioToken: 'sk-lm-SECRET' })
     const pub = store.getPublicSettings()
-    expect(pub).toEqual({ hasUsdaKey: true, hasLmStudioToken: true, lmStudioUrl: 'http://127.0.0.1:1234', researchModel: '' })
+    expect(pub).toEqual({ hasUsdaKey: true, hasLmStudioToken: true, lmStudioUrl: 'http://127.0.0.1:1234', researchModel: '', autoLookup: true })
     expect(JSON.stringify(pub)).not.toMatch(/SECRET/)
   })
 

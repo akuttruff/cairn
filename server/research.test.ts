@@ -5,7 +5,7 @@ import path from 'node:path'
 import { RESEARCH_PLUGIN, ResearchJobs, chooseModel, extractJson, researchFood, toFoods } from './research.ts'
 import type { Settings } from '../src/types.ts'
 
-const SETTINGS: Settings = { usdaApiKey: '', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: 'sk-lm-T', researchModel: '' }
+const SETTINGS: Settings = { usdaApiKey: '', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: 'sk-lm-T', researchModel: '', autoLookup: true }
 
 const BOWL_REPLY = {
   found: true,
@@ -230,6 +230,16 @@ describe('ResearchJobs', () => {
     jobs.start('a')
     jobs.start('b')
     expect(() => jobs.start('c')).toThrow(/already running/)
+  })
+
+  it('frees its slot the moment it is cancelled', async () => {
+    const hang = vi.fn(() => new Promise<Response>(() => {})) as unknown as typeof fetch
+    const jobs = new ResearchJobs(() => SETTINGS, hang)
+    const a = jobs.start('a')
+    jobs.start('b')
+    jobs.cancel(a.id)
+    expect(() => jobs.start('c')).not.toThrow()
+    expect(jobs.get(a.id)).toMatchObject({ status: 'error', error: 'Cancelled.' })
   })
 
   it('cancels', async () => {

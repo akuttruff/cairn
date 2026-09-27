@@ -386,7 +386,7 @@ export class ResearchJobs {
     researchFood(q, this.getSettings(), { fetchImpl: this.fetchImpl, signal, onStep: (s) => { job.step = s } })
       .then((result) => {
         this.cache.set(key, result)
-        Object.assign(job, { status: 'done', step: 'done', result })
+        if (job.status === 'running') Object.assign(job, { status: 'done', step: 'done', result })
       })
       .catch((err: Error) => {
         const message = err.name === 'TimeoutError'
@@ -406,6 +406,9 @@ export class ResearchJobs {
   cancel(id: string): boolean {
     const job = this.jobs.get(id)
     if (!job?.controller) return false
+    // Settle now rather than when the abort lands, so the lookup that
+    // replaces it (the query was edited) isn't refused for want of a slot.
+    Object.assign(job, { status: 'error', step: 'failed', error: 'Cancelled.' })
     job.controller.abort()
     return true
   }

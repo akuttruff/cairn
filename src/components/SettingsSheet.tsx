@@ -39,6 +39,7 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
   const [lmUrl, setLmUrl] = useState<string | null>(null)
   const [lmToken, setLmToken] = useState('')
   const [lmModel, setLmModel] = useState<string | null>(null)
+  const [autoLookup, setAutoLookup] = useState<boolean | null>(null)
   const [settings, setSettings] = useState<PublicSettings | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -60,6 +61,7 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
       if (lmToken.trim()) changes.lmStudioToken = lmToken.trim()
       if (lmUrl != null && lmUrl.trim() !== settings?.lmStudioUrl) changes.lmStudioUrl = lmUrl.trim()
       if (lmModel != null && lmModel.trim() !== settings?.researchModel) changes.researchModel = lmModel.trim()
+      if (autoLookup != null && autoLookup !== settings?.autoLookup) changes.autoLookup = autoLookup
       if (Object.keys(changes).length) await api.setSettings(changes)
       toast.success('Saved')
       onSaved()
@@ -121,6 +123,18 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
             <div className="hint">
               “Look up online” asks your LM Studio model to research a food with the{' '}
               <b>mcp/deep-research</b> MCP. LM Studio needs that server in its mcp.json.
+            </div>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={autoLookup ?? settings?.autoLookup ?? true}
+                onChange={(e) => setAutoLookup(e.target.checked)}
+              />
+              Look up online automatically
+            </label>
+            <div className="hint" style={{ marginTop: -8 }}>
+              Starts once you pause typing a search. Each lookup keeps your model busy for a minute or two;
+              turn this off to start them with a button instead.
             </div>
             <div className="field">
               <label htmlFor="lm-url">LM Studio address</label>

@@ -277,7 +277,8 @@ describe('App', () => {
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
     await user.type(await screen.findByLabelText('Search foods'), 'chipotle chicken bowl')
-    await user.click(await screen.findByRole('button', { name: /Look up “chipotle chicken bowl” online/ }, { timeout: 2000 }))
+    // No button to catch: it starts by itself once typing pauses.
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/research')).toBe(true), { timeout: 4000 })
     expect(calls.find((c) => c.url === '/api/research')!.body).toEqual({ q: 'chipotle chicken bowl' })
 
     expect(await screen.findByText(/reading chipotle\.com/, {}, { timeout: 5000 })).toBeInTheDocument()
@@ -315,5 +316,74 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
     expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ quantity: 1 })
+  })
+
+  describe('automatic online lookup', () => {
+    const running = (id: string, query: string) => ({ id, query, status: 'running', step: 'starting', startedAt: Date.now() })
+
+    it('starts at once on the keyboard Search key', async () => {
+      const user = userEvent.setup()
+      const calls = stubApi({
+        [`GET /api/day/${TODAY}`]: day([]),
+        'GET /api/search': { usda: [banana], off: [], errors: [] },
+        'POST /api/research': running('j1', 'pad thai'),
+      })
+      render(<App />)
+      await user.click(await screen.findByRole('button', { name: 'Add food' }))
+      await user.type(await screen.findByLabelText('Search foods'), 'pad thai{Enter}')
+      await waitFor(() => expect(calls.filter((c) => c.url === '/api/research')).toHaveLength(1), { timeout: 500 })
+      expect(await screen.findByText(/Looking it up/)).toBeInTheDocument()
+      // Placed above the database results, so they can't push it away.
+      const online = screen.getByRole('region', { name: 'Online' })
+      const usda = await screen.findByRole('region', { name: 'Whole foods' }, { timeout: 2000 })
+      expect(online.compareDocumentPosition(usda) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    it('cancels a lookup for words you have since changed', async () => {
+      const user = userEvent.setup()
+      let n = 0
+      const calls = stubApi({
+        [`GET /api/day/${TODAY}`]: day([]),
+        'GET /api/search': { usda: [], off: [], errors: [] },
+        'POST /api/research': () => (++n === 1 ? running('j1', 'pad') : running('j2', 'pad thai')),
+        'DELETE /api/research/j1': { cancelled: true },
+      })
+      render(<App />)
+      await user.click(await screen.findByRole('button', { name: 'Add food' }))
+      const box = await screen.findByLabelText('Search foods')
+      await user.type(box, 'pad{Enter}')
+      await waitFor(() => expect(calls.some((c) => c.url === '/api/research')).toBe(true))
+      await user.type(box, ' thai{Enter}')
+      await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/research/j1')).toBe(true))
+      expect(calls.filter((c) => c.url === '/api/research').map((c) => c.body)).toEqual([{ q: 'pad' }, { q: 'pad thai' }])
+    })
+
+    it('waits for a button when turned off in Settings', async () => {
+      const user = userEvent.setup()
+      const calls = stubApi({
+        [`GET /api/day/${TODAY}`]: day([]),
+        'GET /api/settings': { hasUsdaKey: false, hasLmStudioToken: true, lmStudioUrl: '', researchModel: '', autoLookup: false },
+        'GET /api/search': { usda: [], off: [], errors: [] },
+        'POST /api/research': running('j1', 'pad thai'),
+      })
+      render(<App />)
+      await user.click(await screen.findByRole('button', { name: 'Add food' }))
+      await user.type(await screen.findByLabelText('Search foods'), 'pad thai')
+      const button = await screen.findByRole('button', { name: /Look up “pad thai” online/ })
+      await new Promise((r) => setTimeout(r, 2300))
+      expect(calls.some((c) => c.url === '/api/research')).toBe(false)
+      await user.click(button)
+      await waitFor(() => expect(calls.some((c) => c.url === '/api/research')).toBe(true))
+    }, 10_000)
+
+    it('never researches a barcode', async () => {
+      const user = userEvent.setup()
+      const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/search': { usda: [], off: [], errors: [], barcode: true } })
+      render(<App />)
+      await user.click(await screen.findByRole('button', { name: 'Add food' }))
+      await user.type(await screen.findByLabelText('Search foods'), '012345678905{Enter}')
+      expect(screen.queryByRole('region', { name: 'Online' })).not.toBeInTheDocument()
+      expect(calls.some((c) => c.url === '/api/research')).toBe(false)
+    })
   })
 })
