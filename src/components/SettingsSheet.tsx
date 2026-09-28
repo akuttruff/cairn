@@ -5,7 +5,7 @@ import { api } from '../lib/api.ts'
 import { LABELS, UNITS } from '../lib/nutrition.ts'
 import { parseNum } from '../lib/format.ts'
 import { NUTRIENTS } from '../types.ts'
-import type { Goals, NutrientKey, PublicSettings } from '../types.ts'
+import type { Goals, LmModelOption, NutrientKey, PublicSettings } from '../types.ts'
 
 interface SettingsSheetProps {
   open: boolean
@@ -42,11 +42,18 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
   const [lmModel, setLmModel] = useState<string | null>(null)
   const [autoLookup, setAutoLookup] = useState<boolean | null>(null)
   const [settings, setSettings] = useState<PublicSettings | null>(null)
+  const [models, setModels] = useState<LmModelOption[]>([])
+  const [modelsError, setModelsError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     api.settings().then(setSettings).catch(() => { /* the placeholder just stays generic */ })
+    api.lmModels()
+      .then((r) => { setModels(Array.isArray(r.models) ? r.models : []); setModelsError(r.error ?? null) })
+      .catch(() => { /* the picker just offers "whichever is loaded" */ })
   }, [])
+
+  const chosenModel = lmModel ?? settings?.researchModel ?? ''
 
   const parsed = Object.fromEntries(NUTRIENTS.map((k) => [k, parseNum(draft[k])])) as Record<NutrientKey, number | null>
   const invalid = NUTRIENTS.filter((k) => parsed[k] == null || parsed[k]! < 0)
@@ -182,17 +189,21 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
               <div className="hint">Paste it rather than typing: tokens are case-sensitive. Kept on the server only.</div>
             </div>
             <div className="field">
-              <label htmlFor="lm-model">Model (optional)</label>
-              <input
-                id="lm-model"
-                type="text"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-                placeholder="whichever LLM is loaded"
-                value={lmModel ?? settings?.researchModel ?? ''}
-                onChange={(e) => setLmModel(e.target.value)}
-              />
+              <label htmlFor="lm-model">Model</label>
+              <select id="lm-model" value={chosenModel} onChange={(e) => setLmModel(e.target.value)}>
+                <option value="">Whichever is loaded</option>
+                {/* A saved choice LM Studio doesn't list (or can't be asked) stays selectable. */}
+                {chosenModel && !models.some((m) => m.key === chosenModel) && <option value={chosenModel}>{chosenModel}</option>}
+                {models.map((m) => <option key={m.key} value={m.key}>{m.key}{m.loaded ? ' (loaded)' : ''}</option>)}
+              </select>
+              {modelsError
+                ? <div className="hint bad">{modelsError}</div>
+                : (
+                  <div className="hint">
+                    LM Studio loads a model that isn&apos;t loaded yet the first time a lookup asks for it. Leave this on
+                    &ldquo;whichever is loaded&rdquo; and lookups fail whenever nothing is loaded, as after a restart.
+                  </div>
+                )}
             </div>
           </div>
           <div className="drawer-actions">

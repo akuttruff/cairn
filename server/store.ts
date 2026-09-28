@@ -3,12 +3,14 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import type { SQLInputValue, StatementSync } from 'node:sqlite'
-import { MEALS, NUTRIENTS } from '../src/types.ts'
+import { ALCOHOL_KINDS, MEALS, NUTRIENTS } from '../src/types.ts'
 import type {
-  Amount, DayView, Entry, Food, FoodSource, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients,
-  PerServing, PublicSettings, Serving, Settings, SourceLink, WaterLog,
+  AlcoholKind, AlcoholLog, Amount, DayView, Entry, Food, FoodSource, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients,
+  NutrientKey, PerServing, PublicSettings, Serving, Settings, SourceLink, WaterLog,
 } from '../src/types.ts'
 import { DEFAULT_GOALS, isDateString, scale, sumDay } from '../src/lib/nutrition.ts'
+import { LOOKUP_MAX, LOOKUP_TTL_MS, normalizeQuery } from './research.ts'
+import type { ResearchResult } from './research.ts'
 import { multiply } from '../src/lib/units.ts'
 
 /**
@@ -184,6 +186,15 @@ CREATE TABLE IF NOT EXISTS water_logs (
   id TEXT PRIMARY KEY, date TEXT NOT NULL, ounces REAL NOT NULL, created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_water_logs_date ON water_logs(date);
+
+CREATE TABLE IF NOT EXISTS alcohol_logs (
+  id TEXT PRIMARY KEY, date TEXT NOT NULL, kind TEXT NOT NULL, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_alcohol_logs_date ON alcohol_logs(date);
+
+CREATE TABLE IF NOT EXISTS lookup_cache (
+  key TEXT PRIMARY KEY, at INTEGER NOT NULL, result TEXT NOT NULL
+);
 `
 
 /**
@@ -360,6 +371,7 @@ function presetItemColumnParams(item: MealPresetItem): SQLInputValue[] {
 }
 
 interface GoalsRow { calories: number; protein: number; fat: number; carbs: number; fiber: number; water_ounces: number }
+interface AlcoholLogRow { id: string; date: string; kind: string; created_at: number }
 interface WaterLogRow { id: string; date: string; ounces: number; created_at: number }
 interface SettingsRow {
   usda_api_key: string; lm_studio_url: string; lm_studio_token: string; research_model: string; auto_lookup: number
@@ -499,6 +511,7 @@ interface Stmts {
   updateEntry: StatementSync
   deleteEntry: StatementSync
   selectAllFoods: StatementSync
+  selectFood: StatementSync
   selectFoodServings: StatementSync
   selectFoodSources: StatementSync
   upsertFood: StatementSync
@@ -521,6 +534,12 @@ interface Stmts {
   selectWaterByDate: StatementSync
   insertWater: StatementSync
   deleteWater: StatementSync
+  selectAlcoholByDate: StatementSync
+  insertAlcohol: StatementSync
+  deleteAlcohol: StatementSync
+  selectLookup: StatementSync
+  upsertLookup: StatementSync
+  pruneLookups: StatementSync
 }
 
 export class Store {
@@ -565,6 +584,7 @@ export class Store {
       ),
       deleteEntry: this.db.prepare('DELETE FROM entries WHERE id = ?'),
       selectAllFoods: this.db.prepare('SELECT * FROM foods'),
+      selectFood: this.db.prepare('SELECT * FROM foods WHERE id = ?'),
       selectFoodServings: this.db.prepare('SELECT * FROM food_servings WHERE food_id = ? ORDER BY position'),
       selectFoodSources: this.db.prepare('SELECT * FROM food_sources WHERE food_id = ? ORDER BY position'),
       upsertFood: this.db.prepare(
@@ -611,9 +631,19 @@ export class Store {
       updateSettings: this.db.prepare(
         'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=? WHERE id=1',
       ),
-      selectWaterByDate: this.db.prepare('SELECT * FROM water_logs WHERE date = ? ORDER BY created_at DESC'),
+      selectWaterByDate: this.db.prepare('SELECT * FROM water_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
       insertWater: this.db.prepare('INSERT INTO water_logs (id,date,ounces,created_at) VALUES (?,?,?,?)'),
       deleteWater: this.db.prepare('DELETE FROM water_logs WHERE id = ?'),
+      selectAlcoholByDate: this.db.prepare('SELECT * FROM alcohol_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
+      insertAlcohol: this.db.prepare('INSERT INTO alcohol_logs (id,date,kind,created_at) VALUES (?,?,?,?)'),
+      deleteAlcohol: this.db.prepare('DELETE FROM alcohol_logs WHERE id = ?'),
+      selectLookup: this.db.prepare('SELECT at, result FROM lookup_cache WHERE key = ?'),
+      upsertLookup: this.db.prepare(
+        'INSERT INTO lookup_cache (key,at,result) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET at=excluded.at, result=excluded.result',
+      ),
+      pruneLookups: this.db.prepare(
+        `DELETE FROM lookup_cache WHERE at < ? OR key NOT IN (SELECT key FROM lookup_cache ORDER BY at DESC LIMIT ${LOOKUP_MAX})`,
+      ),
     }
 
     if (!this.stmts.selectGoals.get()) {
@@ -628,6 +658,7 @@ export class Store {
         .run('', 'http://127.0.0.1:1234', '', '', 1)
     }
 
+    this.importLegacyLookups()
     this.backupOncePerDay()
   }
 
@@ -652,6 +683,55 @@ export class Store {
     }
   }
 
+  // --- online lookup cache ---------------------------------------------------
+
+  /**
+   * Finished online lookups, each a couple of minutes of the model's time.
+   * Kept in the database rather than in a per-process file so every running
+   * copy of the app shares one cache instead of overwriting each other's.
+   */
+  getLookup(key: string): ResearchResult | undefined {
+    const row = this.stmts.selectLookup.get(key) as unknown as { at: number; result: string } | undefined
+    if (!row || Date.now() - row.at > LOOKUP_TTL_MS) return undefined
+    try {
+      return JSON.parse(row.result) as ResearchResult
+    } catch {
+      return undefined
+    }
+  }
+
+  setLookup(key: string, result: ResearchResult): void {
+    this.stmts.upsertLookup.run(key, Date.now(), JSON.stringify(result))
+    this.stmts.pruneLookups.run(Date.now() - LOOKUP_TTL_MS)
+  }
+
+  /** One-time import of the old lookups.json cache, re-keyed the new way; renamed, not deleted. */
+  private importLegacyLookups(): void {
+    const file = path.join(this.dataDir, 'lookups.json')
+    if (!fs.existsSync(file)) return
+    let saved: Record<string, { at: number; result: ResearchResult }>
+    try {
+      saved = JSON.parse(fs.readFileSync(file, 'utf8'))
+    } catch {
+      return
+    }
+    this.db.exec('BEGIN')
+    try {
+      for (const [k, v] of Object.entries(saved)) {
+        // Empty answers are no longer cached at all, and old ones shouldn't be replayed.
+        if (Date.now() - v.at < LOOKUP_TTL_MS && v.result?.foods?.length) {
+          this.stmts.upsertLookup.run(normalizeQuery(k), v.at, JSON.stringify(v.result))
+        }
+      }
+      this.stmts.pruneLookups.run(Date.now() - LOOKUP_TTL_MS)
+      this.db.exec('COMMIT')
+    } catch {
+      this.db.exec('ROLLBACK')
+      return
+    }
+    try { fs.renameSync(file, `${file}.migrated`) } catch { /* best effort */ }
+  }
+
   // --- days and entries ------------------------------------------------------
 
   getDay(date: string): DayView {
@@ -661,13 +741,36 @@ export class Store {
       .sort((a, b) => MEALS.indexOf(a.meal) - MEALS.indexOf(b.meal) || a.createdAt - b.createdAt)
     const goals = this.getGoals()
     const water = this.getWater(date, goals.water)
-    return { date, entries, goals, water, ...sumDay(entries) }
+    return { date, entries, goals, water, alcohol: this.getAlcohol(date), ...sumDay(entries) }
   }
 
   private getWater(date: string, goal: number): DayView['water'] {
     const rows = this.stmts.selectWaterByDate.all(date) as unknown as WaterLogRow[]
     const ounces = rows.reduce((sum, r) => sum + r.ounces, 0)
     return { ounces, goal, lastLogId: rows[0]?.id ?? null }
+  }
+
+  private getAlcohol(date: string): DayView['alcohol'] {
+    const rows = this.stmts.selectAlcoholByDate.all(date) as unknown as AlcoholLogRow[]
+    const byKind = Object.fromEntries(ALCOHOL_KINDS.map((k) => [k, 0])) as Record<AlcoholKind, number>
+    for (const r of rows) if (r.kind in byKind) byKind[r.kind as AlcoholKind]++
+    return { drinks: rows.length, byKind, lastLogId: rows[0]?.id ?? null }
+  }
+
+  /** One standard drink for one day. Just a record -- there is no goal to hit. */
+  addAlcohol(date: string, kind: string): AlcoholLog {
+    if (!isDateString(date)) throw new ValidationError('date must be YYYY-MM-DD')
+    if (!(ALCOHOL_KINDS as readonly string[]).includes(kind)) {
+      throw new ValidationError(`kind must be one of ${ALCOHOL_KINDS.join(', ')}`)
+    }
+    const log: AlcoholLog = { id: randomUUID(), date, kind: kind as AlcoholKind, createdAt: Date.now() }
+    this.stmts.insertAlcohol.run(log.id, log.date, log.kind, log.createdAt)
+    return log
+  }
+
+  deleteAlcohol(id: string): void {
+    const result = this.stmts.deleteAlcohol.run(id)
+    if (result.changes === 0) throw new ValidationError('no such log')
   }
 
   /** One water log for one day -- a bottle, a glass, whatever amount was drunk. */
@@ -771,6 +874,9 @@ export class Store {
       entry.meal = patch.meal as Entry['meal']
     }
     if (patch.name !== undefined) entry.name = cleanName(patch.name)
+    // Corrected numbers are for the portion as it was logged, so apply them
+    // before any amount change in the same patch rescales from the new basis.
+    const corrected = patch.nutrients === undefined ? [] : this.correctNutrients(entry, patch.nutrients)
     if (patch.perUnit !== undefined) {
       // Your own numbers for one serving; a database's stay as published.
       if (!entry.perUnit || entry.source !== 'custom') throw new ValidationError('only your own entries can change their numbers')
@@ -798,13 +904,53 @@ export class Store {
       // Now measured by weight, not in the old unit.
       if (patch.quantity === undefined) delete entry.amount
     }
-    if (patch.nutrients !== undefined) {
-      if (entry.per100g || entry.perUnit) throw new ValidationError('nutrients follow from the amount for a database food')
-      entry.nutrients = cleanNutrients(patch.nutrients, 'nutrients')
-    }
 
     this.stmts.updateEntry.run(...entryColumnParams(entry), entry.id)
+    if (corrected.length && entry.foodId) this.correctSavedFood(entry, corrected)
     return entry
+  }
+
+  /**
+   * Fix numbers on an entry -- fiber a database left out, a value a lookup got
+   * wrong -- whatever its source. Only the ones that actually differ change,
+   * and the per-100g / per-serving basis they came from is corrected too, so
+   * a later weight or quantity edit scales the corrected numbers rather than
+   * quietly restoring the published ones. Returns which nutrients changed.
+   */
+  private correctNutrients(entry: Entry, input: unknown): NutrientKey[] {
+    const edited = cleanNutrients(input, 'nutrients')
+    const changed = NUTRIENTS.filter((k) => edited[k] !== entry.nutrients[k])
+    const quantity = entry.amount?.quantity
+    for (const k of changed) {
+      const v = edited[k]
+      entry.nutrients = { ...entry.nutrients, [k]: v }
+      if (entry.per100g && entry.grams != null && entry.grams > 0) {
+        entry.per100g = { ...entry.per100g, [k]: v == null ? null : (v * 100) / entry.grams }
+      }
+      if (entry.perUnit && quantity != null && quantity > 0) {
+        entry.perUnit = { ...entry.perUnit, [k]: v == null ? null : v / quantity }
+      }
+    }
+    return changed
+  }
+
+  /** The saved food an entry was logged from gets the same correction, so future logs have it. */
+  private correctSavedFood(entry: Entry, changed: NutrientKey[]): void {
+    const row = this.stmts.selectFood.get(entry.foodId!) as unknown as FoodRow | undefined
+    if (!row) return
+    const food = this.loadFood(row)
+    let touched = false
+    if (food.per100g && entry.per100g) {
+      food.per100g = { ...food.per100g }
+      for (const k of changed) food.per100g[k] = entry.per100g[k]
+      touched = true
+    }
+    if (food.perServing && entry.perUnit) {
+      food.perServing = { ...food.perServing, nutrients: { ...food.perServing.nutrients } }
+      for (const k of changed) food.perServing.nutrients[k] = entry.perUnit[k]
+      touched = true
+    }
+    if (touched) this.writeFood(food)
   }
 
   deleteEntry(id: string): void {
@@ -875,6 +1021,11 @@ export class Store {
     }
     if (!food.per100g && !food.perServing) throw new ValidationError('a food needs per100g or perServing nutrition')
 
+    this.writeFood(food)
+    return food
+  }
+
+  private writeFood(food: Food): void {
     this.db.exec('BEGIN')
     try {
       this.stmts.upsertFood.run(food.id, ...foodColumnParams(food))
@@ -887,7 +1038,6 @@ export class Store {
       this.db.exec('ROLLBACK')
       throw err
     }
-    return food
   }
 
   deleteFood(id: string): void {

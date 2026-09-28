@@ -1,5 +1,6 @@
 import { UNITS, addDays, impliedCalories, localDate } from './nutrition.ts'
-import type { Meal, NutrientKey } from '../types.ts'
+import { NUTRIENTS } from '../types.ts'
+import type { Meal, NutrientKey, Nutrients } from '../types.ts'
 
 /** Whole numbers for calories, one decimal for grams (dropping a trailing .0). */
 export function fmt(key: NutrientKey, v: number | null | undefined): string {
@@ -27,6 +28,24 @@ export const MEAL_LABELS: Record<Meal, string> = {
 export type NutrientDraft = Record<NutrientKey, string>
 
 export const emptyDraft = (): NutrientDraft => ({ calories: '', protein: '', fat: '', carbs: '', fiber: '' })
+
+/** Existing numbers, as they'd be typed: unknown ones blank. */
+export function draftOf(n: Nutrients): NutrientDraft {
+  const d = emptyDraft()
+  for (const k of NUTRIENTS) d[k] = n[k] == null ? '' : String(n[k])
+  return d
+}
+
+/** The draft's numbers, unknown where blank or unreadable. */
+export function nutrientsOf(draft: NutrientDraft): Nutrients {
+  const out = {} as Nutrients
+  for (const k of NUTRIENTS) out[k] = parseNum(draft[k])
+  return out
+}
+
+/** Something was typed that isn't a number -- which nutrientsOf would silently turn into "unknown". */
+export const draftHasJunk = (draft: NutrientDraft): boolean =>
+  NUTRIENTS.some((k) => draft[k].trim() !== '' && parseNum(draft[k]) == null)
 
 /**
  * Applies an edit to a nutrient draft, keeping Calories tracking

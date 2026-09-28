@@ -120,9 +120,59 @@ describe('editing', () => {
     expect(updated.nutrients.fiber).toBe(9)
   })
 
-  it('will not let a database food drift from its own weight', () => {
-    const e = store.addEntry(banana())
-    expect(() => store.updateEntry(e.id, { nutrients: BANANA_100G })).toThrow(/follow from the amount/)
+  describe('correcting the numbers of a database food', () => {
+    const noFiber = { ...BANANA_100G, fiber: null }
+
+    it('lets you add a nutrient the source left out, changing only that one', () => {
+      const e = store.addEntry(banana({ per100g: noFiber }))
+      const before = e.nutrients
+      const fixed = store.updateEntry(e.id, { nutrients: { ...before, fiber: 3 } })
+      expect(fixed.nutrients).toEqual({ ...before, fiber: 3 })
+      expect(fixed.per100g!.calories).toBe(89) // untouched: unchanged values aren't re-derived
+    })
+
+    it('keeps the fix when the weight is edited afterwards', () => {
+      const e = store.addEntry(banana({ per100g: noFiber })) // 118 g
+      store.updateEntry(e.id, { nutrients: { ...e.nutrients, fiber: 3.1 } })
+      const doubled = store.updateEntry(e.id, { grams: 236 })
+      expect(doubled.nutrients.fiber).toBe(6.2)
+    })
+
+    it('corrects the saved food it was logged from, so the next log has it too', () => {
+      store.saveFood({ id: 'usda:173944', name: 'Bananas, raw', source: 'usda', per100g: noFiber })
+      const e = store.addEntry(banana({ per100g: noFiber }))
+      store.updateEntry(e.id, { nutrients: { ...e.nutrients, fiber: 3.1 } })
+      const saved = store.listFoods().find((f) => f.id === 'usda:173944')!
+      expect(saved.per100g!.fiber).toBeCloseTo(2.627, 2)
+      expect(saved.per100g!.calories).toBe(89)
+      const next = store.addEntry(banana({ per100g: saved.per100g }))
+      expect(next.nutrients.fiber).toBe(3.1)
+    })
+
+    it('fixes a per-serving food from an online lookup, by serving', () => {
+      const BOWL = { calories: 660, protein: 50, fat: 21, carbs: 68, fiber: null }
+      store.saveFood({ id: 'web:bowl', name: 'Bowl', source: 'web', perServing: { label: '1 bowl', grams: null, nutrients: BOWL } })
+      const e = store.addEntry({
+        date: DAY, meal: 'lunch', name: 'Bowl', grams: null, foodId: 'web:bowl', source: 'web',
+        perUnit: BOWL, amount: { quantity: 2, unit: '1 bowl', unitGrams: null },
+      })
+      const fixed = store.updateEntry(e.id, { nutrients: { ...e.nutrients, fiber: 18 } }) // 2 bowls
+      expect(fixed.perUnit!.fiber).toBe(9)
+      expect(store.listFoods()[0]!.perServing!.nutrients.fiber).toBe(9)
+      expect(store.updateEntry(e.id, { quantity: 1 }).nutrients.fiber).toBe(9)
+    })
+
+    it('can clear a value back to unknown, and refuses nonsense', () => {
+      const e = store.addEntry(banana())
+      expect(store.updateEntry(e.id, { nutrients: { ...e.nutrients, fiber: null } }).nutrients.fiber).toBeNull()
+      expect(() => store.updateEntry(e.id, { nutrients: { ...e.nutrients, fiber: -1 } })).toThrow(ValidationError)
+    })
+
+    it('leaves a food that was never saved alone', () => {
+      const e = store.addEntry(banana({ per100g: noFiber }))
+      store.updateEntry(e.id, { nutrients: { ...e.nutrients, fiber: 3 } })
+      expect(store.listFoods()).toEqual([])
+    })
   })
 
   it('deletes', () => {
@@ -435,6 +485,93 @@ describe('migrating from log.json', () => {
 
     const upgraded = new Store({ dir: freshDir })
     expect(upgraded.getGoals()).toMatchObject({ calories: 2000, water: 96 })
+  })
+})
+
+describe('online lookup cache', () => {
+  const RESULT = { query: 'chipotle bowl', foods: [{ id: 'web:1', name: 'Bowl', source: 'web' as const }], model: 'm', seconds: 90 }
+
+  it('remembers a lookup, across restarts', () => {
+    expect(store.getLookup('bowl chipotle')).toBeUndefined()
+    store.setLookup('bowl chipotle', RESULT)
+    expect(new Store({ dir }).getLookup('bowl chipotle')).toEqual(RESULT)
+  })
+
+  it('shares one cache between running copies of the app', () => {
+    const other = new Store({ dir })
+    store.setLookup('a', RESULT)
+    other.setLookup('b', RESULT)
+    expect(store.getLookup('b')).toEqual(RESULT)
+    expect(other.getLookup('a')).toEqual(RESULT)
+  })
+
+  it('forgets a lookup after 30 days', () => {
+    vi.setSystemTime(new Date('2026-09-01T00:00:00Z'))
+    store.setLookup('old', RESULT)
+    vi.setSystemTime(new Date('2026-10-05T00:00:00Z'))
+    expect(store.getLookup('old')).toBeUndefined()
+  })
+
+  it('keeps only the newest 200', () => {
+    for (let i = 0; i < 205; i++) {
+      vi.setSystemTime(new Date(2026, 8, 1, 0, 0, i))
+      store.setLookup(`q${i}`, RESULT)
+    }
+    expect(store.getLookup('q0')).toBeUndefined()
+    expect(store.getLookup('q204')).toEqual(RESULT)
+    expect((allRows('lookup_cache') as unknown[]).length).toBe(200)
+  })
+
+  it('imports the old lookups.json once, re-keyed, dropping empty answers', () => {
+    const freshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'macros-lookups-'))
+    try {
+      fs.writeFileSync(path.join(freshDir, 'lookups.json'), JSON.stringify({
+        'chipotle chicken bowl': { at: Date.now(), result: RESULT },
+        'unicorn steak': { at: Date.now(), result: { ...RESULT, foods: [] } },
+      }))
+      const migrated = new Store({ dir: freshDir })
+      expect(migrated.getLookup('bowl chicken chipotle')).toEqual(RESULT)
+      expect(migrated.getLookup('steak unicorn')).toBeUndefined()
+      expect(fs.existsSync(path.join(freshDir, 'lookups.json'))).toBe(false)
+      expect(fs.existsSync(path.join(freshDir, 'lookups.json.migrated'))).toBe(true)
+    } finally {
+      fs.rmSync(freshDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('alcohol', () => {
+  it('starts at zero', () => {
+    expect(store.getDay(DAY).alcohol).toEqual({ drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, lastLogId: null })
+  })
+
+  it('counts drinks by kind, and in total', () => {
+    store.addAlcohol(DAY, 'wine')
+    store.addAlcohol(DAY, 'wine')
+    const last = store.addAlcohol(DAY, 'beer')
+    expect(store.getDay(DAY).alcohol).toEqual({ drinks: 3, byKind: { beer: 1, wine: 2, liquor: 0 }, lastLogId: last.id })
+  })
+
+  it('keeps days separate', () => {
+    store.addAlcohol(DAY, 'beer')
+    expect(store.getDay('2026-09-27').alcohol.drinks).toBe(0)
+  })
+
+  it('undoes the most recent drink', () => {
+    store.addAlcohol(DAY, 'beer')
+    const second = store.addAlcohol(DAY, 'liquor')
+    store.deleteAlcohol(second.id)
+    expect(store.getDay(DAY).alcohol.byKind).toEqual({ beer: 1, wine: 0, liquor: 0 })
+  })
+
+  it('refuses a kind it does not know, and an unknown log', () => {
+    expect(() => store.addAlcohol(DAY, 'mead')).toThrow(ValidationError)
+    expect(() => store.deleteAlcohol('nope')).toThrow(/no such log/)
+  })
+
+  it('survives a restart', () => {
+    store.addAlcohol(DAY, 'wine')
+    expect(new Store({ dir }).getDay(DAY).alcohol.drinks).toBe(1)
   })
 })
 

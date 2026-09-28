@@ -4,6 +4,7 @@ import { Plus } from 'lucide-react'
 import Header from './components/Header.tsx'
 import Totals from './components/Totals.tsx'
 import WaterTracker from './components/WaterTracker.tsx'
+import AlcoholTracker from './components/AlcoholTracker.tsx'
 import MealList from './components/MealList.tsx'
 import AddSheet from './components/AddSheet.tsx'
 import EntrySheet from './components/EntrySheet.tsx'
@@ -48,6 +49,7 @@ export default function App() {
           <>
             <Totals totals={view.totals} missing={view.missing} goals={view.goals} />
             <WaterTracker date={day.date} water={view.water} onLogged={refresh} />
+            <AlcoholTracker date={day.date} alcohol={view.alcohol} onLogged={refresh} />
             <MealList
               entries={view.entries}
               onOpen={(e) => { setEditing(e); open('entry') }}

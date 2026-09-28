@@ -1,8 +1,6 @@
-import fs from 'node:fs'
-import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { NUTRIENTS } from '../src/types.ts'
-import type { Food, Nutrients, Serving, Settings, SourceLink } from '../src/types.ts'
+import type { Food, LmModelOption, Nutrients, Serving, Settings, SourceLink } from '../src/types.ts'
 
 /**
  * Online nutrition lookup: LM Studio runs a local model with the
@@ -164,6 +162,36 @@ interface LmModel {
 const authHeaders = (settings: Settings): Record<string, string> =>
   (settings.lmStudioToken ? { Authorization: `Bearer ${settings.lmStudioToken}` } : {})
 
+async function fetchLmModels(settings: Settings, fetchImpl: typeof fetch, signal?: AbortSignal): Promise<LmModel[]> {
+  const base = settings.lmStudioUrl.replace(/\/+$/, '')
+  try {
+    const timeout = AbortSignal.timeout(5_000)
+    const res = await fetchImpl(`${base}/api/v1/models`, {
+      headers: authHeaders(settings),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    })
+    if (res.status === 401 || res.status === 403) throw new Error('LM Studio rejected the token. Check it in Settings.')
+    return res.ok ? ((await res.json()) as { models?: LmModel[] }).models ?? [] : []
+  } catch (err) {
+    if (signal?.aborted) throw signal.reason
+    if ((err as Error).message.includes('token')) throw err
+    throw new Error(`Couldn't reach LM Studio at ${base}. Is its server running?`)
+  }
+}
+
+/**
+ * Every LLM LM Studio has downloaded, loaded ones first -- what the model
+ * picker in Settings offers. An unloaded one is fine to choose: LM Studio
+ * loads it when the lookup asks for it.
+ */
+export async function listLlms(settings: Settings, fetchImpl: typeof fetch): Promise<LmModelOption[]> {
+  const models = await fetchLmModels(settings, fetchImpl)
+  return models
+    .filter((m) => m.type === 'llm' && m.key)
+    .map((m) => ({ key: m.key!, loaded: Boolean(m.loaded_instances?.length) }))
+    .sort((a, b) => Number(b.loaded) - Number(a.loaded) || a.key.localeCompare(b.key))
+}
+
 /**
  * The model to research with -- the one chosen in Settings, else whichever
  * LLM LM Studio has loaded, so a lookup never makes it load a second copy --
@@ -175,21 +203,7 @@ export async function chooseModel(
   fetchImpl: typeof fetch,
   signal?: AbortSignal,
 ): Promise<{ model: string; reasoning: string | null }> {
-  const base = settings.lmStudioUrl.replace(/\/+$/, '')
-  let models: LmModel[] = []
-  try {
-    const timeout = AbortSignal.timeout(5_000)
-    const res = await fetchImpl(`${base}/api/v1/models`, {
-      headers: authHeaders(settings),
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    })
-    if (res.status === 401 || res.status === 403) throw new Error('LM Studio rejected the token. Check it in Settings.')
-    if (res.ok) models = ((await res.json()) as { models?: LmModel[] }).models ?? []
-  } catch (err) {
-    if (signal?.aborted) throw signal.reason
-    if ((err as Error).message.includes('token')) throw err
-    throw new Error(`Couldn't reach LM Studio at ${base}. Is its server running?`)
-  }
+  const models = await fetchLmModels(settings, fetchImpl, signal)
   const wanted = settings.researchModel
   const entry = wanted
     ? models.find((m) => m.key === wanted || m.loaded_instances?.some((i) => i.id === wanted))
@@ -310,70 +324,66 @@ export interface ResearchJob {
 
 const MAX_RUNNING = 2
 const JOB_TTL_MS = 60 * 60_000
-const CACHE_TTL_MS = 30 * 86_400_000
-const CACHE_MAX = 200
+export const LOOKUP_TTL_MS = 30 * 86_400_000
+export const LOOKUP_MAX = 200
 
 /**
- * Finished lookups, kept on disk: each one costs a couple of minutes of the
- * model's time, so a server restart shouldn't throw them away.
+ * What identifies "the same lookup": the words, ignoring case, punctuation and
+ * order -- so "Chipotle chicken bowl" and "chicken bowl, chipotle" share one
+ * answer instead of costing two minutes of the model's time each.
  */
-class LookupCache {
-  private entries = new Map<string, { at: number; result: ResearchResult }>()
-  private file: string | undefined
+export function normalizeQuery(query: string): string {
+  const words = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean)
+  return [...new Set(words)].sort().join(' ')
+}
 
-  constructor(file?: string) {
-    this.file = file
-    if (!file) return
-    try {
-      const saved = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, { at: number; result: ResearchResult }>
-      for (const [k, v] of Object.entries(saved)) if (Date.now() - v.at < CACHE_TTL_MS) this.entries.set(k, v)
-    } catch { /* none yet */ }
-  }
+/** Finished lookups. The real one lives in the database (Store); this is the in-memory stand-in. */
+export interface LookupStore {
+  get(key: string): ResearchResult | undefined
+  set(key: string, result: ResearchResult): void
+}
+
+export class MemoryLookupCache implements LookupStore {
+  private entries = new Map<string, { at: number; result: ResearchResult }>()
 
   get(key: string): ResearchResult | undefined {
     const hit = this.entries.get(key)
-    if (!hit || Date.now() - hit.at > CACHE_TTL_MS) return undefined
+    if (!hit || Date.now() - hit.at > LOOKUP_TTL_MS) return undefined
     return hit.result
   }
 
   set(key: string, result: ResearchResult): void {
     this.entries.delete(key)
     this.entries.set(key, { at: Date.now(), result })
-    while (this.entries.size > CACHE_MAX) this.entries.delete(this.entries.keys().next().value!)
-    if (!this.file) return
-    try {
-      fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 })
-      const tmp = `${this.file}.${process.pid}.tmp`
-      fs.writeFileSync(tmp, JSON.stringify(Object.fromEntries(this.entries)), { mode: 0o600 })
-      fs.renameSync(tmp, this.file)
-    } catch (err) {
-      console.log(`[macros] couldn't save lookup cache: ${(err as Error).message}`)
-    }
+    while (this.entries.size > LOOKUP_MAX) this.entries.delete(this.entries.keys().next().value!)
   }
 }
 
 export class ResearchJobs {
   private jobs = new Map<string, ResearchJob & { controller?: AbortController }>()
-  private cache: LookupCache
+  private cache: LookupStore
   private getSettings: () => Settings
   private fetchImpl: typeof fetch
 
-  /** `cacheFile`: where finished lookups persist; omit to keep them in memory only. */
-  constructor(getSettings: () => Settings, fetchImpl: typeof fetch = fetch, cacheFile?: string) {
+  /** `cache`: where finished lookups are kept; omit to keep them in memory only. */
+  constructor(getSettings: () => Settings, fetchImpl: typeof fetch = fetch, cache: LookupStore = new MemoryLookupCache()) {
     this.getSettings = getSettings
     this.fetchImpl = fetchImpl
-    this.cache = new LookupCache(cacheFile)
+    this.cache = cache
   }
 
-  /** Start a lookup, or return the one already answering this query. */
-  start(query: string): ResearchJob {
+  /**
+   * Start a lookup, or return the one already answering this query. A
+   * repeat is answered from the cache unless `refresh` asks for a fresh one.
+   */
+  start(query: string, options: { refresh?: boolean } = {}): ResearchJob {
     this.prune()
     const q = query.trim().replace(/\s+/g, ' ')
-    const key = q.toLowerCase()
-    const cached = this.cache.get(key)
+    const key = normalizeQuery(q)
+    const cached = options.refresh ? undefined : this.cache.get(key)
     if (cached) return this.add({ id: randomUUID(), query: q, status: 'done', step: 'done', startedAt: Date.now(), result: cached })
     for (const job of this.jobs.values()) {
-      if (job.status === 'running' && job.query.toLowerCase() === key) return this.view(job)
+      if (job.status === 'running' && normalizeQuery(job.query) === key) return this.view(job)
     }
     if ([...this.jobs.values()].filter((j) => j.status === 'running').length >= MAX_RUNNING) {
       throw new Error(`${MAX_RUNNING} lookups are already running. Wait for one to finish.`)
@@ -385,7 +395,8 @@ export class ResearchJobs {
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(LOOKUP_TIMEOUT_MS)])
     researchFood(q, this.getSettings(), { fetchImpl: this.fetchImpl, signal, onStep: (s) => { job.step = s } })
       .then((result) => {
-        this.cache.set(key, result)
+        // "Nothing reliable found" isn't worth remembering: it would be replayed for a month.
+        if (result.foods.length) this.cache.set(key, result)
         if (job.status === 'running') Object.assign(job, { status: 'done', step: 'done', result })
       })
       .catch((err: Error) => {

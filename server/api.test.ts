@@ -74,6 +74,14 @@ describe('a day of logging', () => {
     expect(day.entries).toEqual([])
   })
 
+  it('lets you correct a database food\'s numbers, and keeps the fix when the weight changes', async () => {
+    const entry = (await logBanana()).body as unknown as Entry
+    const fixed = await call('PATCH', `/api/entries/${entry.id}`, { nutrients: { ...entry.nutrients, fiber: 4 } })
+    expect((fixed.body as unknown as Entry).nutrients.fiber).toBe(4)
+    const doubled = await call('PATCH', `/api/entries/${entry.id}`, { grams: 236 })
+    expect((doubled.body as unknown as Entry).nutrients.fiber).toBe(8)
+  })
+
   it('reports bad input as a 400 with the reason', async () => {
     const res = await call('POST', '/api/entries', { date: 'yesterday', meal: 'lunch' })
     expect(res.status).toBe(400)
@@ -124,6 +132,90 @@ describe('foods and goals', () => {
     const res = await call('GET', '/api/settings')
     expect(res.body).toMatchObject({ hasUsdaKey: true, hasLmStudioToken: true })
     expect(JSON.stringify(res.body)).not.toMatch(/SECRET/)
+  })
+})
+
+describe('online lookup', () => {
+  const REPLY = {
+    found: true, note: '',
+    items: [{
+      name: 'Chicken Bowl', brand: null, serving: { label: '1 bowl', grams: null },
+      nutrients: { calories: 600, protein: 40, fat: 20, carbs: 60, fiber: null },
+      other_servings: [], source_url: 'https://example.com/nutrition',
+    }],
+  }
+  const lmStudio = () => {
+    upstream.mockImplementation(async (url: string) => {
+      if (url.endsWith('/api/v1/models')) {
+        return new Response(JSON.stringify({ models: [{ type: 'llm', key: 'm', loaded_instances: [{ id: 'm' }] }] }))
+      }
+      const enc = new TextEncoder()
+      return new Response(new ReadableStream({
+        start(c) {
+          for (const e of [{ type: 'message.delta', content: JSON.stringify(REPLY) }, { type: 'chat.end', result: {} }]) {
+            c.enqueue(enc.encode(`data: ${JSON.stringify(e)}\n\n`))
+          }
+          c.close()
+        },
+      }), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+    })
+    return () => upstream.mock.calls.filter(([u]) => String(u).endsWith('/api/v1/chat')).length
+  }
+
+  it('answers a repeat from the cache, and looks again only when asked', async () => {
+    const chats = lmStudio()
+    const first = await call('POST', '/api/research', { q: 'chipotle chicken bowl' })
+    expect(first.status).toBe(202)
+    await vi.waitFor(async () => {
+      expect((await call('GET', `/api/research/${first.body.id}`)).body.status).toBe('done')
+    })
+    expect(chats()).toBe(1)
+
+    // Reworded, but the same food: served from the cache.
+    expect((await call('POST', '/api/research', { q: 'Bowl chicken, chipotle' })).body.status).toBe('done')
+    expect(chats()).toBe(1)
+
+    const fresh = await call('POST', '/api/research', { q: 'chipotle chicken bowl', refresh: true })
+    expect(fresh.body.status).toBe('running')
+    await vi.waitFor(() => expect(chats()).toBe(2))
+  })
+})
+
+describe('lm models', () => {
+  it('lists the LLMs LM Studio has, without the token', async () => {
+    upstream.mockImplementation(async () => ({
+      ok: true, status: 200,
+      json: async () => ({ models: [{ type: 'llm', key: 'qwen/qwen3.8-27b', loaded_instances: [] }] }),
+    }))
+    await call('PUT', '/api/settings', { lmStudioToken: 'sk-lm-SECRET' })
+    const res = await call('GET', '/api/lm-models')
+    expect(res.body).toEqual({ models: [{ key: 'qwen/qwen3.8-27b', loaded: false }], error: null })
+    expect(JSON.stringify(res.body)).not.toMatch(/SECRET/)
+  })
+
+  it('reports why the list is empty when LM Studio is unreachable', async () => {
+    upstream.mockRejectedValue(new TypeError('ECONNREFUSED'))
+    const res = await call('GET', '/api/lm-models')
+    expect(res.status).toBe(200)
+    expect(res.body.models).toEqual([])
+    expect(res.body.error).toMatch(/Couldn't reach LM Studio/)
+  })
+})
+
+describe('alcohol', () => {
+  it('logs and undoes a drink over one round trip', async () => {
+    const logged = await call('POST', '/api/alcohol', { date: DAY, kind: 'wine' })
+    expect(logged.status).toBe(201)
+    const id = (logged.body as unknown as { id: string }).id
+    let day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
+    expect(day.alcohol).toEqual({ drinks: 1, byKind: { beer: 0, wine: 1, liquor: 0 }, lastLogId: id })
+    await call('DELETE', `/api/alcohol/${id}`)
+    day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
+    expect(day.alcohol.drinks).toBe(0)
+  })
+
+  it('rejects a kind it does not know', async () => {
+    expect((await call('POST', '/api/alcohol', { date: DAY, kind: 'mead' })).status).toBe(400)
   })
 })
 

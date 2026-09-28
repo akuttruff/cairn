@@ -1,6 +1,6 @@
 import type {
   DayView, Entry, Food, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, Serving,
-  WaterLog,
+  AlcoholKind, AlcoholLog, WaterLog, LmModelOption,
 } from '../types.ts'
 
 /** An online lookup in progress or finished; see server/research.ts. */
@@ -57,10 +57,16 @@ export const api = {
   setGoals: (goals: Partial<Goals>) => request<Goals>('PUT', '/api/goals', goals),
   addWater: (date: string, ounces: number) => request<WaterLog>('POST', '/api/water', { date, ounces }),
   deleteWater: (id: string) => request<{ ok: true }>('DELETE', `/api/water/${encodeURIComponent(id)}`),
+  addAlcohol: (date: string, kind: AlcoholKind) => request<AlcoholLog>('POST', '/api/alcohol', { date, kind }),
+  deleteAlcohol: (id: string) => request<{ ok: true }>('DELETE', `/api/alcohol/${encodeURIComponent(id)}`),
   settings: () => request<PublicSettings>('GET', '/api/settings'),
   setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; autoLookup?: boolean }) =>
     request<PublicSettings>('PUT', '/api/settings', s),
-  startResearch: (q: string) => request<ResearchJob>('POST', '/api/research', { q }),
+  /** LLMs LM Studio has downloaded, for the model picker. `error` says why the list is empty. */
+  lmModels: () => request<{ models: LmModelOption[]; error: string | null }>('GET', '/api/lm-models'),
+  /** `refresh` skips the cached answer and runs a fresh lookup. */
+  startResearch: (q: string, refresh = false) =>
+    request<ResearchJob>('POST', '/api/research', refresh ? { q, refresh: true } : { q }),
   research: (id: string) => request<ResearchJob>('GET', `/api/research/${encodeURIComponent(id)}`),
   cancelResearch: (id: string) => request<{ cancelled: boolean }>('DELETE', `/api/research/${encodeURIComponent(id)}`),
   meals: () => request<MealPreset[]>('GET', '/api/meals'),

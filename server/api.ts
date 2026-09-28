@@ -1,9 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import path from 'node:path'
 import type { Plugin } from 'vite'
 import { Store, ValidationError } from './store.ts'
 import { TtlCache, searchFoods, usdaPortions } from './foods.ts'
-import { ResearchJobs } from './research.ts'
+import { ResearchJobs, listLlms } from './research.ts'
 import type { SearchResult } from './foods.ts'
 import type { Serving } from '../src/types.ts'
 
@@ -63,7 +62,10 @@ export function createApi(options: ApiOptions = {}) {
   const fetchImpl = options.fetchImpl ?? fetch
   const searchCache = new TtlCache<SearchResult>(DAY_MS)
   const portionCache = new TtlCache<Serving[]>(7 * DAY_MS)
-  const research = new ResearchJobs(() => store.getSettings(), fetchImpl, path.join(store.dataDir, 'lookups.json'))
+  const research = new ResearchJobs(() => store.getSettings(), fetchImpl, {
+    get: (key) => store.getLookup(key),
+    set: (key, result) => store.setLookup(key, result),
+  })
 
   const route = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const url = new URL(req.url || '/', 'http://local')
@@ -91,6 +93,14 @@ export function createApi(options: ApiOptions = {}) {
     if (p === '/api/water' && method === 'POST') {
       const body = await readBody(req) as { date?: unknown; ounces?: unknown }
       return json(res, 201, store.addWater(body.date as string, body.ounces as number))
+    }
+    if (p === '/api/alcohol' && method === 'POST') {
+      const body = await readBody(req) as { date?: unknown; kind?: unknown }
+      return json(res, 201, store.addAlcohol(body.date as string, body.kind as string))
+    }
+    if ((m = /^\/api\/alcohol\/([^/]+)$/.exec(p)) && method === 'DELETE') {
+      store.deleteAlcohol(decodeURIComponent(m[1]!))
+      return json(res, 200, { ok: true })
     }
     if ((m = /^\/api\/water\/([^/]+)$/.exec(p)) && method === 'DELETE') {
       store.deleteWater(decodeURIComponent(m[1]!))
@@ -147,12 +157,12 @@ export function createApi(options: ApiOptions = {}) {
 
     // Online lookup through LM Studio + deep-research: slow, so a job to poll.
     if (p === '/api/research' && method === 'POST') {
-      const { q } = await readBody(req) as { q?: unknown }
+      const { q, refresh } = await readBody(req) as { q?: unknown; refresh?: unknown }
       const query = typeof q === 'string' ? q.trim() : ''
       if (query.length < 2) throw new ValidationError('describe the food in at least 2 characters')
       if (query.length > 200) throw new ValidationError('description is too long')
       try {
-        return json(res, 202, research.start(query))
+        return json(res, 202, research.start(query, { refresh: refresh === true }))
       } catch (err) {
         return json(res, 429, { error: (err as Error).message })
       }
@@ -169,6 +179,14 @@ export function createApi(options: ApiOptions = {}) {
     if (p === '/api/goals') {
       if (method === 'GET') return json(res, 200, store.getGoals())
       if (method === 'PUT') return json(res, 200, store.setGoals(await readBody(req) as never))
+    }
+
+    if (p === '/api/lm-models' && method === 'GET') {
+      try {
+        return json(res, 200, { models: await listLlms(store.getSettings(), fetchImpl), error: null })
+      } catch (err) {
+        return json(res, 200, { models: [], error: (err as Error).message })
+      }
     }
 
     if (p === '/api/settings') {

@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Drawer } from 'vaul'
-import { ArrowLeft, Check, Globe, Search, Star, Trash2, TriangleAlert, UtensilsCrossed, X } from 'lucide-react'
+import { ArrowLeft, Check, Globe, Pencil, Search, Star, Trash2, TriangleAlert, UtensilsCrossed, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import type { ResearchJob, SearchResult } from '../lib/api.ts'
 import { calorieMismatch, sumNutrients } from '../lib/nutrition.ts'
 import { describeAmount, entryFor, gramsFor, headline, nutrientsFor, resolveNutrients, unitsFor } from '../lib/units.ts'
-import { MEAL_LABELS, fmt, parseNum } from '../lib/format.ts'
-import type { NutrientDraft } from '../lib/format.ts'
+import { MEAL_LABELS, draftHasJunk, draftOf, fmt, nutrientsOf, parseNum } from '../lib/format.ts'
 import { MEALS, NUTRIENTS } from '../types.ts'
 import type { Food, Meal, MealPreset, NewEntry, Nutrients, Serving } from '../types.ts'
 import NutrientFields from './NutrientFields.tsx'
@@ -301,13 +300,13 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
   // nobody is waiting for.
   const jobRef = useRef<ResearchJob | null>(null)
   useEffect(() => { jobRef.current = job }, [job])
-  const lookUp = useCallback(async (text: string, again = false): Promise<void> => {
+  const lookUp = useCallback(async (text: string, again = false, refresh = false): Promise<void> => {
     const prev = jobRef.current
     // Already looked up (or looking up) these words: nothing to start.
-    if (!again && prev && prev.query.toLowerCase() === text.toLowerCase()) return
+    if (!again && !refresh && prev && prev.query.toLowerCase() === text.toLowerCase()) return
     if (prev?.status === 'running') void api.cancelResearch(prev.id).catch(() => {})
     try {
-      const j = await api.startResearch(text)
+      const j = await api.startResearch(text, refresh)
       if (!isJob(j)) return
       saveJob(j.id)
       setJob(j)
@@ -364,7 +363,7 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
             otherwise push this down just as you reach for it. */}
         {lookupable && (
           <OnlineLookup
-            query={query} job={job} auto={autoLookup} onJob={setJob} onStart={() => void lookUp(query, true)}
+            query={query} job={job} auto={autoLookup} onJob={setJob} onStart={() => void lookUp(query, true)} onRefresh={() => void lookUp(query, true, true)}
             onPick={onPick} favorites={favorites} inMeal={inMeal}
           />
         )}
@@ -440,6 +439,7 @@ function MineTab({ onPick, onApplyMeal }: { onPick: (f: Food) => void; onApplyMe
   const [picking, setPicking] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [building, setBuilding] = useState<Food[] | null>(null)
+  const [editing, setEditing] = useState<Food | null>(null)
 
   useEffect(() => {
     api.foods().then((f) => setFoods(normalizeFoods(f))).catch((err: Error) => setError(err.message))
@@ -486,6 +486,19 @@ function MineTab({ onPick, onApplyMeal }: { onPick: (f: Food) => void; onApplyMe
     })
   }
 
+  if (editing) {
+    return (
+      <EditFood
+        food={editing}
+        onCancel={() => setEditing(null)}
+        onSaved={(saved) => {
+          setFoods((f) => f && { ...f, saved: f.saved.map((x) => (x.id === saved.id ? saved : x)) })
+          setEditing(null)
+        }}
+      />
+    )
+  }
+
   if (building) {
     return (
       <CreateMeal
@@ -528,6 +541,9 @@ function MineTab({ onPick, onApplyMeal }: { onPick: (f: Food) => void; onApplyMe
               ) : (
                 <div key={f.id} className="saved-row">
                   <FoodRow food={f} onPick={onPick} inMeal={inMeal.has(f.id)} />
+                  <button type="button" className="edit-food" aria-label={`Edit ${f.name}`} onClick={() => setEditing(f)}>
+                    <Pencil size={15} aria-hidden="true" />
+                  </button>
                   <button type="button" className="unsave" aria-label={`Remove ${f.name} from My foods`} onClick={() => void remove(f)}>
                     <Star size={16} fill="currentColor" aria-hidden="true" />
                   </button>
@@ -566,6 +582,75 @@ function MineTab({ onPick, onApplyMeal }: { onPick: (f: Food) => void; onApplyMe
           </div>
         </div>
       )}
+    </>
+  )
+}
+
+/**
+ * Correct a saved food's numbers -- fill in the fiber a lookup couldn't find,
+ * fix a value it got wrong -- so every future log of it is right. Blank means
+ * unknown. Entries already logged keep what they were logged with.
+ */
+function EditFood({ food, onCancel, onSaved }: {
+  food: Food
+  onCancel: () => void
+  onSaved: (food: Food) => void
+}) {
+  const [d100, setD100, auto100] = useNutrientDraft(food.per100g ? draftOf(food.per100g) : undefined)
+  const [dServing, setDServing, autoServing] = useNutrientDraft(food.perServing ? draftOf(food.perServing.nutrients) : undefined)
+  const [busy, setBusy] = useState(false)
+
+  const junk = (food.per100g && draftHasJunk(d100)) || (food.perServing && draftHasJunk(dServing))
+
+  const submit = async (): Promise<void> => {
+    if (junk) return
+    setBusy(true)
+    try {
+      const saved = await api.saveFood({
+        ...food,
+        per100g: food.per100g ? nutrientsOf(d100) : undefined,
+        perServing: food.perServing ? { ...food.perServing, nutrients: nutrientsOf(dServing) } : undefined,
+      })
+      toast.success(`Saved ${saved.name}`)
+      onSaved(saved)
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <div className="drawer-scroll" data-vaul-no-drag>
+        <div className="picked-name">
+          <span className="entry-name">{food.name}</span>
+          {food.brand && <span className="entry-sub">{food.brand}</span>}
+        </div>
+        {food.per100g && (
+          <>
+            <h3 className="sheet-h">Per 100 g</h3>
+            <NutrientFields idPrefix="food-100g" value={d100} onChange={setD100} autoCalories={auto100} />
+          </>
+        )}
+        {food.perServing && (
+          <>
+            <h3 className="sheet-h">Per {food.perServing.label}</h3>
+            <NutrientFields idPrefix="food-serving" value={dServing} onChange={setDServing} autoCalories={autoServing} />
+          </>
+        )}
+        <div className="hint">
+          Leave a field blank if it&apos;s unknown. This changes the saved food for future logs; entries you&apos;ve
+          already logged keep their numbers (fix those from the entry).
+        </div>
+        {junk && <div className="hint bad">Numbers only, please.</div>}
+      </div>
+      <div className="drawer-actions">
+        <div className="row">
+          <button type="button" onClick={onCancel}>Cancel</button>
+          <button type="button" className="primary" disabled={busy || Boolean(junk)} onClick={() => void submit()}>Save</button>
+        </div>
+      </div>
     </>
   )
 }
@@ -905,12 +990,14 @@ const isBarcodeQuery = (q: string): boolean => /^\d{8,14}$/.test(q.replace(/[\s-
  * particular build of a bowl. Takes a minute or two, so it runs on the server
  * and this polls; it starts by itself once typing pauses, unless turned off.
  */
-function OnlineLookup({ query, job, auto, onJob, onStart, onPick, favorites, inMeal }: {
+function OnlineLookup({ query, job, auto, onJob, onStart, onRefresh, onPick, favorites, inMeal }: {
   query: string
   job: ResearchJob | null
   auto: boolean
   onJob: (j: ResearchJob | null) => void
   onStart: () => void
+  /** Run the lookup again, ignoring the remembered answer. */
+  onRefresh: () => void
   onPick: (f: Food) => void
   favorites: Favorites
   inMeal: Set<string>
@@ -976,25 +1063,25 @@ function OnlineLookup({ query, job, auto, onJob, onStart, onPick, favorites, inM
         </>
       )}
       {mine.status === 'done' && mine.result && (
-        mine.result.foods.length
-          ? mine.result.foods.map((f) => (
-            <FoodRow
-              key={f.id} food={f} onPick={onPick}
-              favorited={favorites.ids.has(f.id)} onToggleFavorite={(food) => void favorites.toggle(food)}
-              inMeal={inMeal.has(f.id)}
-            />
-          ))
-          : <div className="hint">Nothing reliable found. {mine.result.note}</div>
+        <>
+          {mine.result.foods.length
+            ? mine.result.foods.map((f) => (
+              <FoodRow
+                key={f.id} food={f} onPick={onPick}
+                favorited={favorites.ids.has(f.id)} onToggleFavorite={(food) => void favorites.toggle(food)}
+                inMeal={inMeal.has(f.id)}
+              />
+            ))
+            : <div className="hint">Nothing reliable found. {mine.result.note}</div>}
+          <div className="lookup-again">
+            <button type="button" className="link-btn" onClick={onRefresh}>Look up again</button>
+          </div>
+        </>
       )}
     </section>
   )
 }
 
-function toNutrients(draft: NutrientDraft): Nutrients {
-  const out = {} as Nutrients
-  for (const k of NUTRIENTS) out[k] = parseNum(draft[k])
-  return out
-}
 
 /**
  * A label, a restaurant guess, a recipe: type the numbers in for one
@@ -1009,7 +1096,7 @@ function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => P
   const [save, setSave] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  const n = toNutrients(draft)
+  const n = nutrientsOf(draft)
   const g = parseNum(grams)
   const label = serving.trim() || '1 serving'
   const badNumber = NUTRIENTS.some((k) => draft[k].trim() && (n[k] == null || n[k]! < 0))

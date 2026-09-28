@@ -4,8 +4,7 @@ import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import { scale } from '../lib/nutrition.ts'
 import { multiply } from '../lib/units.ts'
-import { MEAL_LABELS, emptyDraft, parseNum } from '../lib/format.ts'
-import type { NutrientDraft } from '../lib/format.ts'
+import { MEAL_LABELS, draftHasJunk, draftOf, nutrientsOf, parseNum } from '../lib/format.ts'
 import { MEALS, NUTRIENTS } from '../types.ts'
 import type { Entry, Meal, Nutrients } from '../types.ts'
 import NutrientFields from './NutrientFields.tsx'
@@ -19,12 +18,6 @@ interface EntrySheetProps {
   entry: Entry | null
   onClose: () => void
   onChanged: () => void
-}
-
-const toDraft = (n: Nutrients): NutrientDraft => {
-  const d = emptyDraft()
-  for (const k of NUTRIENTS) d[k] = n[k] == null ? '' : String(n[k])
-  return d
 }
 
 /**
@@ -50,7 +43,10 @@ function EntryForm({ entry, onClose, onChanged }: { entry: Entry; onClose: () =>
   const [meal, setMeal] = useState<Meal>(entry.meal)
   const [grams, setGrams] = useState(entry.grams == null ? '' : String(entry.grams))
   const [qty, setQty] = useState(entry.amount ? String(entry.amount.quantity) : '')
-  const [draft, setDraft, caloriesIsAuto] = useNutrientDraft(toDraft(entry.perUnit ?? entry.nutrients))
+  const [draft, setDraft, caloriesIsAuto] = useNutrientDraft(draftOf(entry.perUnit ?? entry.nutrients))
+  // Fixing what a database or lookup got wrong or left out; see numbersEdit below.
+  const [numbersOpen, setNumbersOpen] = useState(false)
+  const [numDraft, setNumDraft, numAuto] = useNutrientDraft(draftOf(entry.nutrients))
   const [busy, setBusy] = useState(false)
 
   // Edit in the unit it was logged in ("1.5 cup"); by weight if it was
@@ -89,6 +85,10 @@ function EntryForm({ entry, onClose, onChanged }: { entry: Entry; onClose: () =>
       if (!gramsOk) return
       if (g !== entry.grams) patch.grams = g!
     }
+    if (numbersOpen) {
+      const n = nutrientsOf(numDraft)
+      if (NUTRIENTS.some((k) => n[k] !== entry.nutrients[k])) patch.nutrients = n
+    }
     if (ownNumbers) {
       const n = draftNumbers()
       if (n.calories == null) { toast.error('Calories are required'); return }
@@ -123,6 +123,9 @@ function EntryForm({ entry, onClose, onChanged }: { entry: Entry; onClose: () =>
 
   const shown = preview()
   const amountOk = byQuantity ? qtyOk : byWeight ? gramsOk : true
+  // Your own entries already show their numbers above; everything else can be corrected here.
+  const canEditNumbers = !ownNumbers
+  const numbersOk = !numbersOpen || !draftHasJunk(numDraft)
 
   return (
     <>
@@ -154,12 +157,26 @@ function EntryForm({ entry, onClose, onChanged }: { entry: Entry; onClose: () =>
                 <NutrientFields idPrefix="edit" value={draft} onChange={setDraft} autoCalories={caloriesIsAuto} />
               </>
             )}
-            {shown && <Preview nutrients={shown} />}
+            {canEditNumbers && (numbersOpen
+              ? (
+                <>
+                  <h3 className="sheet-h">Nutrition for this portion</h3>
+                  <NutrientFields idPrefix="edit-num" value={numDraft} onChange={setNumDraft} autoCalories={numAuto} />
+                  <div className="hint">
+                    Fill in what&apos;s missing or fix what&apos;s wrong -- leave a field blank if it&apos;s unknown.
+                    Only what you change is corrected, and a saved copy of this food is updated to match.
+                    If you also change the amount, these numbers are for the amount as logged.
+                  </div>
+                  {!numbersOk && <div className="hint bad">Numbers only, please.</div>}
+                </>
+              )
+              : <button type="button" className="link-btn" onClick={() => setNumbersOpen(true)}>Edit nutrition numbers</button>)}
+            {shown && !numbersOpen && <Preview nutrients={shown} />}
           </div>
           <div className="drawer-actions">
             <div className="row">
               <button type="button" className="danger" disabled={busy} onClick={() => void remove()}>Delete</button>
-              <button type="button" className="primary" disabled={busy || !amountOk} onClick={() => void save()}>Save</button>
+              <button type="button" className="primary" disabled={busy || !amountOk || !numbersOk} onClick={() => void save()}>Save</button>
             </div>
           </div>
     </>

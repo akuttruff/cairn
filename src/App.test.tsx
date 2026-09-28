@@ -25,6 +25,7 @@ const day = (entries: Entry[], over: Partial<DayView> = {}): DayView => ({
   totals: { calories: 190, protein: 6.5, fat: 3.4, carbs: 33, fiber: 5 },
   missing: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 },
   water: { ounces: 0, goal: 96, lastLogId: null },
+  alcohol: { drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, lastLogId: null },
   ...over,
 })
 
@@ -284,6 +285,53 @@ describe('App', () => {
     expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ grams: 80 })
   })
 
+  it('fills in a missing nutrient on a logged entry, sending only corrected numbers', async () => {
+    const user = userEvent.setup()
+    const noFiber = entry({ nutrients: { calories: 190, protein: 6.5, fat: 3.4, carbs: 33, fiber: null } })
+    const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([noFiber]), 'PATCH /api/entries/e1': noFiber })
+    render(<App />)
+    await user.click(await screen.findByText('Oats'))
+    await user.click(await screen.findByRole('button', { name: 'Edit nutrition numbers' }))
+    expect(screen.getByLabelText('Fiber (g)')).toHaveValue('')
+    await user.type(screen.getByLabelText('Fiber (g)'), '4.5')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({
+      nutrients: { calories: 190, protein: 6.5, fat: 3.4, carbs: 33, fiber: 4.5 },
+    })
+  })
+
+  it('does not send numbers that were opened but left alone', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([entry()]), 'PATCH /api/entries/e1': entry() })
+    render(<App />)
+    await user.click(await screen.findByText('Oats'))
+    await user.click(await screen.findByRole('button', { name: 'Edit nutrition numbers' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({})
+  })
+
+  it('edits the numbers of a saved food in My foods', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/foods': { saved: [{ ...banana, per100g: { ...banana.per100g!, fiber: null } }], recent: [] },
+      'POST /api/foods': banana,
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.click(await screen.findByRole('tab', { name: 'My foods' }))
+    await user.click(await screen.findByRole('button', { name: 'Edit Bananas, raw' }))
+    expect(screen.getByLabelText('Fiber (g)')).toHaveValue('')
+    await user.type(screen.getByLabelText('Fiber (g)'), '2.6')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/foods')).toBe(true))
+    expect(calls.find((c) => c.method === 'POST' && c.url === '/api/foods')!.body).toMatchObject({
+      id: banana.id, per100g: { calories: 89, protein: 1.1, fat: 0.3, carbs: 22.8, fiber: 2.6 },
+    })
+  })
+
   it('deletes an entry', async () => {
     const user = userEvent.setup()
     const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([entry()]), 'DELETE /api/entries/e1': { ok: true } })
@@ -326,6 +374,53 @@ describe('App', () => {
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Undo' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/water/w1')).toBe(true))
+  })
+
+  it('picks the lookup model from the ones LM Studio has, loaded or not', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/settings': { hasUsdaKey: false, researchModel: '' },
+      'GET /api/lm-models': { models: [{ key: 'qwen/qwen3.8-27b', loaded: false }], error: null },
+      'PUT /api/goals': GOALS,
+      'PUT /api/settings': {},
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    await user.selectOptions(await screen.findByLabelText('Model'), 'qwen/qwen3.8-27b')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/settings')).toBe(true))
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/settings')!.body).toEqual({ researchModel: 'qwen/qwen3.8-27b' })
+  })
+
+  it('shows the drinks logged today by kind, with no goal', async () => {
+    stubApi({ [`GET /api/day/${TODAY}`]: day([], { alcohol: { drinks: 3, byKind: { beer: 1, wine: 2, liquor: 0 }, lastLogId: 'a3' } }) })
+    render(<App />)
+    const card = await screen.findByRole('region', { name: 'Alcohol' })
+    expect(within(card).getByText('3')).toBeInTheDocument()
+    expect(within(card).getByText('1 beer · 2 wine')).toBeInTheDocument()
+    expect(within(card).queryByRole('progressbar')).not.toBeInTheDocument()
+  })
+
+  it('logs a drink of the kind tapped', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'POST /api/alcohol': { id: 'a1', date: TODAY, kind: 'wine', createdAt: 1 } })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: /\+ Wine/ }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/alcohol')).toBe(true))
+    expect(calls.find((c) => c.url === '/api/alcohol')!.body).toEqual({ date: TODAY, kind: 'wine' })
+  })
+
+  it('undoes the last drink', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([], { alcohol: { drinks: 1, byKind: { beer: 1, wine: 0, liquor: 0 }, lastLogId: 'a1' } }),
+      'DELETE /api/alcohol/a1': { ok: true },
+    })
+    render(<App />)
+    const card = await screen.findByRole('region', { name: 'Alcohol' })
+    await user.click(within(card).getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/alcohol/a1')).toBe(true))
   })
 
   it('saves goals and never displays the stored USDA key', async () => {
@@ -419,6 +514,31 @@ describe('App', () => {
     expect(calls.find((c) => c.method === 'POST' && c.url === '/api/foods')!.body).toMatchObject(bowl)
     expect(screen.queryByLabelText('Amount')).not.toBeInTheDocument()
     expect(calls.some((c) => c.url === '/api/entries')).toBe(false)
+  }, 15_000)
+
+  it('looks an online result up again on request, bypassing the cached answer', async () => {
+    const user = userEvent.setup()
+    const bowl: Food = {
+      id: 'web:chipotle-bowl', name: 'Chicken Burrito Bowl', brand: 'Chipotle', source: 'web',
+      perServing: { label: '1 bowl', grams: null, nutrients: { calories: 660, protein: 50, fat: 21, carbs: 68, fiber: null } },
+    }
+    const job = { id: 'j1', query: 'chipotle chicken bowl', startedAt: Date.now() }
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/search': { usda: [], off: [], errors: [] },
+      'POST /api/research': { ...job, status: 'running', step: 'starting' },
+      'GET /api/research/j1': { ...job, status: 'done', step: 'done', result: { query: job.query, foods: [bowl], model: 'qwen/qwen3.8-27b', seconds: 74 } },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.type(await screen.findByLabelText('Search foods'), 'chipotle chicken bowl')
+    await screen.findByText('Chicken Burrito Bowl', {}, { timeout: 5000 })
+
+    await user.click(screen.getByRole('button', { name: 'Look up again' }))
+    await waitFor(() => expect(calls.filter((c) => c.url === '/api/research' && c.method === 'POST')).toHaveLength(2))
+    const posts = calls.filter((c) => c.url === '/api/research' && c.method === 'POST')
+    expect(posts[0]!.body).toEqual({ q: 'chipotle chicken bowl' })
+    expect(posts[1]!.body).toEqual({ q: 'chipotle chicken bowl', refresh: true })
   }, 15_000)
 
   it('shows a search result as already saved when it matches something already in My foods', async () => {

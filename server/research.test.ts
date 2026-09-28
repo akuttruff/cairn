@@ -1,8 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
-import { RESEARCH_PLUGIN, ResearchJobs, chooseModel, extractJson, researchFood, toFoods } from './research.ts'
+import { RESEARCH_PLUGIN, ResearchJobs, chooseModel, extractJson, listLlms, normalizeQuery, researchFood, toFoods } from './research.ts'
+import type { LookupStore } from './research.ts'
 import type { Settings } from '../src/types.ts'
 
 const SETTINGS: Settings = { usdaApiKey: '', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: 'sk-lm-T', researchModel: '', autoLookup: true }
@@ -57,6 +55,16 @@ function lmStudio(reply: string, extra: object[] = []) {
   }) as unknown as typeof fetch
   return { fetchImpl, calls }
 }
+
+describe('normalizeQuery', () => {
+  it('ignores case, punctuation, order and repeats', () => {
+    expect(normalizeQuery("Chipotle Chicken-Bowl!")).toBe('bowl chicken chipotle')
+    expect(normalizeQuery('bowl  chicken chipotle bowl')).toBe('bowl chicken chipotle')
+  })
+  it('keeps distinct foods distinct', () => {
+    expect(normalizeQuery('chicken bowl')).not.toBe(normalizeQuery('chicken burrito bowl'))
+  })
+})
 
 describe('extractJson', () => {
   it('finds the object in a fenced block with prose around it', () => {
@@ -131,6 +139,27 @@ describe('chooseModel', () => {
   })
 })
 
+describe('listLlms', () => {
+  it('lists downloaded LLMs, loaded first, and leaves out embedding models', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ models: [
+      { type: 'llm', key: 'b/unloaded', loaded_instances: [] },
+      { type: 'embedding', key: 'nomic', loaded_instances: [{ id: 'nomic' }] },
+      { type: 'llm', key: 'a/unloaded' },
+      { type: 'llm', key: 'z/loaded', loaded_instances: [{ id: 'z/loaded' }] },
+    ] }))) as unknown as typeof fetch
+    expect(await listLlms(SETTINGS, fetchImpl)).toEqual([
+      { key: 'z/loaded', loaded: true },
+      { key: 'a/unloaded', loaded: false },
+      { key: 'b/unloaded', loaded: false },
+    ])
+  })
+
+  it('says when LM Studio is down', async () => {
+    const down = vi.fn(async () => { throw new TypeError('ECONNREFUSED') }) as unknown as typeof fetch
+    await expect(listLlms(SETTINGS, down)).rejects.toThrow(/Couldn't reach LM Studio/)
+  })
+})
+
 describe('researchFood', () => {
   it('asks LM Studio with the deep-research plugin and parses the answer', async () => {
     const { fetchImpl, calls } = lmStudio(`Based on the menu:\n\`\`\`json\n${JSON.stringify(BOWL_REPLY)}\n\`\`\``)
@@ -197,25 +226,55 @@ describe('ResearchJobs', () => {
     expect(calls.filter((c) => c.url.endsWith('/chat'))).toHaveLength(chats)
   })
 
-  it("keeps finished lookups on disk, so a restart doesn't repeat them", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'macros-lookups-'))
-    try {
-      const file = path.join(dir, 'lookups.json')
-      const { fetchImpl, calls } = lmStudio(JSON.stringify(BOWL_REPLY))
-      const first = new ResearchJobs(() => SETTINGS, fetchImpl, file)
-      const job = first.start('chipotle bowl')
-      await vi.waitFor(() => expect(first.get(job.id)!.status).toBe('done'))
-      expect((fs.statSync(file).mode & 0o777).toString(8)).toBe('600')
+  it('answers a reworded repeat from cache too', async () => {
+    const { fetchImpl, calls } = lmStudio(JSON.stringify(BOWL_REPLY))
+    const jobs = new ResearchJobs(() => SETTINGS, fetchImpl)
+    const first = jobs.start('Chipotle chicken bowl')
+    await vi.waitFor(() => expect(jobs.get(first.id)!.status).toBe('done'))
+    const chats = calls.filter((c) => c.url.endsWith('/chat')).length
+    expect(jobs.start('bowl, chicken chipotle').status).toBe('done')
+    expect(calls.filter((c) => c.url.endsWith('/chat'))).toHaveLength(chats)
+  })
 
-      const chats = calls.filter((c) => c.url.endsWith('/chat')).length
-      const restarted = new ResearchJobs(() => SETTINGS, fetchImpl, file)
-      const again = restarted.start('Chipotle Bowl')
-      expect(again.status).toBe('done')
-      expect(again.result!.foods[0]!.name).toBe('Chicken Burrito Bowl')
-      expect(calls.filter((c) => c.url.endsWith('/chat'))).toHaveLength(chats)
-    } finally {
-      fs.rmSync(dir, { recursive: true, force: true })
-    }
+  it('does not remember "nothing reliable found"', async () => {
+    const { fetchImpl, calls } = lmStudio(JSON.stringify({ found: false, items: [], note: 'no such thing' }))
+    const jobs = new ResearchJobs(() => SETTINGS, fetchImpl)
+    const first = jobs.start('unicorn steak')
+    await vi.waitFor(() => expect(jobs.get(first.id)!.status).toBe('done'))
+    expect(jobs.get(first.id)!.result!.foods).toEqual([])
+    const chats = calls.filter((c) => c.url.endsWith('/chat')).length
+    const again = jobs.start('unicorn steak')
+    expect(again.status).toBe('running')
+    await vi.waitFor(() => expect(calls.filter((c) => c.url.endsWith('/chat'))).toHaveLength(chats + 1))
+  })
+
+  it('looks up again on request, even when the answer is cached', async () => {
+    const { fetchImpl, calls } = lmStudio(JSON.stringify(BOWL_REPLY))
+    const jobs = new ResearchJobs(() => SETTINGS, fetchImpl)
+    const first = jobs.start('chipotle bowl')
+    await vi.waitFor(() => expect(jobs.get(first.id)!.status).toBe('done'))
+    const chats = calls.filter((c) => c.url.endsWith('/chat')).length
+    const fresh = jobs.start('chipotle bowl', { refresh: true })
+    expect(fresh.status).toBe('running')
+    await vi.waitFor(() => expect(jobs.get(fresh.id)!.status).toBe('done'))
+    expect(calls.filter((c) => c.url.endsWith('/chat'))).toHaveLength(chats + 1)
+  })
+
+  it('keeps finished lookups in whatever cache it is given', async () => {
+    const kept = new Map<string, unknown>()
+    const cache: LookupStore = { get: (k) => kept.get(k) as never, set: (k, r) => { kept.set(k, r) } }
+    const { fetchImpl, calls } = lmStudio(JSON.stringify(BOWL_REPLY))
+    const first = new ResearchJobs(() => SETTINGS, fetchImpl, cache)
+    const job = first.start('chipotle bowl')
+    await vi.waitFor(() => expect(first.get(job.id)!.status).toBe('done'))
+    expect([...kept.keys()]).toEqual(['bowl chipotle'])
+
+    const chats = calls.filter((c) => c.url.endsWith('/chat')).length
+    const restarted = new ResearchJobs(() => SETTINGS, fetchImpl, cache)
+    const again = restarted.start('Chipotle Bowl')
+    expect(again.status).toBe('done')
+    expect(again.result!.foods[0]!.name).toBe('Chicken Burrito Bowl')
+    expect(calls.filter((c) => c.url.endsWith('/chat'))).toHaveLength(chats)
   })
 
   it('joins a lookup already running for the same food', () => {

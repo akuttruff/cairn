@@ -107,6 +107,17 @@ export interface DayTotals {
   missing: Record<NutrientKey, number>
 }
 
+export const ALCOHOL_KINDS = ['beer', 'wine', 'liquor'] as const
+export type AlcoholKind = (typeof ALCOHOL_KINDS)[number]
+
+/** One standard drink (12 oz beer, 5 oz wine, 1.5 oz liquor). Tracked, never held to a goal. */
+export interface AlcoholLog {
+  id: string
+  date: string
+  kind: AlcoholKind
+  createdAt: number
+}
+
 /** One log of water drunk -- a bottle, a glass, whatever amount. */
 export interface WaterLog {
   id: string
@@ -123,6 +134,13 @@ export interface DayView extends DayTotals {
     /** Total logged for this day. */
     ounces: number
     goal: number
+    /** The most recent log's id, for a one-tap undo. Null with nothing logged yet. */
+    lastLogId: string | null
+  }
+  alcohol: {
+    /** Standard drinks logged for this day. */
+    drinks: number
+    byKind: Record<AlcoholKind, number>
     /** The most recent log's id, for a one-tap undo. Null with nothing logged yet. */
     lastLogId: string | null
   }
@@ -175,6 +193,12 @@ export interface Settings {
   researchModel: string
   /** Start an online lookup by itself once you stop typing. */
   autoLookup: boolean
+}
+
+/** An LLM LM Studio has downloaded, and whether it's loaded right now. */
+export interface LmModelOption {
+  key: string
+  loaded: boolean
 }
 
 /** What the browser may see of the settings: never a key or token itself. */

@@ -15,6 +15,7 @@
   --c-carbs: #C97B5A;
   --c-fiber: #A58FC4;
   --c-water: #4FB8C9;
+  --c-alcohol: #B8626F;
   --radius: 12px;
   --mono: "SF Mono", ui-monospace, Menlo, monospace;
   font-size: 16px;
@@ -163,6 +164,10 @@ button:disabled { opacity: 0.45; cursor: default; }
   gap: 6px;
 }
 .water-add:active { opacity: 0.7; }
+/* Three buttons share the row, so they're a touch tighter than the single water one. */
+.alcohol-summary { display: flex; align-items: baseline; gap: 10px; }
+/* Undo lives up by the count, so the three buttons always share the whole row equally. */
+.alcohol-add { min-width: 0; white-space: nowrap; border-color: var(--c-alcohol); color: var(--c-alcohol); padding: 11px 6px; font-size: 13px; gap: 4px; }
 .water-undo {
   display: flex;
   align-items: center;
@@ -384,6 +389,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .saved-row { display: flex; align-items: center; }
 .saved-row .food-row { flex: 1; min-width: 0; }
 .unsave { background: none; border: none; color: var(--amber); padding: 10px 4px 10px 12px; }
+.edit-food { background: none; border: none; color: var(--paper-dim); padding: 10px 4px 10px 10px; }
 
 /* Picking which saved foods go into a new meal. */
 .pick-row {
@@ -476,6 +482,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 /* --- amounts and online lookup --- */
 .amount-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 10px; }
 .amount-row .field select { width: 100%; }
+.lookup-again { text-align: right; margin: 2px 0 8px; }
 .lookup-btn {
   display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 12px 14px; margin: 4px 0 6px;
