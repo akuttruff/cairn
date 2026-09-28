@@ -9,7 +9,12 @@ export default defineConfig({
     host: true,
     port: 8200,
     strictPort: true,
+    // Also reachable over Tailscale, via `tailscale serve`.
+    allowedHosts: ['<your-machine>.<your-tailnet>.ts.net'],
     watch: { ignored: ['**/coverage/**', '**/.data/**'] },
   },
-  preview: { host: true, port: 8200, strictPort: true },
+  // A separate port from `server` above: this is the persistent, built
+  // instance Tailscale points at, so it can run alongside `npm run dev`
+  // (unbundled, for local iteration) without a port clash.
+  preview: { host: true, port: 8210, strictPort: true, allowedHosts: ['<your-machine>.<your-tailnet>.ts.net'] },
 })
