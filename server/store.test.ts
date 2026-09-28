@@ -212,6 +212,16 @@ describe('foods', () => {
     expect(store.recentFoods()).toHaveLength(1)
   })
 
+  it('offers at most the requested number of recent foods, newest first', () => {
+    for (let i = 0; i < 5; i++) store.addEntry(banana({ name: `Food ${i}`, foodId: `usda:${i}` }))
+    expect(store.recentFoods(3).map((f) => f.name)).toEqual(['Food 4', 'Food 3', 'Food 2'])
+  })
+
+  it('leaves out an entry that has no basis to log it again', () => {
+    store.addEntry({ date: DAY, meal: 'lunch', name: 'Burrito', grams: null, source: 'custom', nutrients: BANANA_100G })
+    expect(store.recentFoods()).toEqual([])
+  })
+
   it('does not snapshot a saved food into history', () => {
     // Editing a saved food must never rewrite what was already eaten.
     store.addEntry(banana())
@@ -407,6 +417,16 @@ describe('meal presets', () => {
     expect(store.getDay(DAY).entries).toHaveLength(0) // neither item was logged
   })
 
+  it('logs nothing if any food in the meal fails partway through', () => {
+    const preset = store.savePreset({ name: 'Breakfast', items: [eggs, toast] })
+    // Break the second item behind the store's back: per-serving numbers with no amount.
+    const db = openRaw()
+    db.prepare('UPDATE meal_preset_items SET amount_quantity = NULL WHERE preset_id = ? AND position = 1').run(preset.id)
+    db.close()
+    expect(() => store.applyPreset(preset.id, DAY, 'breakfast')).toThrow(/amount is required/)
+    expect(store.getDay(DAY).entries).toHaveLength(0) // not even the eggs
+  })
+
   it('rejects applying a meal that does not exist', () => {
     expect(() => store.applyPreset('meal:missing', DAY, 'breakfast')).toThrow(/no such meal/)
   })
@@ -520,6 +540,16 @@ describe('online lookup cache', () => {
     expect(store.getLookup('q0')).toBeUndefined()
     expect(store.getLookup('q204')).toEqual(RESULT)
     expect((allRows('lookup_cache') as unknown[]).length).toBe(200)
+  })
+
+  it('shows the corrected copy of a saved food in a cached lookup that found it', () => {
+    const BOWL = { calories: 660, protein: 50, fat: 21, carbs: 68, fiber: null }
+    const found = { id: 'web:bowl', name: 'Bowl', source: 'web' as const, perServing: { label: '1 bowl', grams: null, nutrients: BOWL } }
+    store.setLookup('bowl chipotle', { ...RESULT, foods: [found] })
+    const atBefore = (allRows('lookup_cache')[0] as { at: number }).at
+    store.saveFood({ ...found, perServing: { ...found.perServing, nutrients: { ...BOWL, fiber: 12 } } })
+    expect(store.getLookup('bowl chipotle')!.foods[0]!.perServing!.nutrients.fiber).toBe(12)
+    expect((allRows('lookup_cache')[0] as { at: number }).at).toBe(atBefore)
   })
 
   it('imports the old lookups.json once, re-keyed, dropping empty answers', () => {

@@ -232,6 +232,16 @@ function migrateSchema(db: DatabaseSync): void {
 // Row <-> domain mapping
 // ---------------------------------------------------------------------------
 
+function groupBy<T, K extends keyof T>(rows: T[], key: K): Map<T[K], T[]> {
+  const out = new Map<T[K], T[]>()
+  for (const r of rows) {
+    const list = out.get(r[key])
+    if (list) list.push(r)
+    else out.set(r[key], [r])
+  }
+  return out
+}
+
 function nutrientValues(n: Nutrients): (number | null)[] {
   return [n.calories, n.protein, n.fat, n.carbs, n.fiber]
 }
@@ -506,7 +516,12 @@ export interface StoreOptions {
 interface Stmts {
   selectEntry: StatementSync
   selectEntriesByDate: StatementSync
-  selectAllEntries: StatementSync
+  selectRecentPerFood: StatementSync
+  selectAllFoodServings: StatementSync
+  selectAllFoodSources: StatementSync
+  selectAllPresetItems: StatementSync
+  selectAllLookups: StatementSync
+  updateLookupResult: StatementSync
   insertEntry: StatementSync
   updateEntry: StatementSync
   deleteEntry: StatementSync
@@ -567,7 +582,23 @@ export class Store {
     this.stmts = {
       selectEntry: this.db.prepare('SELECT * FROM entries WHERE id = ?'),
       selectEntriesByDate: this.db.prepare('SELECT * FROM entries WHERE date = ?'),
-      selectAllEntries: this.db.prepare('SELECT * FROM entries ORDER BY created_at DESC'),
+      // The latest entry of each distinct food that can be logged again (it
+      // has a per-100g or per-serving basis) -- deduplicated in SQL so this
+      // never reads the whole log, however long it gets.
+      selectRecentPerFood: this.db.prepare(`
+        SELECT * FROM (
+          SELECT *, rowid AS rid, ROW_NUMBER() OVER (
+            PARTITION BY COALESCE(NULLIF(food_id, ''), name || '|' || COALESCE(brand, ''))
+            ORDER BY created_at DESC, rowid DESC
+          ) AS rn
+          FROM entries
+          WHERE has_per100g = 1 OR (has_per_unit = 1 AND amount_quantity IS NOT NULL)
+        ) WHERE rn = 1 ORDER BY created_at DESC, rid DESC LIMIT ?`),
+      selectAllFoodServings: this.db.prepare('SELECT * FROM food_servings ORDER BY food_id, position'),
+      selectAllFoodSources: this.db.prepare('SELECT * FROM food_sources ORDER BY food_id, position'),
+      selectAllPresetItems: this.db.prepare('SELECT * FROM meal_preset_items ORDER BY preset_id, position'),
+      selectAllLookups: this.db.prepare('SELECT key, result FROM lookup_cache'),
+      updateLookupResult: this.db.prepare('UPDATE lookup_cache SET result = ? WHERE key = ?'),
       insertEntry: this.db.prepare(
         `INSERT INTO entries (id,date,meal,name,brand,grams,amount_quantity,amount_unit,amount_unit_grams,
           nutrients_calories,nutrients_protein,nutrients_fat,nutrients_carbs,nutrients_fiber,
@@ -970,7 +1001,15 @@ export class Store {
 
   listFoods(): Food[] {
     const rows = this.stmts.selectAllFoods.all() as unknown as FoodRow[]
-    return rows.map((r) => this.loadFood(r)).sort((a, b) => a.name.localeCompare(b.name))
+    const servings = groupBy(this.stmts.selectAllFoodServings.all() as unknown as { food_id: string; label: string; grams: number }[], 'food_id')
+    const sources = groupBy(this.stmts.selectAllFoodSources.all() as unknown as { food_id: string; title: string; url: string }[], 'food_id')
+    return rows
+      .map((r) => foodFromRow(
+        r,
+        (servings.get(r.id) ?? []).map((x) => ({ label: x.label, grams: x.grams })),
+        (sources.get(r.id) ?? []).map((x) => ({ title: x.title, url: x.url })),
+      ))
+      .sort((a, b) => a.name.localeCompare(b.name))
   }
 
   /**
@@ -979,13 +1018,10 @@ export class Store {
    * to save.
    */
   recentFoods(limit = 20): Food[] {
-    const all = (this.stmts.selectAllEntries.all() as unknown as EntryRow[]).map(entryFromRow)
-    const seen = new Set<string>()
+    const latest = (this.stmts.selectRecentPerFood.all(limit) as unknown as EntryRow[]).map(entryFromRow)
     const out: Food[] = []
-    for (const e of all) {
+    for (const e of latest) {
       const key = e.foodId || `${e.name}|${e.brand ?? ''}`
-      if (seen.has(key) || !(e.per100g || (e.perUnit && e.amount))) continue
-      seen.add(key)
       const food: Food = { id: e.foodId || `recent:${key}`, name: e.name, brand: e.brand, source: e.source }
       if (e.per100g) {
         food.per100g = e.per100g
@@ -996,7 +1032,6 @@ export class Store {
         food.perServing = { label: e.amount.unit, grams: e.amount.unitGrams, nutrients: e.perUnit }
       }
       out.push(food)
-      if (out.length >= limit) break
     }
     return out
   }
@@ -1033,10 +1068,28 @@ export class Store {
       this.stmts.deleteFoodSources.run(food.id)
       ;(food.servings ?? []).forEach((s, i) => this.stmts.insertFoodServing.run(food.id, i, s.label, s.grams))
       ;(food.sources ?? []).forEach((s, i) => this.stmts.insertFoodSource.run(food.id, i, s.title, s.url))
+      this.syncCachedLookups(food)
       this.db.exec('COMMIT')
     } catch (err) {
       this.db.exec('ROLLBACK')
       throw err
+    }
+  }
+
+  /**
+   * A cached online lookup that found this food shows the saved copy from
+   * now on, so a correction (fiber filled in, a wrong value fixed) isn't
+   * undone by picking the same food from a repeat lookup. The cache's age
+   * is left alone: this isn't a fresh lookup.
+   */
+  private syncCachedLookups(food: Food): void {
+    for (const row of this.stmts.selectAllLookups.all() as unknown as { key: string; result: string }[]) {
+      if (!row.result.includes(JSON.stringify(food.id))) continue
+      let result: ResearchResult
+      try { result = JSON.parse(row.result) as ResearchResult } catch { continue }
+      if (!result.foods.some((f) => f.id === food.id)) continue
+      result.foods = result.foods.map((f) => (f.id === food.id ? food : f))
+      this.stmts.updateLookupResult.run(JSON.stringify(result), row.key)
     }
   }
 
@@ -1054,7 +1107,10 @@ export class Store {
 
   listPresets(): MealPreset[] {
     const rows = this.stmts.selectAllPresets.all() as unknown as { id: string; name: string; created_at: number }[]
-    return rows.map((r) => this.loadPreset(r)).sort((a, b) => a.name.localeCompare(b.name))
+    const items = groupBy(this.stmts.selectAllPresetItems.all() as unknown as (PresetItemRow & { preset_id: string })[], 'preset_id')
+    return rows
+      .map((r) => ({ id: r.id, name: r.name, items: (items.get(r.id) ?? []).map(presetItemFromRow), createdAt: r.created_at }))
+      .sort((a, b) => a.name.localeCompare(b.name))
   }
 
   /** A named group of foods -- create with no id, or save an edit with one. */
@@ -1099,7 +1155,17 @@ export class Store {
     if (!isDateString(date)) throw new ValidationError('date must be YYYY-MM-DD')
     if (!MEALS.includes(meal as Meal)) throw new ValidationError(`meal must be one of ${MEALS.join(', ')}`)
     const preset = this.loadPreset(row)
-    return preset.items.map((item) => this.addEntry({ ...item, date, meal: meal as Meal }))
+    // All or nothing: a food that fails validation partway must not leave
+    // the ones before it logged.
+    this.db.exec('BEGIN')
+    try {
+      const entries = preset.items.map((item) => this.addEntry({ ...item, date, meal: meal as Meal }))
+      this.db.exec('COMMIT')
+      return entries
+    } catch (err) {
+      this.db.exec('ROLLBACK')
+      throw err
+    }
   }
 
   // --- goals and settings -----------------------------------------------------
