@@ -6,7 +6,7 @@ import type { SQLInputValue, StatementSync } from 'node:sqlite'
 import { MEALS, NUTRIENTS } from '../src/types.ts'
 import type {
   Amount, DayView, Entry, Food, FoodSource, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients,
-  PerServing, PublicSettings, Serving, Settings, SourceLink,
+  PerServing, PublicSettings, Serving, Settings, SourceLink, WaterLog,
 } from '../src/types.ts'
 import { DEFAULT_GOALS, isDateString, scale, sumDay } from '../src/lib/nutrition.ts'
 import { multiply } from '../src/lib/units.ts'
@@ -20,6 +20,8 @@ export class ValidationError extends Error {}
 
 const MAX_NAME = 200
 const BACKUP_KEEP = 20
+/** 3 x 32oz bottles, the user's actual daily habit. */
+const DEFAULT_WATER_OUNCES = 96
 
 /** A nutrient value is a finite, non-negative number, or null for unknown. */
 function cleanNutrients(input: unknown, label: string): Nutrients {
@@ -172,10 +174,16 @@ CREATE TABLE IF NOT EXISTS meal_preset_items (
 );
 
 CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY CHECK (id = 1),
-  calories REAL NOT NULL, protein REAL NOT NULL, fat REAL NOT NULL, carbs REAL NOT NULL, fiber REAL NOT NULL);
+  calories REAL NOT NULL, protein REAL NOT NULL, fat REAL NOT NULL, carbs REAL NOT NULL, fiber REAL NOT NULL,
+  water_ounces REAL NOT NULL DEFAULT 96);
 CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK (id = 1),
   usda_api_key TEXT NOT NULL DEFAULT '', lm_studio_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:1234',
   lm_studio_token TEXT NOT NULL DEFAULT '', research_model TEXT NOT NULL DEFAULT '', auto_lookup INTEGER NOT NULL DEFAULT 1);
+
+CREATE TABLE IF NOT EXISTS water_logs (
+  id TEXT PRIMARY KEY, date TEXT NOT NULL, ounces REAL NOT NULL, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_water_logs_date ON water_logs(date);
 `
 
 /**
@@ -188,6 +196,25 @@ function ensureSchema(db: DatabaseSync): void {
   db.exec('PRAGMA foreign_keys = ON')
   db.exec('PRAGMA busy_timeout = 2000')
   db.exec(SCHEMA)
+  migrateSchema(db)
+}
+
+/**
+ * In-place upgrades for a database created before a given schema addition,
+ * gated by SQLite's own PRAGMA user_version so this only does work once.
+ * CREATE TABLE IF NOT EXISTS above already handles a brand-new database;
+ * this handles the same addition for one that existed before it, since
+ * SQLite has no ADD COLUMN IF NOT EXISTS.
+ */
+function migrateSchema(db: DatabaseSync): void {
+  const version = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
+  if (version < 1) {
+    const cols = db.prepare('PRAGMA table_info(goals)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'water_ounces')) {
+      db.exec(`ALTER TABLE goals ADD COLUMN water_ounces REAL NOT NULL DEFAULT ${DEFAULT_WATER_OUNCES}`)
+    }
+    db.exec('PRAGMA user_version = 1')
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -332,7 +359,8 @@ function presetItemColumnParams(item: MealPresetItem): SQLInputValue[] {
   ]
 }
 
-interface GoalsRow { calories: number; protein: number; fat: number; carbs: number; fiber: number }
+interface GoalsRow { calories: number; protein: number; fat: number; carbs: number; fiber: number; water_ounces: number }
+interface WaterLogRow { id: string; date: string; ounces: number; created_at: number }
 interface SettingsRow {
   usda_api_key: string; lm_studio_url: string; lm_studio_token: string; research_model: string; auto_lookup: number
 }
@@ -375,7 +403,7 @@ function migrateFromJson(paths: ReturnType<typeof locate>): void {
     entries: raw.entries ?? {},
     foods: raw.foods ?? [],
     mealPresets: raw.mealPresets ?? [],
-    goals: { ...DEFAULT_GOALS, ...raw.goals },
+    goals: { ...DEFAULT_GOALS, water: DEFAULT_WATER_OUNCES, ...raw.goals },
   }
   const rawSettings = readJson<Partial<Settings>>(paths.legacySettings, {})
   const settings: Settings = {
@@ -431,8 +459,8 @@ function migrateFromJson(paths: ReturnType<typeof locate>): void {
       insertPreset.run(p.id, p.name, p.createdAt)
       p.items.forEach((item, i) => insertItem.run(p.id, i, ...presetItemColumnParams(item)))
     }
-    db.prepare('INSERT INTO goals (id,calories,protein,fat,carbs,fiber) VALUES (1,?,?,?,?,?)')
-      .run(log.goals.calories, log.goals.protein, log.goals.fat, log.goals.carbs, log.goals.fiber)
+    db.prepare('INSERT INTO goals (id,calories,protein,fat,carbs,fiber,water_ounces) VALUES (1,?,?,?,?,?,?)')
+      .run(log.goals.calories, log.goals.protein, log.goals.fat, log.goals.carbs, log.goals.fiber, log.goals.water)
     db.prepare('INSERT INTO settings (id,usda_api_key,lm_studio_url,lm_studio_token,research_model,auto_lookup) VALUES (1,?,?,?,?,?)')
       .run(settings.usdaApiKey, settings.lmStudioUrl, settings.lmStudioToken, settings.researchModel, settings.autoLookup ? 1 : 0)
     db.exec('COMMIT')
@@ -490,6 +518,9 @@ interface Stmts {
   updateGoals: StatementSync
   selectSettings: StatementSync
   updateSettings: StatementSync
+  selectWaterByDate: StatementSync
+  insertWater: StatementSync
+  deleteWater: StatementSync
 }
 
 export class Store {
@@ -575,16 +606,22 @@ export class Store {
       ),
       deletePreset: this.db.prepare('DELETE FROM meal_presets WHERE id = ?'),
       selectGoals: this.db.prepare('SELECT * FROM goals WHERE id = 1'),
-      updateGoals: this.db.prepare('UPDATE goals SET calories=?, protein=?, fat=?, carbs=?, fiber=? WHERE id=1'),
+      updateGoals: this.db.prepare('UPDATE goals SET calories=?, protein=?, fat=?, carbs=?, fiber=?, water_ounces=? WHERE id=1'),
       selectSettings: this.db.prepare('SELECT * FROM settings WHERE id = 1'),
       updateSettings: this.db.prepare(
         'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=? WHERE id=1',
       ),
+      selectWaterByDate: this.db.prepare('SELECT * FROM water_logs WHERE date = ? ORDER BY created_at DESC'),
+      insertWater: this.db.prepare('INSERT INTO water_logs (id,date,ounces,created_at) VALUES (?,?,?,?)'),
+      deleteWater: this.db.prepare('DELETE FROM water_logs WHERE id = ?'),
     }
 
     if (!this.stmts.selectGoals.get()) {
-      this.db.prepare('INSERT INTO goals (id,calories,protein,fat,carbs,fiber) VALUES (1,?,?,?,?,?)')
-        .run(DEFAULT_GOALS.calories, DEFAULT_GOALS.protein, DEFAULT_GOALS.fat, DEFAULT_GOALS.carbs, DEFAULT_GOALS.fiber)
+      this.db.prepare('INSERT INTO goals (id,calories,protein,fat,carbs,fiber,water_ounces) VALUES (1,?,?,?,?,?,?)')
+        .run(
+          DEFAULT_GOALS.calories, DEFAULT_GOALS.protein, DEFAULT_GOALS.fat, DEFAULT_GOALS.carbs, DEFAULT_GOALS.fiber,
+          DEFAULT_WATER_OUNCES,
+        )
     }
     if (!this.stmts.selectSettings.get()) {
       this.db.prepare('INSERT INTO settings (id,usda_api_key,lm_studio_url,lm_studio_token,research_model,auto_lookup) VALUES (1,?,?,?,?,?)')
@@ -623,7 +660,30 @@ export class Store {
     const entries = rows.map(entryFromRow)
       .sort((a, b) => MEALS.indexOf(a.meal) - MEALS.indexOf(b.meal) || a.createdAt - b.createdAt)
     const goals = this.getGoals()
-    return { date, entries, goals, ...sumDay(entries) }
+    const water = this.getWater(date, goals.water)
+    return { date, entries, goals, water, ...sumDay(entries) }
+  }
+
+  private getWater(date: string, goal: number): DayView['water'] {
+    const rows = this.stmts.selectWaterByDate.all(date) as unknown as WaterLogRow[]
+    const ounces = rows.reduce((sum, r) => sum + r.ounces, 0)
+    return { ounces, goal, lastLogId: rows[0]?.id ?? null }
+  }
+
+  /** One water log for one day -- a bottle, a glass, whatever amount was drunk. */
+  addWater(date: string, ounces: number): WaterLog {
+    if (!isDateString(date)) throw new ValidationError('date must be YYYY-MM-DD')
+    if (typeof ounces !== 'number' || !Number.isFinite(ounces) || ounces <= 0 || ounces > 200) {
+      throw new ValidationError('ounces must be a positive number')
+    }
+    const log: WaterLog = { id: randomUUID(), date, ounces, createdAt: Date.now() }
+    this.stmts.insertWater.run(log.id, log.date, log.ounces, log.createdAt)
+    return log
+  }
+
+  deleteWater(id: string): void {
+    const result = this.stmts.deleteWater.run(id)
+    if (result.changes === 0) throw new ValidationError('no such log')
   }
 
   /**
@@ -896,7 +956,10 @@ export class Store {
 
   getGoals(): Goals {
     const row = this.stmts.selectGoals.get() as unknown as GoalsRow
-    return { calories: row.calories, protein: row.protein, fat: row.fat, carbs: row.carbs, fiber: row.fiber }
+    return {
+      calories: row.calories, protein: row.protein, fat: row.fat, carbs: row.carbs, fiber: row.fiber,
+      water: row.water_ounces,
+    }
   }
 
   setGoals(input: Partial<Goals>): Goals {
@@ -909,7 +972,13 @@ export class Store {
       }
       next[key] = v
     }
-    this.stmts.updateGoals.run(next.calories, next.protein, next.fat, next.carbs, next.fiber)
+    if (input.water !== undefined) {
+      if (typeof input.water !== 'number' || !Number.isFinite(input.water) || input.water < 0 || input.water > 1000) {
+        throw new ValidationError('goal water must be a non-negative number')
+      }
+      next.water = input.water
+    }
+    this.stmts.updateGoals.run(next.calories, next.protein, next.fat, next.carbs, next.fiber, next.water)
     return next
   }
 

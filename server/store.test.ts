@@ -400,7 +400,7 @@ describe('migrating from log.json', () => {
       entries: { [DAY]: [{ ...banana(), id: 'e1', createdAt: 1, nutrients: BANANA_100G }] },
       foods: [{ id: 'custom:a', name: 'Apple', source: 'custom', per100g: BANANA_100G }],
       mealPresets: [{ id: 'meal:m1', name: 'Breakfast', createdAt: 1, items: [{ name: 'Eggs', per100g: BANANA_100G, grams: 100, source: 'usda' }] }],
-      goals: { calories: 2200, protein: 170, fat: 70, carbs: 220, fiber: 32 },
+      goals: { calories: 2200, protein: 170, fat: 70, carbs: 220, fiber: 32, water: 96 },
     }
     fs.writeFileSync(path.join(freshDir, 'log.json'), JSON.stringify(legacyLog))
     fs.writeFileSync(path.join(freshDir, 'settings.json'), JSON.stringify({ usdaApiKey: 'sk-usda-SECRET', autoLookup: false }))
@@ -422,5 +422,77 @@ describe('migrating from log.json', () => {
     first.setGoals({ protein: 175 })
     const reopened = new Store({ dir: freshDir })
     expect(reopened.getGoals().protein).toBe(175)
+  })
+
+  it('adds the water column to a database that predates the water tracker', () => {
+    // Build exactly what an older Store version would have left: a goals
+    // table with no water_ounces column at all.
+    const db = new DatabaseSync(path.join(freshDir, 'macros.sqlite'))
+    db.exec(`CREATE TABLE goals (id INTEGER PRIMARY KEY CHECK (id = 1),
+      calories REAL NOT NULL, protein REAL NOT NULL, fat REAL NOT NULL, carbs REAL NOT NULL, fiber REAL NOT NULL)`)
+    db.prepare('INSERT INTO goals (id,calories,protein,fat,carbs,fiber) VALUES (1,2000,150,65,200,30)').run()
+    db.close()
+
+    const upgraded = new Store({ dir: freshDir })
+    expect(upgraded.getGoals()).toMatchObject({ calories: 2000, water: 96 })
+  })
+})
+
+describe('water', () => {
+  it('starts at zero, against the default goal', () => {
+    expect(store.getDay(DAY).water).toEqual({ ounces: 0, goal: 96, lastLogId: null })
+  })
+
+  it('logs a bottle and adds it to the day total', () => {
+    const log = store.addWater(DAY, 32)
+    expect(log.ounces).toBe(32)
+    const water = store.getDay(DAY).water
+    expect(water.ounces).toBe(32)
+    expect(water.lastLogId).toBe(log.id)
+  })
+
+  it('sums multiple logs for the same day', () => {
+    store.addWater(DAY, 32)
+    store.addWater(DAY, 32)
+    expect(store.getDay(DAY).water.ounces).toBe(64)
+  })
+
+  it('keeps days separate', () => {
+    store.addWater(DAY, 32)
+    expect(store.getDay('2026-09-27').water.ounces).toBe(0)
+  })
+
+  it('undoes the most recent log', () => {
+    store.addWater(DAY, 32)
+    const second = store.addWater(DAY, 16)
+    store.deleteWater(second.id)
+    const water = store.getDay(DAY).water
+    expect(water.ounces).toBe(32)
+    expect(water.lastLogId).not.toBe(second.id)
+  })
+
+  it('refuses a nonsense amount', () => {
+    expect(() => store.addWater(DAY, 0)).toThrow(ValidationError)
+    expect(() => store.addWater(DAY, -5)).toThrow(ValidationError)
+    expect(() => store.addWater(DAY, 500)).toThrow(ValidationError)
+  })
+
+  it('refuses to undo a log that does not exist', () => {
+    expect(() => store.deleteWater('nope')).toThrow(/no such log/)
+  })
+
+  it('goal defaults to 96oz (3 x 32oz bottles) and is editable', () => {
+    expect(store.getGoals().water).toBe(96)
+    store.setGoals({ water: 64 })
+    expect(store.getGoals().water).toBe(64)
+  })
+
+  it('refuses a nonsense goal', () => {
+    expect(() => store.setGoals({ water: -1 })).toThrow(ValidationError)
+  })
+
+  it('survives a restart', () => {
+    store.addWater(DAY, 32)
+    expect(new Store({ dir }).getDay(DAY).water.ounces).toBe(32)
   })
 })

@@ -1,5 +1,6 @@
 import type {
   DayView, Entry, Food, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, Serving,
+  WaterLog,
 } from '../types.ts'
 
 /** An online lookup in progress or finished; see server/research.ts. */
@@ -54,6 +55,8 @@ export const api = {
   portions: (fdcId: string) => request<Serving[]>('GET', `/api/portions/${encodeURIComponent(fdcId)}`),
   goals: () => request<Goals>('GET', '/api/goals'),
   setGoals: (goals: Partial<Goals>) => request<Goals>('PUT', '/api/goals', goals),
+  addWater: (date: string, ounces: number) => request<WaterLog>('POST', '/api/water', { date, ounces }),
+  deleteWater: (id: string) => request<{ ok: true }>('DELETE', `/api/water/${encodeURIComponent(id)}`),
   settings: () => request<PublicSettings>('GET', '/api/settings'),
   setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; autoLookup?: boolean }) =>
     request<PublicSettings>('PUT', '/api/settings', s),

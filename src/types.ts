@@ -95,7 +95,11 @@ export interface Amount {
   unitGrams: number | null
 }
 
-export type Goals = Record<NutrientKey, number>
+/** Water isn't one of the NUTRIENTS: it's not per-food, so it never flows through sumDay's totals/missing. */
+export interface Goals extends Record<NutrientKey, number> {
+  /** Ounces per day. */
+  water: number
+}
 
 export interface DayTotals {
   totals: Record<NutrientKey, number>
@@ -103,10 +107,25 @@ export interface DayTotals {
   missing: Record<NutrientKey, number>
 }
 
+/** One log of water drunk -- a bottle, a glass, whatever amount. */
+export interface WaterLog {
+  id: string
+  date: string
+  ounces: number
+  createdAt: number
+}
+
 export interface DayView extends DayTotals {
   date: string
   entries: Entry[]
   goals: Goals
+  water: {
+    /** Total logged for this day. */
+    ounces: number
+    goal: number
+    /** The most recent log's id, for a one-tap undo. Null with nothing logged yet. */
+    lastLogId: string | null
+  }
 }
 
 /** What a client sends to log something. The server assigns id and time. */

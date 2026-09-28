@@ -127,6 +127,26 @@ describe('foods and goals', () => {
   })
 })
 
+describe('water', () => {
+  it('logs, totals and undoes over one round trip', async () => {
+    const logged = await call('POST', '/api/water', { date: DAY, ounces: 32 })
+    expect(logged.status).toBe(201)
+    const id = (logged.body as unknown as { id: string }).id
+
+    let day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
+    expect(day.water).toEqual({ ounces: 32, goal: 96, lastLogId: id })
+
+    await call('DELETE', `/api/water/${id}`)
+    day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
+    expect(day.water).toEqual({ ounces: 0, goal: 96, lastLogId: null })
+  })
+
+  it('rejects a nonsense amount', async () => {
+    const res = await call('POST', '/api/water', { date: DAY, ounces: -5 })
+    expect(res.status).toBe(400)
+  })
+})
+
 describe('meal presets', () => {
   const eggs = { name: 'Eggs', per100g: BANANA, grams: 100, source: 'usda' }
 

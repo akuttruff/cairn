@@ -6,7 +6,7 @@ import { localDate } from './lib/nutrition.ts'
 import type { DayView, Entry, Food } from './types.ts'
 
 const TODAY = localDate()
-const GOALS = { calories: 2000, protein: 150, fat: 65, carbs: 200, fiber: 30 }
+const GOALS = { calories: 2000, protein: 150, fat: 65, carbs: 200, fiber: 30, water: 96 }
 
 const banana: Food = {
   id: 'usda:173944', name: 'Bananas, raw', source: 'usda', sourceId: '173944',
@@ -24,6 +24,7 @@ const day = (entries: Entry[], over: Partial<DayView> = {}): DayView => ({
   date: TODAY, entries, goals: GOALS,
   totals: { calories: 190, protein: 6.5, fat: 3.4, carbs: 33, fiber: 5 },
   missing: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 },
+  water: { ounces: 0, goal: 96, lastLogId: null },
   ...over,
 })
 
@@ -290,6 +291,41 @@ describe('App', () => {
     await user.click(await screen.findByText('Oats'))
     await user.click(await screen.findByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/entries/e1')).toBe(true))
+  })
+
+  it('shows water logged against the goal, in ounces and bottles', async () => {
+    stubApi({ [`GET /api/day/${TODAY}`]: day([], { water: { ounces: 64, goal: 96, lastLogId: 'w2' } }) })
+    render(<App />)
+    expect(await screen.findByRole('region', { name: 'Water' })).toBeInTheDocument()
+    expect(screen.getByText('2 of 3 bottles (32oz each)')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'Water' })).toHaveAttribute('aria-valuenow', '64')
+  })
+
+  it('logs a bottle of water with one tap', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'POST /api/water': { id: 'w1', date: TODAY, ounces: 32, createdAt: 1 } })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: /Bottle \(32oz\)/ }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/water')).toBe(true))
+    expect(calls.find((c) => c.method === 'POST' && c.url === '/api/water')!.body).toEqual({ date: TODAY, ounces: 32 })
+  })
+
+  it('undoes the most recent water log, only once one exists', async () => {
+    stubApi({ [`GET /api/day/${TODAY}`]: day([], { water: { ounces: 0, goal: 96, lastLogId: null } }) })
+    render(<App />)
+    await screen.findByRole('region', { name: 'Water' })
+    expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+  })
+
+  it('undoes the most recent water log', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([], { water: { ounces: 32, goal: 96, lastLogId: 'w1' } }),
+      'DELETE /api/water/w1': { ok: true },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/water/w1')).toBe(true))
   })
 
   it('saves goals and never displays the stored USDA key', async () => {

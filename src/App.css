@@ -14,6 +14,7 @@
   --c-fat: #D9B26A;
   --c-carbs: #C97B5A;
   --c-fiber: #A58FC4;
+  --c-water: #4FB8C9;
   --radius: 12px;
   --mono: "SF Mono", ui-monospace, Menlo, monospace;
   font-size: 16px;
@@ -132,6 +133,48 @@ button:disabled { opacity: 0.45; cursor: default; }
 .macro.fiber .macro-name { color: var(--c-fiber); }
 .macro-num { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .macro-goal { font-size: 12px; font-weight: 400; color: var(--paper-dim); margin-left: 2px; }
+/* ====== Water ====== */
+.water-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 18px;
+}
+.water-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.water-label { font-size: 12px; color: var(--paper-dim); font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.04em; }
+.water-num { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.water-goal { font-size: 12px; font-weight: 400; color: var(--paper-dim); margin-left: 2px; }
+.water-bottles { font-size: 12px; color: var(--paper-dim); margin-top: 6px; }
+.bar.water .bar-fill { background: var(--c-water); }
+.water-actions { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+.water-add {
+  flex: 1;
+  padding: 11px;
+  border-radius: 10px;
+  border: 1px solid var(--c-water);
+  background: transparent;
+  color: var(--c-water);
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.water-add:active { opacity: 0.7; }
+.water-undo {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--paper-dim);
+  font-size: 13px;
+  padding: 8px 4px;
+}
+
 .partial {
   font-family: var(--mono);
   font-size: 11px;

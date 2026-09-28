@@ -35,6 +35,7 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
     calories: String(goals.calories), protein: String(goals.protein), fat: String(goals.fat),
     carbs: String(goals.carbs), fiber: String(goals.fiber),
   }))
+  const [waterDraft, setWaterDraft] = useState(String(goals.water))
   const [key, setKey] = useState('')
   const [lmUrl, setLmUrl] = useState<string | null>(null)
   const [lmToken, setLmToken] = useState('')
@@ -50,12 +51,14 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
   const parsed = Object.fromEntries(NUTRIENTS.map((k) => [k, parseNum(draft[k])])) as Record<NutrientKey, number | null>
   const invalid = NUTRIENTS.filter((k) => parsed[k] == null || parsed[k]! < 0)
   const macroKcal = (parsed.protein ?? 0) * 4 + (parsed.carbs ?? 0) * 4 + (parsed.fat ?? 0) * 9
+  const water = parseNum(waterDraft)
+  const waterInvalid = water == null || water < 0
 
   const save = async (): Promise<void> => {
-    if (invalid.length) return
+    if (invalid.length || waterInvalid) return
     setBusy(true)
     try {
-      await api.setGoals(parsed as Goals)
+      await api.setGoals({ ...parsed, water } as Goals)
       const changes: Parameters<typeof api.setSettings>[0] = {}
       if (key.trim()) changes.usdaApiKey = key.trim()
       if (lmToken.trim()) changes.lmStudioToken = lmToken.trim()
@@ -97,6 +100,19 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
                 ({Math.round((macroKcal / parsed.calories!) * 100)}% of your calorie goal).
               </div>
             )}
+
+            <div className="field">
+              <label htmlFor="goal-water">Water (oz)</label>
+              <input
+                id="goal-water"
+                type="text"
+                inputMode="decimal"
+                value={waterDraft}
+                onChange={(e) => setWaterDraft(e.target.value)}
+              />
+              <div className="hint">Defaults to 96oz -- 3 x 32oz bottles.</div>
+              {waterInvalid && <div className="hint bad">Water needs a non-negative number.</div>}
+            </div>
 
             <h3 className="sheet-h">Food search</h3>
             <div className="field">
@@ -182,7 +198,7 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
           <div className="drawer-actions">
             <div className="row">
               <button type="button" onClick={onClose}>Cancel</button>
-              <button type="button" className="primary" disabled={busy || invalid.length > 0} onClick={() => void save()}>Save</button>
+              <button type="button" className="primary" disabled={busy || invalid.length > 0 || waterInvalid} onClick={() => void save()}>Save</button>
             </div>
           </div>
     </>
