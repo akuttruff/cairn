@@ -177,14 +177,21 @@ describe('resolveGoals', () => {
 })
 
 describe('goalMet', () => {
-  it('treats calories, fat and carbs as caps: at or under the top is a hit, over is a miss', () => {
-    const r = { min: 1899, max: 1899 }
-    expect(goalMet(1899, r, 'calories')).toBe(true) // exactly on the line counts
+  it('treats calories and carbs as caps: at or under the top is a hit, over is a miss', () => {
+    const r = { min: 1900, max: 2100 }
+    expect(goalMet(2100, r, 'calories')).toBe(true) // exactly on the line counts
     expect(goalMet(1200, r, 'calories')).toBe(true) // well under is still a hit
-    expect(goalMet(1900, r, 'calories')).toBe(false)
-    expect(goalMet(55, { min: 50, max: 55 }, 'fat')).toBe(true)
-    expect(goalMet(55.1, { min: 50, max: 55 }, 'fat')).toBe(false)
-    expect(goalMet(0, { min: 110, max: 120 }, 'carbs')).toBe(true)
+    expect(goalMet(2101, r, 'calories')).toBe(false)
+    expect(goalMet(0, { min: 220, max: 237 }, 'carbs')).toBe(true)
+    expect(goalMet(237.1, { min: 220, max: 237 }, 'carbs')).toBe(false)
+  })
+
+  it('treats fat as a true range: too little is a miss as much as too much', () => {
+    const r = { min: 60, max: 68 }
+    expect(goalMet(60, r, 'fat')).toBe(true)
+    expect(goalMet(68, r, 'fat')).toBe(true)
+    expect(goalMet(59.9, r, 'fat')).toBe(false)
+    expect(goalMet(68.1, r, 'fat')).toBe(false)
   })
 
   it('treats protein and fiber as floors: at or over the bottom is a hit, under is a miss', () => {

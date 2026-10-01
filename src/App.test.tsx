@@ -97,6 +97,7 @@ describe('App', () => {
 
   it('flags going over on fat and carbs, but not on protein or fiber', async () => {
     stubApi({ [`GET /api/day/${TODAY}`]: day([], { totals: { calories: 1000, protein: 200, fat: 100, carbs: 250, fiber: 45 } }) })
+    // (The bars colour the cap side only; the scorecard is where fat's floor counts.)
     render(<App />)
     await screen.findByText('Today')
     expect(screen.getByRole('progressbar', { name: 'Fat' })).toHaveClass('over')

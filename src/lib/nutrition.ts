@@ -4,21 +4,21 @@ import type {
 } from '../types.ts'
 
 /**
- * A starting point for Settings, not a fixed target: edit it to fit. Each
- * macro is a single number here (min equals max) -- 130P/55F/221C works out
- * to 1899 kcal, 120P/50F/192C to 1698, matching the 1,900/1,700 kcal targets
- * they were set from.
+ * A starting point for Settings, not a fixed target: edit it to fit. Protein
+ * and fat are the same floors on either day type; carbs do the flexing, and
+ * the ranges were solved so the calories they add up to land exactly on
+ * 1,900-2,100 kcal (training) and 1,700-1,900 kcal (rest).
  */
 export const DEFAULT_GOALS: Goals = {
   training: {
-    protein: { min: 130, max: 130 },
-    carbs: { min: 221, max: 221 },
-    fat: { min: 55, max: 55 },
+    protein: { min: 120, max: 135 },
+    carbs: { min: 220, max: 237 },
+    fat: { min: 60, max: 68 },
   },
   rest: {
-    protein: { min: 120, max: 120 },
-    carbs: { min: 192, max: 192 },
-    fat: { min: 50, max: 50 },
+    protein: { min: 120, max: 135 },
+    carbs: { min: 170, max: 187 },
+    fat: { min: 60, max: 68 },
   },
   fiber: 30,
   water: 96,
@@ -145,6 +145,14 @@ export function rangeStatus(total: number, range: MacroRange): RangeStatus {
  */
 export const OVER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['calories', 'fat', 'carbs'])
 
+/**
+ * Falling short of the bottom of the range counts against these. Calories
+ * and carbs are caps only -- coming in under is a win -- but protein and
+ * fiber are floors, and fat is both: a floor (too little fat is its own
+ * problem) and, being in OVER_IS_BAD, a cap.
+ */
+export const UNDER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['protein', 'fiber', 'fat'])
+
 /** A nutrient's target as a range, fiber included (a single number, so min = max). */
 export function goalRangeFor(goals: ResolvedGoals, key: NutrientKey): MacroRange {
   return key === 'fiber' ? { min: goals.fiber, max: goals.fiber } : goals[key]
@@ -152,12 +160,15 @@ export function goalRangeFor(goals: ResolvedGoals, key: NutrientKey): MacroRange
 
 /**
  * Whether a day's total hit its goal. The goals are caps and floors, not
- * targets to land on: calories, fat and carbs are met at or under the top
- * of the range (coming in under is a win, not a miss), protein and fiber at
- * or over the bottom of it (going over is fine). Exactly on the line counts.
+ * targets to land on: calories and carbs are met at or under the top of the
+ * range (coming in under is a win, not a miss), protein and fiber at or
+ * over the bottom of it (going over is fine), and fat within both. Exactly
+ * on a line counts.
  */
 export function goalMet(total: number, range: MacroRange, kind: NutrientKey): boolean {
-  return OVER_IS_BAD.has(kind) ? total <= range.max : total >= range.min
+  if (OVER_IS_BAD.has(kind) && total > range.max) return false
+  if (UNDER_IS_BAD.has(kind) && total < range.min) return false
+  return true
 }
 
 /**

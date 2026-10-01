@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Agent(explore)"
+    ]
+  },
+  "$version": 4
+}

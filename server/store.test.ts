@@ -759,7 +759,7 @@ describe('ranges', () => {
     expect(store.getRange(D1, D3).goals.calories.min).toBe(1365)
     // Tick one of the three: the blended goal moves a third of the way to the training profile.
     store.setDayType(D2, 'training')
-    const trainingMin = 130 * 4 + 221 * 4 + 55 * 9 // today's default training profile: 1899
+    const trainingMin = 120 * 4 + 220 * 4 + 60 * 9 // today's default training profile: 1900
     expect(store.getRange(D1, D3).goals.calories.min).toBeCloseTo((1365 * 2 + trainingMin) / 3, 1)
   })
 
