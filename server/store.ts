@@ -10,8 +10,8 @@ import type {
   RangeView, Serving, Settings, SourceLink, WaterLog,
 } from '../src/types.ts'
 import {
-  addDays, blendGoals, DEFAULT_GOALS, daysBetween, isDateString, resolveGoals, round1, scale, scoreDays, scoreWater, startOfWeek,
-  sumDay,
+  addDays, alcoholCalories, blendGoals, DEFAULT_GOALS, daysBetween, isDateString, resolveGoals, round1, scale, scoreDays, scoreWater,
+  startOfWeek, sumDay,
 } from '../src/lib/nutrition.ts'
 import { DAY_TYPES } from '../src/types.ts'
 import { LOOKUP_MAX, LOOKUP_TTL_MS, normalizeQuery } from './research.ts'
@@ -85,6 +85,13 @@ function cleanAmount(input: unknown): Amount {
     unit: cleanLabel(a.unit, 'amount.unit'),
     unitGrams: a.unitGrams == null ? null : cleanGrams(a.unitGrams),
   }
+}
+
+/** How many drinks of each kind, from their log rows. */
+function countByKind(rows: { kind: string }[]): Record<AlcoholKind, number> {
+  const byKind = Object.fromEntries(ALCOHOL_KINDS.map((k) => [k, 0])) as Record<AlcoholKind, number>
+  for (const r of rows) if (r.kind in byKind) byKind[r.kind as AlcoholKind]++
+  return byKind
 }
 
 /** A goal amount: a finite, non-negative number within reason. */
@@ -861,7 +868,12 @@ export class Store {
     const dayType = this.getDayType(date)
     const goals = resolveGoals(this.getGoals(), dayType)
     const water = this.getWater(date, goals.water)
-    return { date, entries, dayType, goals, water, alcohol: this.getAlcohol(date, goals.alcoholWeekly), ...sumDay(entries) }
+    const alcohol = this.getAlcohol(date, goals.alcoholWeekly)
+    const { totals, missing } = sumDay(entries)
+    // Drinks are calories with no macros behind them: they count against
+    // the day's calories and nothing else.
+    totals.calories = round1(totals.calories + alcohol.calories)
+    return { date, entries, dayType, goals, water, alcohol, totals, missing }
   }
 
   /**
@@ -892,10 +904,12 @@ export class Store {
       const dayEntries = entriesByDate.get(date) ?? []
       const water = (waterByDate.get(date) ?? []).reduce((sum, r) => sum + r.ounces, 0)
       const dayType: DayType = dayTypeByDate.get(date) === 'training' ? 'training' : 'rest'
+      const drinks = alcoholByDate.get(date) ?? []
+      const { totals, missing } = sumDay(dayEntries)
+      totals.calories = round1(totals.calories + alcoholCalories(countByKind(drinks)))
       days.push({
         date, entryCount: dayEntries.length, dayType, goals: resolveGoals(goals, dayType), water,
-        alcohol: (alcoholByDate.get(date) ?? []).length,
-        ...sumDay(dayEntries),
+        alcohol: drinks.length, totals, missing,
       })
     }
     const dayTypes: Record<DayType, number> = {
@@ -913,14 +927,13 @@ export class Store {
 
     const waterTotal = days.reduce((sum, d) => sum + d.water, 0)
     const alcoholTotal = days.reduce((sum, d) => sum + d.alcohol, 0)
-    const byKind = Object.fromEntries(ALCOHOL_KINDS.map((k) => [k, 0])) as Record<AlcoholKind, number>
-    for (const r of alcoholRows) if (r.kind in byKind) byKind[r.kind as AlcoholKind]++
+    const byKind = countByKind(alcoholRows)
 
     return {
       start, end, days, goals: blendGoals(days.map((d) => d.goals)), dayTypes, scorecard: scoreDays(days),
       totalDays, loggedDays, totals, averages,
       water: { total: round1(waterTotal), average: round1(waterTotal / totalDays), ...scoreWater(days, goals.water) },
-      alcohol: { total: alcoholTotal, average: round1(alcoholTotal / totalDays), byKind },
+      alcohol: { total: alcoholTotal, average: round1(alcoholTotal / totalDays), calories: alcoholCalories(byKind), byKind },
     }
   }
 
@@ -938,7 +951,7 @@ export class Store {
     const weekStart = startOfWeek(date)
     const weekEnd = addDays(weekStart, 6)
     const weekTotal = (this.stmts.selectAlcoholBetween.all(weekStart, weekEnd) as unknown as AlcoholLogRow[]).length
-    return { drinks: rows.length, byKind, weekTotal, weekGoal, lastLogId: rows[0]?.id ?? null }
+    return { drinks: rows.length, byKind, calories: alcoholCalories(byKind), weekTotal, weekGoal, lastLogId: rows[0]?.id ?? null }
   }
 
   /** One standard drink for one day. Just a record -- there is no goal to hit. */

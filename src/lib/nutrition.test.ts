@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addDays, addMonths, blendGoals, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalMet, impliedCalories,
+  addDays, addMonths, alcoholCalories, blendGoals, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalMet, impliedCalories,
   isDateString, localDate, macroCalories, progress, rangeStatus, resolveGoals, scale, scoreDays, scoreWater, startOfMonth,
   startOfWeek, sumDay, sumNutrients,
 } from './nutrition.ts'
@@ -219,6 +219,13 @@ describe('scoreDays', () => {
     const days = [summary('rest', { protein: 135 }), summary('rest', {}, 0)]
     expect(scoreDays(days).protein).toEqual({ met: 1, of: 1 })
     expect(scoreDays([]).fiber).toEqual({ met: 0, of: 0 })
+  })
+})
+
+describe('alcoholCalories', () => {
+  it('counts standard drinks at 150 for beer, 125 for wine and 100 for liquor', () => {
+    expect(alcoholCalories({ beer: 1, wine: 2, liquor: 1 })).toBe(500)
+    expect(alcoholCalories({ beer: 0, wine: 0, liquor: 0 })).toBe(0)
   })
 })
 

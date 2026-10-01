@@ -86,7 +86,10 @@ export default function App() {
             )}
             {view && (
               <>
-                <Totals totals={view.totals} missing={view.missing} goals={view.goals} dayType={view.dayType} onSetDayType={setDayType} />
+                <Totals
+                  totals={view.totals} missing={view.missing} goals={view.goals} dayType={view.dayType} onSetDayType={setDayType}
+                  alcoholCalories={view.alcohol.calories}
+                />
                 <WaterTracker date={day.date} water={view.water} onLogged={refresh} />
                 <AlcoholTracker date={day.date} alcohol={view.alcohol} onLogged={refresh} />
                 <MealList

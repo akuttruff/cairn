@@ -31,7 +31,7 @@ const day = (entries: Entry[], over: Partial<DayView> = {}): DayView => ({
   totals: { calories: 190, protein: 6.5, fat: 3.4, carbs: 33, fiber: 5 },
   missing: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 },
   water: { ounces: 0, goal: 96, lastLogId: null },
-  alcohol: { drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, weekTotal: 0, weekGoal: 7, lastLogId: null },
+  alcohol: { drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, weekTotal: 0, weekGoal: 7, calories: 0, lastLogId: null },
   ...over,
 })
 
@@ -43,7 +43,7 @@ const NO_SCORE = { calories: { met: 0, of: 0 }, protein: { met: 0, of: 0 }, fat:
 const range = (over: Partial<RangeView> = {}, start = startOfWeek(TODAY)): RangeView => ({
   start, end: addDays(start, 6), goals: GOALS, dayTypes: { training: 7, rest: 0 }, scorecard: NO_SCORE, totalDays: 7, loggedDays: 0,
   totals: ZERO, averages: ZERO,
-  water: { total: 0, average: 0, met: 0, of: 0 }, alcohol: { total: 0, average: 0, byKind: { beer: 0, wine: 0, liquor: 0 } },
+  water: { total: 0, average: 0, met: 0, of: 0 }, alcohol: { total: 0, average: 0, calories: 0, byKind: { beer: 0, wine: 0, liquor: 0 } },
   days: Array.from({ length: 7 }, (_, i) => ({
     date: addDays(start, i), entryCount: 0, water: 0, alcohol: 0, dayType: 'training' as const, goals: GOALS, totals: ZERO, missing: ZERO,
   })),
@@ -425,11 +425,24 @@ describe('App', () => {
     expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/settings')!.body).toEqual({ researchModel: 'qwen/qwen3.8-27b' })
   })
 
+  it("says how much of the day's calories came from drinks", async () => {
+    stubApi({
+      [`GET /api/day/${TODAY}`]: day([], {
+        totals: { calories: 465, protein: 6.5, fat: 3.4, carbs: 33, fiber: 5 }, // 190 of food + 275 of drinks
+        alcohol: { drinks: 2, byKind: { beer: 1, wine: 1, liquor: 0 }, calories: 275, weekTotal: 2, weekGoal: 7, lastLogId: 'a2' },
+      }),
+    })
+    render(<App />)
+    const card = await screen.findByRole('region', { name: 'Daily totals' })
+    expect(within(card).getByText('465')).toBeInTheDocument()
+    expect(within(card).getByText(/incl\. 275 from alcohol/)).toBeInTheDocument()
+  })
+
   it('shows the drinks logged today by kind, with no daily goal', async () => {
     stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
         // weekTotal deliberately differs from drinks, so the two counts can't be confused for each other.
-        alcohol: { drinks: 3, byKind: { beer: 1, wine: 2, liquor: 0 }, weekTotal: 6, weekGoal: 7, lastLogId: 'a3' },
+        alcohol: { drinks: 3, byKind: { beer: 1, wine: 2, liquor: 0 }, weekTotal: 6, weekGoal: 7, calories: 0, lastLogId: 'a3' },
       }),
     })
     render(<App />)
@@ -441,7 +454,7 @@ describe('App', () => {
   it('holds the running week total to its own goal, separate from any one day', async () => {
     stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
-        alcohol: { drinks: 1, byKind: { beer: 0, wine: 1, liquor: 0 }, weekTotal: 5, weekGoal: 7, lastLogId: 'a1' },
+        alcohol: { drinks: 1, byKind: { beer: 0, wine: 1, liquor: 0 }, weekTotal: 5, weekGoal: 7, calories: 0, lastLogId: 'a1' },
       }),
     })
     render(<App />)
@@ -455,7 +468,7 @@ describe('App', () => {
   it('says how far over the weekly cap it is, once past it', async () => {
     stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
-        alcohol: { drinks: 2, byKind: { beer: 0, wine: 0, liquor: 2 }, weekTotal: 9, weekGoal: 7, lastLogId: 'a9' },
+        alcohol: { drinks: 2, byKind: { beer: 0, wine: 0, liquor: 2 }, weekTotal: 9, weekGoal: 7, calories: 0, lastLogId: 'a9' },
       }),
     })
     render(<App />)
@@ -476,7 +489,7 @@ describe('App', () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
-        alcohol: { drinks: 1, byKind: { beer: 1, wine: 0, liquor: 0 }, weekTotal: 1, weekGoal: 7, lastLogId: 'a1' },
+        alcohol: { drinks: 1, byKind: { beer: 1, wine: 0, liquor: 0 }, weekTotal: 1, weekGoal: 7, calories: 0, lastLogId: 'a1' },
       }),
       'DELETE /api/alcohol/a1': { ok: true },
     })
@@ -959,12 +972,13 @@ describe('App', () => {
       const user = userEvent.setup()
       stubApi({
         [`GET /api/day/${TODAY}`]: day([]),
-        'GET /api/range': range({ alcohol: { total: 3, average: 0.4, byKind: { beer: 1, wine: 2, liquor: 0 } } }),
+        'GET /api/range': range({ alcohol: { total: 3, average: 0.4, calories: 400, byKind: { beer: 1, wine: 2, liquor: 0 } } }),
       })
       render(<App />)
       await user.click(await screen.findByRole('tab', { name: 'Week' }))
       const alcohol = await screen.findByRole('region', { name: 'Alcohol' })
       expect(within(alcohol).getByText('3 drinks')).toBeInTheDocument()
+      expect(within(alcohol).getByText(/0.4 avg\/day · 400 kcal/)).toBeInTheDocument()
       expect(within(alcohol).getByText('1 beer, 2 wine')).toBeInTheDocument()
     })
 

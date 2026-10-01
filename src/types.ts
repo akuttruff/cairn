@@ -148,6 +148,7 @@ export interface ResolvedGoals {
 }
 
 export interface DayTotals {
+  /** Calories include the day's drinks (see DayView.alcohol.calories); the macros are food only. */
   totals: Record<NutrientKey, number>
   /** How many entries lacked each nutrient, so a total can say it is partial. */
   missing: Record<NutrientKey, number>
@@ -189,6 +190,8 @@ export interface DayView extends DayTotals {
     /** Standard drinks logged for this day. */
     drinks: number
     byKind: Record<AlcoholKind, number>
+    /** What those drinks add to the day's calories (already included in totals.calories) -- see ALCOHOL_KCAL. */
+    calories: number
     /** Standard drinks logged in the calendar week (Monday-start) containing this day, today included. */
     weekTotal: number
     weekGoal: number
@@ -239,7 +242,8 @@ export interface RangeView {
   averages: Record<NutrientKey, number>
   /** `met` of `of`: days with any water logged that reached the daily goal -- see scoreWater(). */
   water: { total: number; average: number; met: number; of: number }
-  alcohol: { total: number; average: number; byKind: Record<AlcoholKind, number> }
+  /** `calories`: what the range's drinks added, already counted in the daily totals. */
+  alcohol: { total: number; average: number; calories: number; byKind: Record<AlcoholKind, number> }
 }
 
 /** What a client sends to log something. The server assigns id and time. */

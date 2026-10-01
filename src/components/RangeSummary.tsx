@@ -221,7 +221,7 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
             <span className="water-label">Alcohol</span>
             <span className="water-num">
               {alcohol.total} drink{alcohol.total === 1 ? '' : 's'}
-              <span className="water-goal"> · {alcohol.average} avg/day</span>
+              <span className="water-goal"> · {alcohol.average} avg/day · {Math.round(alcohol.calories)} kcal</span>
             </span>
           </div>
           <div className="water-bottles">{drankKinds.map((k) => `${alcohol.byKind[k]} ${k}`).join(', ')}</div>

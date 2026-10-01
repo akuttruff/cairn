@@ -236,7 +236,7 @@ describe('alcohol', () => {
     expect(logged.status).toBe(201)
     const id = (logged.body as unknown as { id: string }).id
     let day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
-    expect(day.alcohol).toEqual({ drinks: 1, byKind: { beer: 0, wine: 1, liquor: 0 }, weekTotal: 1, weekGoal: 7, lastLogId: id })
+    expect(day.alcohol).toEqual({ drinks: 1, byKind: { beer: 0, wine: 1, liquor: 0 }, calories: 125, weekTotal: 1, weekGoal: 7, lastLogId: id })
     await call('DELETE', `/api/alcohol/${id}`)
     day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
     expect(day.alcohol.drinks).toBe(0)

@@ -223,6 +223,17 @@ describe('foods', () => {
     expect(store.recentFoods()).toEqual([])
   })
 
+  it("adds a drink's calories to the day, but not to its macros", () => {
+    store.addEntry(banana()) // 105 kcal, 26.9 g carbs
+    store.addAlcohol(DAY, 'wine')
+    store.addAlcohol(DAY, 'liquor')
+    const day = store.getDay(DAY)
+    expect(day.alcohol).toMatchObject({ drinks: 2, calories: 225 })
+    expect(day.totals.calories).toBe(330) // 105 + 125 + 100
+    expect(day.totals.carbs).toBe(26.9) // alcohol is calories without macros
+    expect(day.missing.calories).toBe(0) // a drink never reads as a partial total
+  })
+
   it('does not snapshot a saved food into history', () => {
     // Editing a saved food must never rewrite what was already eaten.
     store.addEntry(banana())
@@ -584,7 +595,7 @@ describe('online lookup cache', () => {
 describe('alcohol', () => {
   it('starts at zero', () => {
     expect(store.getDay(DAY).alcohol).toEqual({
-      drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, weekTotal: 0, weekGoal: 7, lastLogId: null,
+      drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, calories: 0, weekTotal: 0, weekGoal: 7, lastLogId: null,
     })
   })
 
@@ -593,7 +604,7 @@ describe('alcohol', () => {
     store.addAlcohol(DAY, 'wine')
     const last = store.addAlcohol(DAY, 'beer')
     expect(store.getDay(DAY).alcohol).toEqual({
-      drinks: 3, byKind: { beer: 1, wine: 2, liquor: 0 }, weekTotal: 3, weekGoal: 7, lastLogId: last.id,
+      drinks: 3, byKind: { beer: 1, wine: 2, liquor: 0 }, calories: 400, weekTotal: 3, weekGoal: 7, lastLogId: last.id,
     })
   })
 
@@ -747,6 +758,11 @@ describe('ranges', () => {
     expect(range.alcohol.total).toBe(2)
     expect(range.alcohol.average).toBeCloseTo(0.7, 5)
     expect(range.alcohol.byKind).toEqual({ beer: 1, wine: 1, liquor: 0 })
+    // The drinks' calories count toward the days they were logged on, and so toward the range.
+    expect(range.alcohol.calories).toBe(275)
+    expect(range.days[0]!.totals.calories).toBe(125) // the wine, no food
+    expect(range.days[2]!.totals.calories).toBe(150) // the beer
+    expect(range.totals.calories).toBe(275)
   })
 
   it('carries the current goals along, same as a day view', () => {

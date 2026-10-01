@@ -1,6 +1,6 @@
-import { NUTRIENTS } from '../types.ts'
+import { ALCOHOL_KINDS, NUTRIENTS } from '../types.ts'
 import type {
-  DaySummary, DayTotals, DayType, Entry, Goals, Meal, MacroRange, NutrientKey, Nutrients, ResolvedGoals, Scorecard,
+  AlcoholKind, DaySummary, DayTotals, DayType, Entry, Goals, Meal, MacroRange, NutrientKey, Nutrients, ResolvedGoals, Scorecard,
 } from '../types.ts'
 
 /**
@@ -62,6 +62,17 @@ export function sumNutrients(list: Nutrients[]): Nutrients {
     out[key] = known.length ? round1(known.reduce((a, b) => a + b, 0)) : null
   }
   return out
+}
+
+/**
+ * Calories in one standard drink: a 12 oz beer at about 5%, a 5 oz glass of
+ * wine, a 1.5 oz shot. Close enough to count; nobody logs the ABV. Alcohol
+ * is calories without macros, so these go into a day's calories only.
+ */
+export const ALCOHOL_KCAL: Record<AlcoholKind, number> = { beer: 150, wine: 125, liquor: 100 }
+
+export function alcoholCalories(byKind: Record<AlcoholKind, number>): number {
+  return ALCOHOL_KINDS.reduce((sum, kind) => sum + byKind[kind] * ALCOHOL_KCAL[kind], 0)
 }
 
 /** Sum a day's entries, counting which ones were missing each nutrient. */
