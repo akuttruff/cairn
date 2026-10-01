@@ -3,8 +3,7 @@ import { Drawer } from 'vaul'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import { parseNum } from '../lib/format.ts'
-import { DAY_TYPES } from '../types.ts'
-import type { DayType, DayTypeGoals, Goals, LmModelOption, PublicSettings } from '../types.ts'
+import type { Goals, LmModelOption, PublicSettings } from '../types.ts'
 
 interface SettingsSheetProps {
   open: boolean
@@ -28,101 +27,23 @@ export default function SettingsSheet({ open, session, onClose, onSaved }: Setti
   )
 }
 
-const MACRO_KEYS = ['protein', 'carbs', 'fat'] as const
-type MacroKey = (typeof MACRO_KEYS)[number]
-const MACRO_LABELS: Record<MacroKey, string> = { protein: 'Protein', carbs: 'Carbs', fat: 'Fat' }
-const DAY_TYPE_LABELS: Record<DayType, string> = { training: 'Training day', rest: 'Rest day' }
+/** The number fields, as typed; each is parsed and checked on every render. */
+type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'fiber' | 'water' | 'alcoholWeekly'
+const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
+  { key: 'protein', label: 'Protein (g)' },
+  { key: 'fat', label: 'Fat (g)' },
+  { key: 'carbs', label: 'Carbs (g)' },
+  { key: 'trainingCarbs', label: 'Extra carbs on training days (g)', hint: 'Fast carbs before the workout; 35 g is about 140 kcal. Tick a day as a training day in Day view.' },
+  { key: 'fiber', label: 'Fiber (g)', hint: 'Same target on any day.' },
+  { key: 'water', label: 'Water (oz)', hint: 'Defaults to 96oz -- 3 x 32oz bottles.' },
+  { key: 'alcoholWeekly', label: 'Alcohol (drinks per week)', hint: 'A weekly cap, not a daily one -- shown against the running total for the week.' },
+]
 
-/** A day type's macro ranges, as editable text. */
-type ProfileDraft = Record<MacroKey, { min: string; max: string }>
-
-const profileToDraft = (p: DayTypeGoals): ProfileDraft => ({
-  protein: { min: String(p.protein.min), max: String(p.protein.max) },
-  carbs: { min: String(p.carbs.min), max: String(p.carbs.max) },
-  fat: { min: String(p.fat.min), max: String(p.fat.max) },
-})
-
-/** Parses a profile draft; null fields mean something didn't parse. */
-function parseProfile(draft: ProfileDraft): { profile: DayTypeGoals | null; invalid: boolean } {
-  const parsed: Record<MacroKey, { min: number | null; max: number | null }> = {
-    protein: { min: parseNum(draft.protein.min), max: parseNum(draft.protein.max) },
-    carbs: { min: parseNum(draft.carbs.min), max: parseNum(draft.carbs.max) },
-    fat: { min: parseNum(draft.fat.min), max: parseNum(draft.fat.max) },
-  }
-  const invalid = MACRO_KEYS.some((k) => {
-    const { min, max } = parsed[k]
-    return min == null || max == null || min < 0 || max < min
-  })
-  if (invalid) return { profile: null, invalid: true }
-  return {
-    profile: {
-      protein: { min: parsed.protein.min!, max: parsed.protein.max! },
-      carbs: { min: parsed.carbs.min!, max: parsed.carbs.max! },
-      fat: { min: parsed.fat.min!, max: parsed.fat.max! },
-    },
-    invalid: false,
-  }
-}
-
-/** Calories implied by a macro profile's own ends -- same math as resolveGoals(), for a live preview. */
-function derivedCalories(profile: DayTypeGoals): { min: number; max: number } {
-  return {
-    min: Math.round(profile.protein.min * 4 + profile.carbs.min * 4 + profile.fat.min * 9),
-    max: Math.round(profile.protein.max * 4 + profile.carbs.max * 4 + profile.fat.max * 9),
-  }
-}
-
-function ProfileFields({ dayType, draft, onChange }: {
-  dayType: DayType
-  draft: ProfileDraft
-  onChange: (draft: ProfileDraft) => void
-}) {
-  const { profile, invalid } = parseProfile(draft)
-  return (
-    <div className={`profile-fields ${dayType}`}>
-      <h3 className="sheet-h">{DAY_TYPE_LABELS[dayType]}</h3>
-      <div className="nutrient-fields">
-        {MACRO_KEYS.map((k) => (
-          <div key={k} className={`field nf ${k}`}>
-            <label htmlFor={`${dayType}-${k}-min`}>{MACRO_LABELS[k]} (g)</label>
-            <div className="range-inputs">
-              <input
-                id={`${dayType}-${k}-min`}
-                type="text"
-                inputMode="decimal"
-                aria-label={`${MACRO_LABELS[k]} minimum`}
-                placeholder="min"
-                value={draft[k].min}
-                onChange={(e) => onChange({ ...draft, [k]: { ...draft[k], min: e.target.value } })}
-              />
-              <span className="range-sep">–</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                aria-label={`${MACRO_LABELS[k]} maximum`}
-                placeholder="max"
-                value={draft[k].max}
-                onChange={(e) => onChange({ ...draft, [k]: { ...draft[k], max: e.target.value } })}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-      {invalid && <div className="hint bad">Each field needs a non-negative number, with min not greater than max.</div>}
-      {profile && (
-        <div className="hint">
-          Works out to {derivedCalories(profile).min}{'–'}{derivedCalories(profile).max} kcal.
-        </div>
-      )}
-    </div>
-  )
-}
+/** Calories the macros add up to at 4/4/9 -- the same math as resolveGoals(), for a live preview. */
+const kcal = (protein: number, fat: number, carbs: number): number => Math.round(protein * 4 + carbs * 4 + fat * 9)
 
 function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [drafts, setDrafts] = useState<Record<DayType, ProfileDraft> | null>(null)
-  const [fiberDraft, setFiberDraft] = useState('')
-  const [waterDraft, setWaterDraft] = useState('')
-  const [alcoholDraft, setAlcoholDraft] = useState('')
+  const [drafts, setDrafts] = useState<Record<NumberField, string> | null>(null)
   const [key, setKey] = useState('')
   const [lmUrl, setLmUrl] = useState<string | null>(null)
   const [lmToken, setLmToken] = useState('')
@@ -135,10 +56,10 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
 
   useEffect(() => {
     api.goals().then((g) => {
-      setDrafts({ training: profileToDraft(g.training), rest: profileToDraft(g.rest) })
-      setFiberDraft(String(g.fiber))
-      setWaterDraft(String(g.water))
-      setAlcoholDraft(String(g.alcoholWeekly))
+      setDrafts({
+        protein: String(g.protein), fat: String(g.fat), carbs: String(g.carbs), trainingCarbs: String(g.trainingCarbs),
+        fiber: String(g.fiber), water: String(g.water), alcoholWeekly: String(g.alcoholWeekly),
+      })
     }).catch((err) => toast.error((err as Error).message))
     api.settings().then(setSettings).catch(() => { /* the placeholder just stays generic */ })
     api.lmModels()
@@ -148,21 +69,20 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
 
   const chosenModel = lmModel ?? settings?.researchModel ?? ''
 
-  const training = drafts ? parseProfile(drafts.training) : { profile: null, invalid: true }
-  const rest = drafts ? parseProfile(drafts.rest) : { profile: null, invalid: true }
-  const fiber = parseNum(fiberDraft)
-  const fiberInvalid = fiber == null || fiber < 0
-  const water = parseNum(waterDraft)
-  const waterInvalid = water == null || water < 0
-  const alcoholWeekly = parseNum(alcoholDraft)
-  const alcoholInvalid = alcoholWeekly == null || alcoholWeekly < 0
-  const formInvalid = !drafts || training.invalid || rest.invalid || fiberInvalid || waterInvalid || alcoholInvalid
+  const parsed = drafts
+    ? Object.fromEntries(NUMBER_FIELDS.map((f) => [f.key, parseNum(drafts[f.key])])) as Record<NumberField, number | null>
+    : null
+  const invalid = parsed ? NUMBER_FIELDS.filter((f) => parsed[f.key] == null || parsed[f.key]! < 0).map((f) => f.key) : []
+  const formInvalid = !parsed || invalid.length > 0
 
   const save = async (): Promise<void> => {
-    if (formInvalid || !training.profile || !rest.profile) return
+    if (!parsed || formInvalid) return
     setBusy(true)
     try {
-      const next: Goals = { training: training.profile, rest: rest.profile, fiber: fiber!, water: water!, alcoholWeekly: alcoholWeekly! }
+      const next: Goals = {
+        protein: parsed.protein!, fat: parsed.fat!, carbs: parsed.carbs!, trainingCarbs: parsed.trainingCarbs!,
+        fiber: parsed.fiber!, water: parsed.water!, alcoholWeekly: parsed.alcoholWeekly!,
+      }
       await api.setGoals(next)
       const changes: Parameters<typeof api.setSettings>[0] = {}
       if (key.trim()) changes.usdaApiKey = key.trim()
@@ -181,57 +101,38 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     }
   }
 
+  const field = (f: (typeof NUMBER_FIELDS)[number]) => drafts && (
+    <div key={f.key} className={`field nf ${f.key}`}>
+      <label htmlFor={`goal-${f.key}`}>{f.label}</label>
+      <input
+        id={`goal-${f.key}`}
+        type="text"
+        inputMode="decimal"
+        value={drafts[f.key]}
+        onChange={(e) => setDrafts({ ...drafts, [f.key]: e.target.value })}
+      />
+      {f.hint && <div className="hint">{f.hint}</div>}
+      {invalid.includes(f.key) && <div className="hint bad">Needs a non-negative number.</div>}
+    </div>
+  )
+
   return (
     <>
           <div className="drawer-scroll" data-vaul-no-drag>
             {!drafts && <div className="hint">Loading…</div>}
-            {drafts && DAY_TYPES.map((dayType) => (
-              <ProfileFields
-                key={dayType}
-                dayType={dayType}
-                draft={drafts[dayType]}
-                onChange={(d) => setDrafts({ ...drafts, [dayType]: d })}
-              />
-            ))}
-
-            <div className="field">
-              <label htmlFor="goal-fiber">Fiber (g)</label>
-              <input
-                id="goal-fiber"
-                type="text"
-                inputMode="decimal"
-                value={fiberDraft}
-                onChange={(e) => setFiberDraft(e.target.value)}
-              />
-              <div className="hint">Same target on any day type.</div>
-              {fiberInvalid && <div className="hint bad">Fiber needs a non-negative number.</div>}
+            <div className="nutrient-fields">
+              {NUMBER_FIELDS.slice(0, 3).map(field)}
             </div>
-
-            <div className="field">
-              <label htmlFor="goal-water">Water (oz)</label>
-              <input
-                id="goal-water"
-                type="text"
-                inputMode="decimal"
-                value={waterDraft}
-                onChange={(e) => setWaterDraft(e.target.value)}
-              />
-              <div className="hint">Defaults to 96oz -- 3 x 32oz bottles.</div>
-              {waterInvalid && <div className="hint bad">Water needs a non-negative number.</div>}
-            </div>
-
-            <div className="field">
-              <label htmlFor="goal-alcohol">Alcohol (drinks per week)</label>
-              <input
-                id="goal-alcohol"
-                type="text"
-                inputMode="decimal"
-                value={alcoholDraft}
-                onChange={(e) => setAlcoholDraft(e.target.value)}
-              />
-              <div className="hint">A weekly cap, not a daily one -- shown against the running total for the week.</div>
-              {alcoholInvalid && <div className="hint bad">Alcohol needs a non-negative number.</div>}
-            </div>
+            {parsed && !invalid.includes('protein') && !invalid.includes('fat') && !invalid.includes('carbs') && (
+              <div className="hint">
+                Every day: {kcal(parsed.protein!, parsed.fat!, parsed.carbs!)} kcal.
+                {!invalid.includes('trainingCarbs') && (
+                  <> Training days: {kcal(parsed.protein!, parsed.fat!, parsed.carbs! + parsed.trainingCarbs!)} kcal
+                  with {parsed.carbs! + parsed.trainingCarbs!} g carbs.</>
+                )}
+              </div>
+            )}
+            {NUMBER_FIELDS.slice(3).map(field)}
 
             <h3 className="sheet-h">Food search</h3>
             <div className="field">

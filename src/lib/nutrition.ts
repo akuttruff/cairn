@@ -4,22 +4,15 @@ import type {
 } from '../types.ts'
 
 /**
- * A starting point for Settings, not a fixed target: edit it to fit. Protein
- * and fat are the same floors on either day type; carbs do the flexing, and
- * the ranges were solved so the calories they add up to land exactly on
- * 1,900-2,100 kcal (training) and 1,700-1,900 kcal (rest).
+ * A starting point for Settings, not a fixed target: edit it to fit. The
+ * base works out to 1,700 kcal (130*4 + 60*9 + 160*4); a training day's
+ * 35 g of fast carbs makes it 1,840.
  */
 export const DEFAULT_GOALS: Goals = {
-  training: {
-    protein: { min: 120, max: 135 },
-    carbs: { min: 220, max: 237 },
-    fat: { min: 60, max: 68 },
-  },
-  rest: {
-    protein: { min: 120, max: 135 },
-    carbs: { min: 170, max: 187 },
-    fat: { min: 60, max: 68 },
-  },
+  protein: 130,
+  fat: 60,
+  carbs: 160,
+  trainingCarbs: 35,
   fiber: 30,
   water: 96,
   alcoholWeekly: 7,
@@ -139,17 +132,16 @@ export function rangeStatus(total: number, range: MacroRange): RangeStatus {
 }
 
 /**
- * Going past the top of the range only counts against these. Extra protein
- * or fiber is fine (welcome, even), so they neither turn a bar red nor cost
- * a day its goal.
+ * Going past the goal only counts against these -- they're caps, and coming
+ * in under is a win. Extra protein, fat or fiber neither turns a bar red
+ * nor costs a day its goal.
  */
-export const OVER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['calories', 'fat', 'carbs'])
+export const OVER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['calories', 'carbs'])
 
 /**
- * Falling short of the bottom of the range counts against these. Calories
- * and carbs are caps only -- coming in under is a win -- but protein and
- * fiber are floors, and fat is both: a floor (too little fat is its own
- * problem) and, being in OVER_IS_BAD, a cap.
+ * Falling short of the goal counts against these -- they're floors. Fat is
+ * one: with single-number goals it can't be a band, and too little fat is
+ * the problem worth catching ("don't dip below 60 g").
  */
 export const UNDER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['protein', 'fiber', 'fat'])
 
@@ -160,10 +152,9 @@ export function goalRangeFor(goals: ResolvedGoals, key: NutrientKey): MacroRange
 
 /**
  * Whether a day's total hit its goal. The goals are caps and floors, not
- * targets to land on: calories and carbs are met at or under the top of the
- * range (coming in under is a win, not a miss), protein and fiber at or
- * over the bottom of it (going over is fine), and fat within both. Exactly
- * on a line counts.
+ * targets to land on: calories and carbs are met at or under the goal
+ * (coming in under is a win, not a miss); protein, fat and fiber at or over
+ * it (going over is fine). Exactly on the line counts.
  */
 export function goalMet(total: number, range: MacroRange, kind: NutrientKey): boolean {
   if (OVER_IS_BAD.has(kind) && total > range.max) return false
@@ -205,19 +196,20 @@ export function scoreWater(days: Pick<DaySummary, 'water'>[], goal: number): { m
 }
 
 /**
- * A day type's goals, calories included -- but calories are never stored on
+ * A day's goals, calories included -- but calories are never stored on
  * their own (see Goals and ResolvedGoals). They're computed here from the
- * macro ranges, at 4 kcal/g for protein and carbs and 9 for fat, so a
- * calorie target can never disagree with what the macros it's made of
- * actually add up to.
+ * macros, at 4 kcal/g for protein and carbs and 9 for fat, so a calorie
+ * target can never disagree with what the macros it's made of actually add
+ * up to. A training day is the base plus its extra carbs.
  */
 export function resolveGoals(goals: Goals, dayType: DayType): ResolvedGoals {
-  const profile = goals[dayType]
-  const calories: MacroRange = {
-    min: round1(profile.protein.min * 4 + profile.carbs.min * 4 + profile.fat.min * 9),
-    max: round1(profile.protein.max * 4 + profile.carbs.max * 4 + profile.fat.max * 9),
+  const carbs = goals.carbs + (dayType === 'training' ? goals.trainingCarbs : 0)
+  const exact = (n: number): MacroRange => ({ min: n, max: n })
+  return {
+    calories: exact(round1(goals.protein * 4 + carbs * 4 + goals.fat * 9)),
+    protein: exact(goals.protein), carbs: exact(carbs), fat: exact(goals.fat),
+    fiber: goals.fiber, water: goals.water, alcoholWeekly: goals.alcoholWeekly,
   }
-  return { calories, protein: profile.protein, carbs: profile.carbs, fat: profile.fat, fiber: goals.fiber, water: goals.water, alcoholWeekly: goals.alcoholWeekly }
 }
 
 /**

@@ -238,20 +238,16 @@ describe('goals and settings', () => {
   })
 
   it('updates only the goals given, leaving the rest as they were', () => {
-    store.setGoals({ fiber: 40 })
+    store.setGoals({ fiber: 40, trainingCarbs: 50 })
     const goals = store.getGoals()
-    expect(goals.fiber).toBe(40)
-    expect(goals.training).toEqual(DEFAULT_GOALS.training)
-  })
-
-  it('replaces a whole day-type profile when one is given', () => {
-    store.setGoals({ training: { protein: { min: 140, max: 150 }, carbs: { min: 100, max: 110 }, fat: { min: 45, max: 50 } } })
-    expect(store.getGoals().training).toEqual({ protein: { min: 140, max: 150 }, carbs: { min: 100, max: 110 }, fat: { min: 45, max: 50 } })
+    expect(goals).toMatchObject({ fiber: 40, trainingCarbs: 50, protein: DEFAULT_GOALS.protein, carbs: DEFAULT_GOALS.carbs })
+    expect(new Store({ dir }).getGoals()).toEqual(goals)
   })
 
   it('refuses a nonsense goal', () => {
     expect(() => store.setGoals({ fiber: -1 })).toThrow(ValidationError)
-    expect(() => store.setGoals({ training: { protein: { min: 10, max: 5 }, carbs: { min: 0, max: 10 }, fat: { min: 0, max: 10 } } })).toThrow(ValidationError)
+    expect(() => store.setGoals({ protein: 'lots' as unknown as number })).toThrow(ValidationError)
+    expect(() => store.setGoals({ trainingCarbs: Number.NaN })).toThrow(ValidationError)
   })
 
   it('never exposes the USDA key', () => {
@@ -506,9 +502,9 @@ describe('migrating from log.json', () => {
     expect(reopened.getGoals().fiber).toBe(40)
   })
 
-  it('adds the day-type range columns to a database that predates them', () => {
-    // Build exactly what an older Store version would have left: a goals
-    // table with only the old flat columns, none of today's range ones.
+  it('adds the base-and-bump goal columns to a database that predates them', () => {
+    // Build exactly what the oldest Store version would have left: a goals
+    // table with only the original flat columns, none of today's.
     const db = new DatabaseSync(path.join(freshDir, 'macros.sqlite'))
     db.exec(`CREATE TABLE goals (id INTEGER PRIMARY KEY CHECK (id = 1),
       calories REAL NOT NULL, protein REAL NOT NULL, fat REAL NOT NULL, carbs REAL NOT NULL, fiber REAL NOT NULL)`)
@@ -517,8 +513,8 @@ describe('migrating from log.json', () => {
 
     const upgraded = new Store({ dir: freshDir })
     // The old flat columns are left in place but unused (fiber's column name
-    // is unchanged, so that value survives); water, alcohol and the new
-    // per-day-type ranges default to today's DEFAULT_GOALS.
+    // is unchanged, so that value survives); water, alcohol and the base
+    // macros and carb bump default to today's DEFAULT_GOALS.
     expect(upgraded.getGoals()).toEqual({ ...DEFAULT_GOALS, fiber: 30 })
   })
 })
@@ -754,23 +750,23 @@ describe('ranges', () => {
   })
 
   it('carries the current goals along, same as a day view', () => {
-    store.setGoals({ rest: { protein: { min: 140, max: 150 }, carbs: { min: 100, max: 110 }, fat: { min: 45, max: 50 } } })
-    // No day ticked as training, so every day in range resolves to rest: 140*4 + 100*4 + 45*9 = 1365.
+    store.setGoals({ protein: 140, fat: 45, carbs: 100, trainingCarbs: 20 })
+    // No day ticked as training, so every day in range is a rest day: 140*4 + 100*4 + 45*9 = 1365.
     expect(store.getRange(D1, D3).goals.calories.min).toBe(1365)
-    // Tick one of the three: the blended goal moves a third of the way to the training profile.
+    // Tick one of the three: the blended goal moves a third of the way to the training day's 1445 (+20 g carbs).
     store.setDayType(D2, 'training')
-    const trainingMin = 120 * 4 + 220 * 4 + 60 * 9 // today's default training profile: 1900
-    expect(store.getRange(D1, D3).goals.calories.min).toBeCloseTo((1365 * 2 + trainingMin) / 3, 1)
+    expect(store.getRange(D1, D3).goals.calories.min).toBeCloseTo((1365 * 2 + 1445) / 3, 1)
   })
 
   it('scores each logged day against its own goal, and says how the days were split', () => {
-    // A rest-day target a banana can meet: 1-2 g protein, 20-30 g carbs, up to 1 g fat.
-    store.setGoals({ rest: { protein: { min: 1, max: 2 }, carbs: { min: 20, max: 30 }, fat: { min: 0, max: 1 } } })
+    // A target a banana can meet: at least 1 g protein and 0 g fat, at most 30 g carbs (124 kcal).
+    store.setGoals({ protein: 1, fat: 0, carbs: 30, trainingCarbs: 10 })
     store.addEntry(banana({ date: D1 })) // 118 g: 105 kcal, 1.3 g protein, 26.9 g carbs, 0.4 g fat, 3.1 g fiber
     store.setDayType(D3, 'training')
     const range = store.getRange(D1, D3)
     expect(range.dayTypes).toEqual({ training: 1, rest: 2 })
-    expect(range.days[0]!.goals.carbs).toEqual({ min: 20, max: 30 })
+    expect(range.days[0]!.goals.carbs).toEqual({ min: 30, max: 30 })
+    expect(range.days[2]!.goals.carbs).toEqual({ min: 40, max: 40 }) // the training day's bump
     // Only D1 was logged: it met everything but fiber (3.1 g of the 30 g goal).
     expect(range.scorecard).toEqual({
       calories: { met: 1, of: 1 }, protein: { met: 1, of: 1 }, fat: { met: 1, of: 1 }, carbs: { met: 1, of: 1 }, fiber: { met: 0, of: 1 },

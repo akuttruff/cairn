@@ -152,27 +152,24 @@ describe('rangeStatus', () => {
   })
 })
 
-const GOALS: Goals = {
-  training: { protein: { min: 125, max: 130 }, carbs: { min: 110, max: 120 }, fat: { min: 50, max: 55 } },
-  rest: { protein: { min: 115, max: 120 }, carbs: { min: 80, max: 90 }, fat: { min: 50, max: 55 } },
-  fiber: 30, water: 96, alcoholWeekly: 7,
-}
+const GOALS: Goals = { protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, fiber: 30, water: 96, alcoholWeekly: 7 }
 
 describe('resolveGoals', () => {
-  it("computes calories from the macro range's own ends -- never a separately stated number", () => {
-    const resolved = resolveGoals(GOALS, 'training')
-    // 125*4 + 110*4 + 50*9 = 500 + 440 + 450 = 1390; 130*4 + 120*4 + 55*9 = 520 + 480 + 495 = 1495.
-    expect(resolved.calories).toEqual({ min: 1390, max: 1495 })
-    expect(resolved.protein).toEqual({ min: 125, max: 130 })
-  })
-
-  it('resolves the other day type from its own macros, and carries the day-type-independent goals through unchanged', () => {
+  it('computes calories from the macros themselves -- never a separately stated number', () => {
     const resolved = resolveGoals(GOALS, 'rest')
-    // 115*4 + 80*4 + 50*9 = 460 + 320 + 450 = 1230; 120*4 + 90*4 + 55*9 = 480 + 360 + 495 = 1335.
-    expect(resolved.calories).toEqual({ min: 1230, max: 1335 })
+    // 130*4 + 160*4 + 60*9 = 520 + 640 + 540 = 1700.
+    expect(resolved.calories).toEqual({ min: 1700, max: 1700 })
+    expect(resolved.carbs).toEqual({ min: 160, max: 160 })
     expect(resolved.fiber).toBe(30)
     expect(resolved.water).toBe(96)
     expect(resolved.alcoholWeekly).toBe(7)
+  })
+
+  it('adds the training-day carbs on top of the base, and the calories they bring', () => {
+    const resolved = resolveGoals(GOALS, 'training')
+    expect(resolved.carbs).toEqual({ min: 195, max: 195 })
+    expect(resolved.calories).toEqual({ min: 1840, max: 1840 }) // 1700 + 35*4
+    expect(resolved.protein).toEqual({ min: 130, max: 130 }) // unchanged
   })
 })
 
@@ -186,12 +183,11 @@ describe('goalMet', () => {
     expect(goalMet(237.1, { min: 220, max: 237 }, 'carbs')).toBe(false)
   })
 
-  it('treats fat as a true range: too little is a miss as much as too much', () => {
-    const r = { min: 60, max: 68 }
+  it('treats fat as a floor too: at or over the goal is a hit, under is a miss', () => {
+    const r = { min: 60, max: 60 }
     expect(goalMet(60, r, 'fat')).toBe(true)
-    expect(goalMet(68, r, 'fat')).toBe(true)
+    expect(goalMet(75, r, 'fat')).toBe(true)
     expect(goalMet(59.9, r, 'fat')).toBe(false)
-    expect(goalMet(68.1, r, 'fat')).toBe(false)
   })
 
   it('treats protein and fiber as floors: at or over the bottom is a hit, under is a miss', () => {
@@ -214,13 +210,13 @@ describe('scoreDays', () => {
   })
 
   it("judges each day against its own day type's goal, never a blend", () => {
-    // 1450 kcal: under the training cap (1495), over the rest one (1335).
-    const days = [summary('training', { calories: 1450 }), summary('rest', { calories: 1450 })]
+    // 1800 kcal: under the training cap (1840), over the rest one (1700).
+    const days = [summary('training', { calories: 1800 }), summary('rest', { calories: 1800 })]
     expect(scoreDays(days).calories).toEqual({ met: 1, of: 2 })
   })
 
   it('leaves unlogged days out of both counts', () => {
-    const days = [summary('rest', { protein: 118 }), summary('rest', {}, 0)]
+    const days = [summary('rest', { protein: 135 }), summary('rest', {}, 0)]
     expect(scoreDays(days).protein).toEqual({ met: 1, of: 1 })
     expect(scoreDays([]).fiber).toEqual({ met: 0, of: 0 })
   })
@@ -239,11 +235,11 @@ describe('blendGoals', () => {
   const training = resolveGoals(GOALS, 'training')
   const rest = resolveGoals(GOALS, 'rest')
 
-  it('averages each range across the days given, field by field, to one decimal', () => {
+  it('averages each goal across the days given, field by field, to one decimal', () => {
     const blended = blendGoals([training, training, rest]) // 2 training days, 1 rest
-    expect(blended.protein.min).toBeCloseTo((125 + 125 + 115) / 3, 1)
-    expect(blended.protein.max).toBeCloseTo((130 + 130 + 120) / 3, 1)
-    expect(blended.calories.min).toBeCloseTo((1390 + 1390 + 1230) / 3, 1)
+    expect(blended.carbs.min).toBeCloseTo((195 + 195 + 160) / 3, 1)
+    expect(blended.calories.min).toBeCloseTo((1840 + 1840 + 1700) / 3, 1)
+    expect(blended.protein.min).toBe(130) // the same every day
   })
 
   it('carries fiber, water and alcohol through unchanged -- one day is enough to know them', () => {

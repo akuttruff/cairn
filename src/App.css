@@ -411,11 +411,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 .auto-tag { font-weight: 400; opacity: 0.6; }
 .nf.calories.auto input { color: var(--paper-dim); font-style: italic; }
 
-.profile-fields { margin-bottom: 8px; }
-.profile-fields .nutrient-fields { margin-bottom: 4px; }
-.range-inputs { display: flex; align-items: center; gap: 6px; }
-.range-inputs input { width: 0; flex: 1 1 0; }
-.range-sep { color: var(--paper-dim); flex: 0 0 auto; }
 
 .hint { font-size: 12px; color: var(--paper-dim); line-height: 1.5; margin: 4px 0 10px; }
 .hint.center { text-align: center; padding: 18px 8px; }

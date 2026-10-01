@@ -12,11 +12,7 @@ const GOALS = {
   fiber: 30, water: 96, alcoholWeekly: 7,
 }
 /** What Settings edits and /api/goals returns -- separate shape from GOALS above (a resolved, per-day view). */
-const STORED_GOALS: Goals = {
-  training: { protein: { min: 125, max: 130 }, carbs: { min: 110, max: 120 }, fat: { min: 50, max: 55 } },
-  rest: { protein: { min: 115, max: 120 }, carbs: { min: 80, max: 90 }, fat: { min: 50, max: 55 } },
-  fiber: 30, water: 96, alcoholWeekly: 7,
-}
+const STORED_GOALS: Goals = { protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, fiber: 30, water: 96, alcoholWeekly: 7 }
 
 const banana: Food = {
   id: 'usda:173944', name: 'Bananas, raw', source: 'usda', sourceId: '173944',
@@ -95,13 +91,12 @@ describe('App', () => {
     expect(await screen.findByTitle('1 item missing this value')).toBeInTheDocument()
   })
 
-  it('flags going over on fat and carbs, but not on protein or fiber', async () => {
+  it('flags going over on carbs, but not on protein, fat or fiber, which are floors', async () => {
     stubApi({ [`GET /api/day/${TODAY}`]: day([], { totals: { calories: 1000, protein: 200, fat: 100, carbs: 250, fiber: 45 } }) })
-    // (The bars colour the cap side only; the scorecard is where fat's floor counts.)
     render(<App />)
     await screen.findByText('Today')
-    expect(screen.getByRole('progressbar', { name: 'Fat' })).toHaveClass('over')
     expect(screen.getByRole('progressbar', { name: 'Carbs' })).toHaveClass('over')
+    expect(screen.getByRole('progressbar', { name: 'Fat' })).not.toHaveClass('over')
     expect(screen.getByRole('progressbar', { name: 'Protein' })).not.toHaveClass('over')
     expect(screen.getByRole('progressbar', { name: 'Fiber' })).not.toHaveClass('over')
   })
@@ -502,15 +497,14 @@ describe('App', () => {
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Settings' }))
     expect(await screen.findByPlaceholderText('saved — type to replace')).toHaveValue('')
-    // Training's protein minimum, the first of the two day-type sections.
-    const proteinMin = screen.getAllByLabelText('Protein minimum')[0]!
-    await user.clear(proteinMin)
-    await user.type(proteinMin, '128')
+    const protein = screen.getByLabelText('Protein (g)')
+    await user.clear(protein)
+    await user.type(protein, '128')
+    // The calorie math follows along as you type: 128*4 + 60*9 + 160*4, and +35 g carbs on training days.
+    expect(screen.getByText(/Every day: 1692 kcal\. Training days: 1832 kcal with 195 g carbs\./)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true))
-    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({
-      training: { protein: { min: 128, max: 130 } },
-    })
+    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ protein: 128, trainingCarbs: 35 })
     // No key typed, so the saved one is left alone.
     expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/settings')).toBe(false)
   })
@@ -540,9 +534,9 @@ describe('App', () => {
       [`PUT /api/day-type/${TODAY}`]: { date: TODAY, type: 'training' },
     })
     render(<App />)
-    const box = await screen.findByRole('checkbox', { name: /Training day/ })
+    const box = await screen.findByRole('checkbox', { name: /WOD \/ weightlifting day/ })
     expect(box).not.toBeChecked()
-    expect(screen.getByText('rest-day goals')).toBeInTheDocument()
+    expect(screen.getByText(/rest-day goals · 2000 kcal/)).toBeInTheDocument()
     await user.click(box)
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === `/api/day-type/${TODAY}`)).toBe(true))
     expect(calls.find((c) => c.url === `/api/day-type/${TODAY}`)!.body).toEqual({ type: 'training' })
@@ -551,8 +545,8 @@ describe('App', () => {
   it('shows a marked training day as ticked, with its goals named', async () => {
     stubApi({ [`GET /api/day/${TODAY}`]: day([], { dayType: 'training' }) })
     render(<App />)
-    expect(await screen.findByRole('checkbox', { name: /Training day/ })).toBeChecked()
-    expect(screen.getByText('training-day goals')).toBeInTheDocument()
+    expect(await screen.findByRole('checkbox', { name: /WOD \/ weightlifting day/ })).toBeChecked()
+    expect(screen.getByText(/training goals · 2000 kcal/)).toBeInTheDocument()
   })
 
   it('looks a food up online, then logs it by the serving the source gave', async () => {

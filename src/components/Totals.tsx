@@ -36,16 +36,18 @@ export default function Totals({ totals, missing, goals, dayType, onSetDayType }
 
   return (
     <section className="totals" aria-label="Daily totals">
-      {/* Ticked on the days you trained; an unmarked day is a rest day, and
-          the goals below follow whichever it is. */}
+      {/* Ticked on the days you train; an unticked day is a rest day. A
+          training day adds the pre-workout carbs to the goals below. */}
       <label className="day-type-check">
         <input
           type="checkbox"
           checked={dayType === 'training'}
           onChange={(e) => onSetDayType(e.target.checked ? 'training' : 'rest')}
         />
-        <span>Training day</span>
-        <span className="day-type-note">{dayType === 'training' ? 'training-day goals' : 'rest-day goals'}</span>
+        <span>WOD / weightlifting day</span>
+        <span className="day-type-note">
+          {dayType === 'training' ? 'training goals' : 'rest-day goals'} · {Math.round(goals.calories.max)} kcal
+        </span>
       </label>
 
       <div className="cal-row">
@@ -90,7 +92,8 @@ export default function Totals({ totals, missing, goals, dayType, onSetDayType }
 
 export function Bar({ value, range, kind }: { value: number; range: MacroRange; kind: NutrientKey }) {
   const pct = Math.round(progress(value, range.max) * 100)
-  const minPct = range.min > 0 ? Math.round(progress(range.min, range.max) * 100) : 0
+  // A bottom-of-range tick only means something when there is a range.
+  const minPct = range.min > 0 && range.min < range.max ? Math.round(progress(range.min, range.max) * 100) : 0
   const over = OVER_IS_BAD.has(kind) && value > range.max
   return (
     <div
@@ -102,7 +105,7 @@ export function Bar({ value, range, kind }: { value: number; range: MacroRange; 
       aria-valuenow={Math.round(value)}
     >
       <div className="bar-fill" style={{ width: `${pct}%` }} />
-      {range.min > 0 && <div className="bar-min-tick" style={{ left: `${minPct}%` }} />}
+      {minPct > 0 && <div className="bar-min-tick" style={{ left: `${minPct}%` }} />}
     </div>
   )
 }

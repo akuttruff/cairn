@@ -98,28 +98,30 @@ export interface Amount {
 export const DAY_TYPES = ['training', 'rest'] as const
 export type DayType = (typeof DAY_TYPES)[number]
 
-/** A macro target as a band, e.g. 125-130g, not a single number to hit exactly. */
+/**
+ * A target as a band with a bottom and a top. Today's goals are single
+ * numbers, so min and max are equal; the shape stays so the bars and charts
+ * can draw a band whenever one is wanted again.
+ */
 export interface MacroRange {
   min: number
   max: number
 }
 
-/** One day type's macro targets. Calories are never one of these fields -- see ResolvedGoals. */
-export interface DayTypeGoals {
-  protein: MacroRange
-  carbs: MacroRange
-  fat: MacroRange
-}
-
 /**
- * What Settings edits: a macro range for each day type, plus the goals that
- * don't vary by day type. There is no stored calorie goal -- see
+ * What Settings edits: one base set of macros for every day, plus the extra
+ * carbs a training day adds on top. Which days are training days is ticked
+ * off day by day in Day view. There is no stored calorie goal -- see
  * ResolvedGoals for why, and resolveGoals() in lib/nutrition.ts for the math.
  */
 export interface Goals {
-  training: DayTypeGoals
-  rest: DayTypeGoals
-  /** Grams per day; not a range like the macros above, and the same on any day type. */
+  /** Grams per day, every day. */
+  protein: number
+  fat: number
+  carbs: number
+  /** Grams of fast carbs a training day adds (before the workout): 35 g is about 140 kcal. */
+  trainingCarbs: number
+  /** Grams per day, the same on any day type. */
   fiber: number
   /** Ounces per day. */
   water: number
@@ -128,11 +130,12 @@ export interface Goals {
 }
 
 /**
- * One day type's goals, resolved to concrete ranges a day or range view can
- * compare a total against. Calories are computed from the macro ranges (4
- * kcal/g protein and carbs, 9 kcal/g fat) by resolveGoals(), never stored on
- * their own -- so they can never disagree with what the macros actually add
- * up to, the way a hand-typed calorie goal could.
+ * One day's goals, resolved to concrete numbers a day or range view can
+ * compare a total against: the base macros, plus the carb bump on a training
+ * day. Calories are computed from them (4 kcal/g protein and carbs, 9 kcal/g
+ * fat) by resolveGoals(), never stored on their own -- so they can never
+ * disagree with what the macros actually add up to, the way a hand-typed
+ * calorie goal could. Each is a MacroRange with min = max.
  */
 export interface ResolvedGoals {
   calories: MacroRange

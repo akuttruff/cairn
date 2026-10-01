@@ -5,8 +5,8 @@ import { DatabaseSync } from 'node:sqlite'
 import type { SQLInputValue, StatementSync } from 'node:sqlite'
 import { ALCOHOL_KINDS, MEALS, NUTRIENTS } from '../src/types.ts'
 import type {
-  AlcoholKind, AlcoholLog, Amount, DaySummary, DayType, DayTypeGoals, DayView, Entry, Food, FoodSource, Goals,
-  MacroRange, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, NutrientKey, PerServing, PublicSettings,
+  AlcoholKind, AlcoholLog, Amount, DaySummary, DayType, DayView, Entry, Food, FoodSource, Goals,
+  Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, NutrientKey, PerServing, PublicSettings,
   RangeView, Serving, Settings, SourceLink, WaterLog,
 } from '../src/types.ts'
 import {
@@ -87,29 +87,12 @@ function cleanAmount(input: unknown): Amount {
   }
 }
 
-/** A macro band: both ends non-negative, and the top can't be below the bottom. */
-function cleanMacroRange(input: unknown, label: string): MacroRange {
-  const r = input as Partial<MacroRange> | null
-  if (!r || typeof r !== 'object') throw new ValidationError(`${label} is required`)
-  const { min, max } = r
-  if (typeof min !== 'number' || !Number.isFinite(min) || min < 0 || min > 100_000) {
-    throw new ValidationError(`${label}.min must be a non-negative number`)
+/** A goal amount: a finite, non-negative number within reason. */
+function cleanGoalNumber(input: unknown, label: string, max = 100_000): number {
+  if (typeof input !== 'number' || !Number.isFinite(input) || input < 0 || input > max) {
+    throw new ValidationError(`goal ${label} must be a non-negative number`)
   }
-  if (typeof max !== 'number' || !Number.isFinite(max) || max < 0 || max > 100_000) {
-    throw new ValidationError(`${label}.max must be a non-negative number`)
-  }
-  if (max < min) throw new ValidationError(`${label}.max must be at least ${label}.min`)
-  return { min, max }
-}
-
-function cleanDayTypeGoals(input: unknown, label: string): DayTypeGoals {
-  const g = input as Partial<DayTypeGoals> | null
-  if (!g || typeof g !== 'object') throw new ValidationError(`${label} is required`)
-  return {
-    protein: cleanMacroRange(g.protein, `${label}.protein`),
-    carbs: cleanMacroRange(g.carbs, `${label}.carbs`),
-    fat: cleanMacroRange(g.fat, `${label}.fat`),
-  }
+  return input
 }
 
 function cleanDayType(input: unknown): DayType {
@@ -214,12 +197,7 @@ CREATE TABLE IF NOT EXISTS meal_preset_items (
 );
 
 CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY CHECK (id = 1),
-  training_protein_min REAL NOT NULL, training_protein_max REAL NOT NULL,
-  training_carbs_min REAL NOT NULL, training_carbs_max REAL NOT NULL,
-  training_fat_min REAL NOT NULL, training_fat_max REAL NOT NULL,
-  rest_protein_min REAL NOT NULL, rest_protein_max REAL NOT NULL,
-  rest_carbs_min REAL NOT NULL, rest_carbs_max REAL NOT NULL,
-  rest_fat_min REAL NOT NULL, rest_fat_max REAL NOT NULL,
+  base_protein REAL NOT NULL, base_fat REAL NOT NULL, base_carbs REAL NOT NULL, training_carbs REAL NOT NULL,
   fiber REAL NOT NULL, water_ounces REAL NOT NULL DEFAULT 96, alcohol_weekly REAL NOT NULL DEFAULT 7);
 CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK (id = 1),
   usda_api_key TEXT NOT NULL DEFAULT '', lm_studio_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:1234',
@@ -281,21 +259,26 @@ function migrateSchema(db: DatabaseSync): void {
     db.exec('PRAGMA user_version = 2')
   }
   if (version < 3) {
-    const cols = db.prepare('PRAGMA table_info(goals)').all() as { name: string }[]
-    const has = (name: string): boolean => cols.some((c) => c.name === name)
-    // The old flat calories/protein/fat/carbs columns are left in place,
-    // unused: SQLite can't drop a column without rebuilding the table, and
-    // there's nothing left reading them once these are here.
-    for (const [dayType, profile] of [['training', DEFAULT_GOALS.training], ['rest', DEFAULT_GOALS.rest]] as const) {
-      for (const macro of ['protein', 'carbs', 'fat'] as const) {
-        for (const bound of ['min', 'max'] as const) {
-          const column = `${dayType}_${macro}_${bound}`
-          if (!has(column)) db.exec(`ALTER TABLE goals ADD COLUMN ${column} REAL NOT NULL DEFAULT ${profile[macro][bound]}`)
-        }
-      }
-    }
+    // Version 3 once added per-day-type range columns to goals; version 4
+    // replaced them, so a database coming through here only needs the
+    // day_types table. (A database already at 3 keeps those columns, unused.)
     db.exec("CREATE TABLE IF NOT EXISTS day_types (date TEXT PRIMARY KEY, type TEXT NOT NULL CHECK (type IN ('training','rest')))")
     db.exec('PRAGMA user_version = 3')
+  }
+  if (version < 4) {
+    const cols = db.prepare('PRAGMA table_info(goals)').all() as { name: string }[]
+    const has = (name: string): boolean => cols.some((c) => c.name === name)
+    // One base set of macros plus a training-day carb bump, replacing the
+    // per-day-type ranges (whose columns stay behind, unused, like the flat
+    // ones before them: SQLite can't drop a column without a rebuild).
+    const defaults: [string, number][] = [
+      ['base_protein', DEFAULT_GOALS.protein], ['base_fat', DEFAULT_GOALS.fat],
+      ['base_carbs', DEFAULT_GOALS.carbs], ['training_carbs', DEFAULT_GOALS.trainingCarbs],
+    ]
+    for (const [column, value] of defaults) {
+      if (!has(column)) db.exec(`ALTER TABLE goals ADD COLUMN ${column} REAL NOT NULL DEFAULT ${value}`)
+    }
+    db.exec('PRAGMA user_version = 4')
   }
 }
 
@@ -452,44 +435,25 @@ function presetItemColumnParams(item: MealPresetItem): SQLInputValue[] {
 }
 
 interface GoalsRow {
-  training_protein_min: number; training_protein_max: number
-  training_carbs_min: number; training_carbs_max: number
-  training_fat_min: number; training_fat_max: number
-  rest_protein_min: number; rest_protein_max: number
-  rest_carbs_min: number; rest_carbs_max: number
-  rest_fat_min: number; rest_fat_max: number
+  base_protein: number; base_fat: number; base_carbs: number; training_carbs: number
   fiber: number; water_ounces: number; alcohol_weekly: number
 }
 interface DayTypeRow { date: string; type: string }
 
-const GOALS_COLUMNS =
-  'training_protein_min,training_protein_max,training_carbs_min,training_carbs_max,training_fat_min,training_fat_max,' +
-  'rest_protein_min,rest_protein_max,rest_carbs_min,rest_carbs_max,rest_fat_min,rest_fat_max,fiber,water_ounces,alcohol_weekly'
+const GOALS_COLUMNS = 'base_protein,base_fat,base_carbs,training_carbs,fiber,water_ounces,alcohol_weekly'
+const GOALS_PLACEHOLDERS = GOALS_COLUMNS.split(',').map(() => '?').join(',')
+const GOALS_ASSIGNMENTS = GOALS_COLUMNS.split(',').map((c) => `${c}=?`).join(', ')
 
 function goalsFromRow(row: GoalsRow): Goals {
   return {
-    training: {
-      protein: { min: row.training_protein_min, max: row.training_protein_max },
-      carbs: { min: row.training_carbs_min, max: row.training_carbs_max },
-      fat: { min: row.training_fat_min, max: row.training_fat_max },
-    },
-    rest: {
-      protein: { min: row.rest_protein_min, max: row.rest_protein_max },
-      carbs: { min: row.rest_carbs_min, max: row.rest_carbs_max },
-      fat: { min: row.rest_fat_min, max: row.rest_fat_max },
-    },
+    protein: row.base_protein, fat: row.base_fat, carbs: row.base_carbs, trainingCarbs: row.training_carbs,
     fiber: row.fiber, water: row.water_ounces, alcoholWeekly: row.alcohol_weekly,
   }
 }
 
 /** In GOALS_COLUMNS order. */
 function goalsParams(g: Goals): SQLInputValue[] {
-  return [
-    g.training.protein.min, g.training.protein.max, g.training.carbs.min, g.training.carbs.max,
-    g.training.fat.min, g.training.fat.max,
-    g.rest.protein.min, g.rest.protein.max, g.rest.carbs.min, g.rest.carbs.max, g.rest.fat.min, g.rest.fat.max,
-    g.fiber, g.water, g.alcoholWeekly,
-  ]
+  return [g.protein, g.fat, g.carbs, g.trainingCarbs, g.fiber, g.water, g.alcoholWeekly]
 }
 interface AlcoholLogRow { id: string; date: string; kind: string; created_at: number }
 interface WaterLogRow { id: string; date: string; ounces: number; created_at: number }
@@ -594,7 +558,7 @@ function migrateFromJson(paths: ReturnType<typeof locate>): void {
       insertPreset.run(p.id, p.name, p.createdAt)
       p.items.forEach((item, i) => insertItem.run(p.id, i, ...presetItemColumnParams(item)))
     }
-    db.prepare(`INSERT INTO goals (id,${GOALS_COLUMNS}) VALUES (1,${Array(15).fill('?').join(',')})`)
+    db.prepare(`INSERT INTO goals (id,${GOALS_COLUMNS}) VALUES (1,${GOALS_PLACEHOLDERS})`)
       .run(...goalsParams(log.goals))
     db.prepare('INSERT INTO settings (id,usda_api_key,lm_studio_url,lm_studio_token,research_model,auto_lookup) VALUES (1,?,?,?,?,?)')
       .run(settings.usdaApiKey, settings.lmStudioUrl, settings.lmStudioToken, settings.researchModel, settings.autoLookup ? 1 : 0)
@@ -777,11 +741,7 @@ export class Store {
       ),
       deletePreset: this.db.prepare('DELETE FROM meal_presets WHERE id = ?'),
       selectGoals: this.db.prepare('SELECT * FROM goals WHERE id = 1'),
-      updateGoals: this.db.prepare(
-        `UPDATE goals SET training_protein_min=?, training_protein_max=?, training_carbs_min=?, training_carbs_max=?,
-          training_fat_min=?, training_fat_max=?, rest_protein_min=?, rest_protein_max=?, rest_carbs_min=?, rest_carbs_max=?,
-          rest_fat_min=?, rest_fat_max=?, fiber=?, water_ounces=?, alcohol_weekly=? WHERE id=1`,
-      ),
+      updateGoals: this.db.prepare(`UPDATE goals SET ${GOALS_ASSIGNMENTS} WHERE id=1`),
       selectDayType: this.db.prepare('SELECT * FROM day_types WHERE date = ?'),
       selectDayTypesBetween: this.db.prepare('SELECT * FROM day_types WHERE date >= ? AND date <= ?'),
       upsertDayType: this.db.prepare(
@@ -809,7 +769,7 @@ export class Store {
     }
 
     if (!this.stmts.selectGoals.get()) {
-      this.db.prepare(`INSERT INTO goals (id,${GOALS_COLUMNS}) VALUES (1,${Array(15).fill('?').join(',')})`)
+      this.db.prepare(`INSERT INTO goals (id,${GOALS_COLUMNS}) VALUES (1,${GOALS_PLACEHOLDERS})`)
         .run(...goalsParams(DEFAULT_GOALS))
     }
     if (!this.stmts.selectSettings.get()) {
@@ -1367,29 +1327,16 @@ export class Store {
     return goalsFromRow(this.stmts.selectGoals.get() as unknown as GoalsRow)
   }
 
+  /** Change any of the goals; fields left out stay as they were. */
   setGoals(input: Partial<Goals>): Goals {
     const next = this.getGoals()
-    if (input.training !== undefined) next.training = cleanDayTypeGoals(input.training, 'training')
-    if (input.rest !== undefined) next.rest = cleanDayTypeGoals(input.rest, 'rest')
-    if (input.fiber !== undefined) {
-      if (typeof input.fiber !== 'number' || !Number.isFinite(input.fiber) || input.fiber < 0 || input.fiber > 1000) {
-        throw new ValidationError('goal fiber must be a non-negative number')
-      }
-      next.fiber = input.fiber
-    }
-    if (input.water !== undefined) {
-      if (typeof input.water !== 'number' || !Number.isFinite(input.water) || input.water < 0 || input.water > 1000) {
-        throw new ValidationError('goal water must be a non-negative number')
-      }
-      next.water = input.water
-    }
-    if (input.alcoholWeekly !== undefined) {
-      if (typeof input.alcoholWeekly !== 'number' || !Number.isFinite(input.alcoholWeekly)
-        || input.alcoholWeekly < 0 || input.alcoholWeekly > 1000) {
-        throw new ValidationError('goal alcoholWeekly must be a non-negative number')
-      }
-      next.alcoholWeekly = input.alcoholWeekly
-    }
+    if (input.protein !== undefined) next.protein = cleanGoalNumber(input.protein, 'protein')
+    if (input.fat !== undefined) next.fat = cleanGoalNumber(input.fat, 'fat')
+    if (input.carbs !== undefined) next.carbs = cleanGoalNumber(input.carbs, 'carbs')
+    if (input.trainingCarbs !== undefined) next.trainingCarbs = cleanGoalNumber(input.trainingCarbs, 'trainingCarbs')
+    if (input.fiber !== undefined) next.fiber = cleanGoalNumber(input.fiber, 'fiber', 1000)
+    if (input.water !== undefined) next.water = cleanGoalNumber(input.water, 'water', 1000)
+    if (input.alcoholWeekly !== undefined) next.alcoholWeekly = cleanGoalNumber(input.alcoholWeekly, 'alcoholWeekly', 1000)
     this.stmts.updateGoals.run(...goalsParams(next))
     return next
   }
