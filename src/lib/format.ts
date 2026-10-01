@@ -84,3 +84,21 @@ export function dayLabel(date: string, today = localDate()): string {
     weekday: 'short', month: 'short', day: 'numeric',
   })
 }
+
+const parseLocal = (date: string): Date => {
+  const [y, m, d] = date.split('-').map(Number)
+  return new Date(y!, m! - 1, d!)
+}
+
+/** "Sep 20 – Sep 26, 2026". The year always shows, so a week spanning a
+ *  year boundary (or just far from today) is never ambiguous. */
+export function weekLabel(start: string, end: string): string {
+  const from = parseLocal(start).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+  const to = parseLocal(end).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+  return `${from} – ${to}`
+}
+
+/** "September 2026". `date` is any day within the month. */
+export function monthLabel(date: string): string {
+  return parseLocal(date).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+}

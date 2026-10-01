@@ -93,6 +93,25 @@ describe('a day of logging', () => {
   })
 })
 
+describe('a week or month at a glance', () => {
+  it('reports one summary per day across the range, and range-wide totals', async () => {
+    await logBanana() // logged on DAY = 2026-09-26, 105 kcal
+    const res = await call('GET', '/api/range?start=2026-09-25&end=2026-09-27')
+    expect(res.status).toBe(200)
+    const range = res.body as unknown as import('../src/types.ts').RangeView
+    expect(range.days.map((d) => d.date)).toEqual(['2026-09-25', DAY, '2026-09-27'])
+    expect(range.days[1]!.totals.calories).toBe(105)
+    expect(range.totalDays).toBe(3)
+    expect(range.loggedDays).toBe(1)
+    expect(range.totals.calories).toBe(105)
+  })
+
+  it('rejects a bad or backwards range the same way a bad day does', async () => {
+    expect((await call('GET', '/api/range?start=nope&end=2026-09-27')).status).toBe(400)
+    expect((await call('GET', '/api/range?start=2026-09-27&end=2026-09-25')).status).toBe(400)
+  })
+})
+
 describe('search', () => {
   it('proxies the food databases', async () => {
     const res = await call('GET', '/api/search?q=banana')
@@ -125,6 +144,15 @@ describe('foods and goals', () => {
   it('updates goals', async () => {
     await call('PUT', '/api/goals', { fiber: 35 })
     expect((await call('GET', '/api/goals')).body.fiber).toBe(35)
+  })
+
+  it('treats an unmarked day as a rest day, and marks one as a training day', async () => {
+    expect((await call('GET', `/api/day/${DAY}`)).body.dayType).toBe('rest')
+    const res = await call('PUT', `/api/day-type/${DAY}`, { type: 'training' })
+    expect(res.body).toEqual({ date: DAY, type: 'training' })
+    expect((await call('GET', `/api/day/${DAY}`)).body.dayType).toBe('training')
+    await call('PUT', `/api/day-type/${DAY}`, { type: 'rest' }) // unticked again
+    expect((await call('GET', `/api/day/${DAY}`)).body.dayType).toBe('rest')
   })
 
   it('never returns the USDA key', async () => {
@@ -208,7 +236,7 @@ describe('alcohol', () => {
     expect(logged.status).toBe(201)
     const id = (logged.body as unknown as { id: string }).id
     let day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
-    expect(day.alcohol).toEqual({ drinks: 1, byKind: { beer: 0, wine: 1, liquor: 0 }, lastLogId: id })
+    expect(day.alcohol).toEqual({ drinks: 1, byKind: { beer: 0, wine: 1, liquor: 0 }, weekTotal: 1, weekGoal: 7, lastLogId: id })
     await call('DELETE', `/api/alcohol/${id}`)
     day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
     expect(day.alcohol.drinks).toBe(0)

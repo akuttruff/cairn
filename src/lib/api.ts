@@ -1,5 +1,5 @@
 import type {
-  DayView, Entry, Food, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, Serving,
+  DayType, DayView, Entry, Food, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeView, Serving,
   AlcoholKind, AlcoholLog, WaterLog, LmModelOption,
 } from '../types.ts'
 
@@ -37,6 +37,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 export const api = {
   day: (date: string) => request<DayView>('GET', `/api/day/${date}`),
+  range: (start: string, end: string) => request<RangeView>('GET', `/api/range?start=${start}&end=${end}`),
   addEntry: (entry: NewEntry) => request<Entry>('POST', '/api/entries', entry),
   updateEntry: (id: string, patch: {
     grams?: number; quantity?: number; meal?: Meal; name?: string; nutrients?: Nutrients; perUnit?: Nutrients
@@ -55,6 +56,8 @@ export const api = {
   portions: (fdcId: string) => request<Serving[]>('GET', `/api/portions/${encodeURIComponent(fdcId)}`),
   goals: () => request<Goals>('GET', '/api/goals'),
   setGoals: (goals: Partial<Goals>) => request<Goals>('PUT', '/api/goals', goals),
+  setDayType: (date: string, type: DayType) =>
+    request<{ date: string; type: DayType }>('PUT', `/api/day-type/${encodeURIComponent(date)}`, { type }),
   addWater: (date: string, ounces: number) => request<WaterLog>('POST', '/api/water', { date, ounces }),
   deleteWater: (id: string) => request<{ ok: true }>('DELETE', `/api/water/${encodeURIComponent(id)}`),
   addAlcohol: (date: string, kind: AlcoholKind) => request<AlcoholLog>('POST', '/api/alcohol', { date, kind }),

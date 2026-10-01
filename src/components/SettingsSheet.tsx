@@ -2,20 +2,18 @@ import { useEffect, useState } from 'react'
 import { Drawer } from 'vaul'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
-import { LABELS, UNITS } from '../lib/nutrition.ts'
 import { parseNum } from '../lib/format.ts'
-import { NUTRIENTS } from '../types.ts'
-import type { Goals, LmModelOption, NutrientKey, PublicSettings } from '../types.ts'
+import { DAY_TYPES } from '../types.ts'
+import type { DayType, DayTypeGoals, Goals, LmModelOption, PublicSettings } from '../types.ts'
 
 interface SettingsSheetProps {
   open: boolean
   session: number
-  goals: Goals | null
   onClose: () => void
   onSaved: () => void
 }
 
-export default function SettingsSheet({ open, session, goals, onClose, onSaved }: SettingsSheetProps) {
+export default function SettingsSheet({ open, session, onClose, onSaved }: SettingsSheetProps) {
   return (
     <Drawer.Root open={open} onOpenChange={(v) => { if (!v) onClose() }}>
       <Drawer.Portal>
@@ -23,19 +21,108 @@ export default function SettingsSheet({ open, session, goals, onClose, onSaved }
         <Drawer.Content className="drawer-content" aria-describedby={undefined}>
           <div className="drawer-handle" />
           <Drawer.Title className="drawer-title">Daily goals</Drawer.Title>
-          {goals && <SettingsForm key={session} goals={goals} onClose={onClose} onSaved={onSaved} />}
+          {open && <SettingsForm key={session} onClose={onClose} onSaved={onSaved} />}
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>
   )
 }
 
-function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () => void; onSaved: () => void }) {
-  const [draft, setDraft] = useState<Record<NutrientKey, string>>(() => ({
-    calories: String(goals.calories), protein: String(goals.protein), fat: String(goals.fat),
-    carbs: String(goals.carbs), fiber: String(goals.fiber),
-  }))
-  const [waterDraft, setWaterDraft] = useState(String(goals.water))
+const MACRO_KEYS = ['protein', 'carbs', 'fat'] as const
+type MacroKey = (typeof MACRO_KEYS)[number]
+const MACRO_LABELS: Record<MacroKey, string> = { protein: 'Protein', carbs: 'Carbs', fat: 'Fat' }
+const DAY_TYPE_LABELS: Record<DayType, string> = { training: 'Training day', rest: 'Rest day' }
+
+/** A day type's macro ranges, as editable text. */
+type ProfileDraft = Record<MacroKey, { min: string; max: string }>
+
+const profileToDraft = (p: DayTypeGoals): ProfileDraft => ({
+  protein: { min: String(p.protein.min), max: String(p.protein.max) },
+  carbs: { min: String(p.carbs.min), max: String(p.carbs.max) },
+  fat: { min: String(p.fat.min), max: String(p.fat.max) },
+})
+
+/** Parses a profile draft; null fields mean something didn't parse. */
+function parseProfile(draft: ProfileDraft): { profile: DayTypeGoals | null; invalid: boolean } {
+  const parsed: Record<MacroKey, { min: number | null; max: number | null }> = {
+    protein: { min: parseNum(draft.protein.min), max: parseNum(draft.protein.max) },
+    carbs: { min: parseNum(draft.carbs.min), max: parseNum(draft.carbs.max) },
+    fat: { min: parseNum(draft.fat.min), max: parseNum(draft.fat.max) },
+  }
+  const invalid = MACRO_KEYS.some((k) => {
+    const { min, max } = parsed[k]
+    return min == null || max == null || min < 0 || max < min
+  })
+  if (invalid) return { profile: null, invalid: true }
+  return {
+    profile: {
+      protein: { min: parsed.protein.min!, max: parsed.protein.max! },
+      carbs: { min: parsed.carbs.min!, max: parsed.carbs.max! },
+      fat: { min: parsed.fat.min!, max: parsed.fat.max! },
+    },
+    invalid: false,
+  }
+}
+
+/** Calories implied by a macro profile's own ends -- same math as resolveGoals(), for a live preview. */
+function derivedCalories(profile: DayTypeGoals): { min: number; max: number } {
+  return {
+    min: Math.round(profile.protein.min * 4 + profile.carbs.min * 4 + profile.fat.min * 9),
+    max: Math.round(profile.protein.max * 4 + profile.carbs.max * 4 + profile.fat.max * 9),
+  }
+}
+
+function ProfileFields({ dayType, draft, onChange }: {
+  dayType: DayType
+  draft: ProfileDraft
+  onChange: (draft: ProfileDraft) => void
+}) {
+  const { profile, invalid } = parseProfile(draft)
+  return (
+    <div className={`profile-fields ${dayType}`}>
+      <h3 className="sheet-h">{DAY_TYPE_LABELS[dayType]}</h3>
+      <div className="nutrient-fields">
+        {MACRO_KEYS.map((k) => (
+          <div key={k} className={`field nf ${k}`}>
+            <label htmlFor={`${dayType}-${k}-min`}>{MACRO_LABELS[k]} (g)</label>
+            <div className="range-inputs">
+              <input
+                id={`${dayType}-${k}-min`}
+                type="text"
+                inputMode="decimal"
+                aria-label={`${MACRO_LABELS[k]} minimum`}
+                placeholder="min"
+                value={draft[k].min}
+                onChange={(e) => onChange({ ...draft, [k]: { ...draft[k], min: e.target.value } })}
+              />
+              <span className="range-sep">–</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                aria-label={`${MACRO_LABELS[k]} maximum`}
+                placeholder="max"
+                value={draft[k].max}
+                onChange={(e) => onChange({ ...draft, [k]: { ...draft[k], max: e.target.value } })}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+      {invalid && <div className="hint bad">Each field needs a non-negative number, with min not greater than max.</div>}
+      {profile && (
+        <div className="hint">
+          Works out to {derivedCalories(profile).min}{'–'}{derivedCalories(profile).max} kcal.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [drafts, setDrafts] = useState<Record<DayType, ProfileDraft> | null>(null)
+  const [fiberDraft, setFiberDraft] = useState('')
+  const [waterDraft, setWaterDraft] = useState('')
+  const [alcoholDraft, setAlcoholDraft] = useState('')
   const [key, setKey] = useState('')
   const [lmUrl, setLmUrl] = useState<string | null>(null)
   const [lmToken, setLmToken] = useState('')
@@ -47,6 +134,12 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
+    api.goals().then((g) => {
+      setDrafts({ training: profileToDraft(g.training), rest: profileToDraft(g.rest) })
+      setFiberDraft(String(g.fiber))
+      setWaterDraft(String(g.water))
+      setAlcoholDraft(String(g.alcoholWeekly))
+    }).catch((err) => toast.error((err as Error).message))
     api.settings().then(setSettings).catch(() => { /* the placeholder just stays generic */ })
     api.lmModels()
       .then((r) => { setModels(Array.isArray(r.models) ? r.models : []); setModelsError(r.error ?? null) })
@@ -55,17 +148,22 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
 
   const chosenModel = lmModel ?? settings?.researchModel ?? ''
 
-  const parsed = Object.fromEntries(NUTRIENTS.map((k) => [k, parseNum(draft[k])])) as Record<NutrientKey, number | null>
-  const invalid = NUTRIENTS.filter((k) => parsed[k] == null || parsed[k]! < 0)
-  const macroKcal = (parsed.protein ?? 0) * 4 + (parsed.carbs ?? 0) * 4 + (parsed.fat ?? 0) * 9
+  const training = drafts ? parseProfile(drafts.training) : { profile: null, invalid: true }
+  const rest = drafts ? parseProfile(drafts.rest) : { profile: null, invalid: true }
+  const fiber = parseNum(fiberDraft)
+  const fiberInvalid = fiber == null || fiber < 0
   const water = parseNum(waterDraft)
   const waterInvalid = water == null || water < 0
+  const alcoholWeekly = parseNum(alcoholDraft)
+  const alcoholInvalid = alcoholWeekly == null || alcoholWeekly < 0
+  const formInvalid = !drafts || training.invalid || rest.invalid || fiberInvalid || waterInvalid || alcoholInvalid
 
   const save = async (): Promise<void> => {
-    if (invalid.length || waterInvalid) return
+    if (formInvalid || !training.profile || !rest.profile) return
     setBusy(true)
     try {
-      await api.setGoals({ ...parsed, water } as Goals)
+      const next: Goals = { training: training.profile, rest: rest.profile, fiber: fiber!, water: water!, alcoholWeekly: alcoholWeekly! }
+      await api.setGoals(next)
       const changes: Parameters<typeof api.setSettings>[0] = {}
       if (key.trim()) changes.usdaApiKey = key.trim()
       if (lmToken.trim()) changes.lmStudioToken = lmToken.trim()
@@ -86,27 +184,28 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
   return (
     <>
           <div className="drawer-scroll" data-vaul-no-drag>
-            <div className="nutrient-fields">
-              {NUTRIENTS.map((k) => (
-                <div key={k} className={`field nf ${k}`}>
-                  <label htmlFor={`goal-${k}`}>{LABELS[k]} ({UNITS[k]})</label>
-                  <input
-                    id={`goal-${k}`}
-                    type="text"
-                    inputMode="decimal"
-                    value={draft[k]}
-                    onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
-                  />
-                </div>
-              ))}
+            {!drafts && <div className="hint">Loading…</div>}
+            {drafts && DAY_TYPES.map((dayType) => (
+              <ProfileFields
+                key={dayType}
+                dayType={dayType}
+                draft={drafts[dayType]}
+                onChange={(d) => setDrafts({ ...drafts, [dayType]: d })}
+              />
+            ))}
+
+            <div className="field">
+              <label htmlFor="goal-fiber">Fiber (g)</label>
+              <input
+                id="goal-fiber"
+                type="text"
+                inputMode="decimal"
+                value={fiberDraft}
+                onChange={(e) => setFiberDraft(e.target.value)}
+              />
+              <div className="hint">Same target on any day type.</div>
+              {fiberInvalid && <div className="hint bad">Fiber needs a non-negative number.</div>}
             </div>
-            {invalid.length > 0 && <div className="hint bad">Each goal needs a non-negative number.</div>}
-            {invalid.length === 0 && parsed.calories! > 0 && (
-              <div className="hint">
-                Protein, fat and carb goals add up to {Math.round(macroKcal)} kcal
-                ({Math.round((macroKcal / parsed.calories!) * 100)}% of your calorie goal).
-              </div>
-            )}
 
             <div className="field">
               <label htmlFor="goal-water">Water (oz)</label>
@@ -119,6 +218,19 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
               />
               <div className="hint">Defaults to 96oz -- 3 x 32oz bottles.</div>
               {waterInvalid && <div className="hint bad">Water needs a non-negative number.</div>}
+            </div>
+
+            <div className="field">
+              <label htmlFor="goal-alcohol">Alcohol (drinks per week)</label>
+              <input
+                id="goal-alcohol"
+                type="text"
+                inputMode="decimal"
+                value={alcoholDraft}
+                onChange={(e) => setAlcoholDraft(e.target.value)}
+              />
+              <div className="hint">A weekly cap, not a daily one -- shown against the running total for the week.</div>
+              {alcoholInvalid && <div className="hint bad">Alcohol needs a non-negative number.</div>}
             </div>
 
             <h3 className="sheet-h">Food search</h3>
@@ -209,7 +321,14 @@ function SettingsForm({ goals, onClose, onSaved }: { goals: Goals; onClose: () =
           <div className="drawer-actions">
             <div className="row">
               <button type="button" onClick={onClose}>Cancel</button>
-              <button type="button" className="primary" disabled={busy || invalid.length > 0 || waterInvalid} onClick={() => void save()}>Save</button>
+              <button
+                type="button"
+                className="primary"
+                disabled={busy || formInvalid}
+                onClick={() => void save()}
+              >
+                Save
+              </button>
             </div>
           </div>
     </>

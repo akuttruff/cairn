@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addDays, calorieMismatch, emptyNutrients, impliedCalories, isDateString, localDate,
-  macroCalories, progress, scale, sumDay, sumNutrients,
+  addDays, addMonths, blendGoals, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalMet, impliedCalories,
+  isDateString, localDate, macroCalories, progress, rangeStatus, resolveGoals, scale, scoreDays, scoreWater, startOfMonth,
+  startOfWeek, sumDay, sumNutrients,
 } from './nutrition.ts'
-import type { Entry, Nutrients } from '../types.ts'
+import type { DaySummary, Entry, Goals, NutrientKey, Nutrients, ResolvedGoals } from '../types.ts'
 
 const n = (v: Partial<Nutrients>): Nutrients => ({ ...emptyNutrients(), ...v })
 
@@ -141,6 +142,118 @@ describe('progress', () => {
   })
 })
 
+describe('rangeStatus', () => {
+  it('says under, in or over', () => {
+    expect(rangeStatus(100, { min: 110, max: 120 })).toBe('under')
+    expect(rangeStatus(115, { min: 110, max: 120 })).toBe('in')
+    expect(rangeStatus(110, { min: 110, max: 120 })).toBe('in') // the boundary counts as in range
+    expect(rangeStatus(120, { min: 110, max: 120 })).toBe('in')
+    expect(rangeStatus(125, { min: 110, max: 120 })).toBe('over')
+  })
+})
+
+const GOALS: Goals = {
+  training: { protein: { min: 125, max: 130 }, carbs: { min: 110, max: 120 }, fat: { min: 50, max: 55 } },
+  rest: { protein: { min: 115, max: 120 }, carbs: { min: 80, max: 90 }, fat: { min: 50, max: 55 } },
+  fiber: 30, water: 96, alcoholWeekly: 7,
+}
+
+describe('resolveGoals', () => {
+  it("computes calories from the macro range's own ends -- never a separately stated number", () => {
+    const resolved = resolveGoals(GOALS, 'training')
+    // 125*4 + 110*4 + 50*9 = 500 + 440 + 450 = 1390; 130*4 + 120*4 + 55*9 = 520 + 480 + 495 = 1495.
+    expect(resolved.calories).toEqual({ min: 1390, max: 1495 })
+    expect(resolved.protein).toEqual({ min: 125, max: 130 })
+  })
+
+  it('resolves the other day type from its own macros, and carries the day-type-independent goals through unchanged', () => {
+    const resolved = resolveGoals(GOALS, 'rest')
+    // 115*4 + 80*4 + 50*9 = 460 + 320 + 450 = 1230; 120*4 + 90*4 + 55*9 = 480 + 360 + 495 = 1335.
+    expect(resolved.calories).toEqual({ min: 1230, max: 1335 })
+    expect(resolved.fiber).toBe(30)
+    expect(resolved.water).toBe(96)
+    expect(resolved.alcoholWeekly).toBe(7)
+  })
+})
+
+describe('goalMet', () => {
+  it('treats calories, fat and carbs as caps: at or under the top is a hit, over is a miss', () => {
+    const r = { min: 1899, max: 1899 }
+    expect(goalMet(1899, r, 'calories')).toBe(true) // exactly on the line counts
+    expect(goalMet(1200, r, 'calories')).toBe(true) // well under is still a hit
+    expect(goalMet(1900, r, 'calories')).toBe(false)
+    expect(goalMet(55, { min: 50, max: 55 }, 'fat')).toBe(true)
+    expect(goalMet(55.1, { min: 50, max: 55 }, 'fat')).toBe(false)
+    expect(goalMet(0, { min: 110, max: 120 }, 'carbs')).toBe(true)
+  })
+
+  it('treats protein and fiber as floors: at or over the bottom is a hit, under is a miss', () => {
+    expect(goalMet(130, { min: 130, max: 130 }, 'protein')).toBe(true)
+    expect(goalMet(200, { min: 130, max: 130 }, 'protein')).toBe(true)
+    expect(goalMet(129.9, { min: 130, max: 130 }, 'protein')).toBe(false)
+    expect(goalMet(125, { min: 125, max: 130 }, 'protein')).toBe(true) // the bottom of a real range is enough
+    expect(goalMet(60, { min: 30, max: 30 }, 'fiber')).toBe(true)
+    expect(goalMet(29, { min: 30, max: 30 }, 'fiber')).toBe(false)
+  })
+})
+
+describe('scoreDays', () => {
+  const training = resolveGoals(GOALS, 'training')
+  const rest = resolveGoals(GOALS, 'rest')
+  const summary = (dayType: 'training' | 'rest', totals: Partial<Record<NutrientKey, number>>, entryCount = 1): DaySummary => ({
+    date: '2026-09-22', entryCount, dayType, goals: dayType === 'training' ? training : rest, water: 0, alcohol: 0,
+    totals: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0, ...totals },
+    missing: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 },
+  })
+
+  it("judges each day against its own day type's goal, never a blend", () => {
+    // 1450 kcal: under the training cap (1495), over the rest one (1335).
+    const days = [summary('training', { calories: 1450 }), summary('rest', { calories: 1450 })]
+    expect(scoreDays(days).calories).toEqual({ met: 1, of: 2 })
+  })
+
+  it('leaves unlogged days out of both counts', () => {
+    const days = [summary('rest', { protein: 118 }), summary('rest', {}, 0)]
+    expect(scoreDays(days).protein).toEqual({ met: 1, of: 1 })
+    expect(scoreDays([]).fiber).toEqual({ met: 0, of: 0 })
+  })
+})
+
+describe('scoreWater', () => {
+  it('counts days that reached the goal, of the days any water was logged on', () => {
+    const days = [{ water: 96 }, { water: 128 }, { water: 92 }, { water: 0 }]
+    // 96 and 128 reach the goal; 92 falls short; the 0 day is left out, not a miss.
+    expect(scoreWater(days, 96)).toEqual({ met: 2, of: 3 })
+    expect(scoreWater(days, 0)).toEqual({ met: 0, of: 3 }) // no goal set: nothing can be met
+  })
+})
+
+describe('blendGoals', () => {
+  const training = resolveGoals(GOALS, 'training')
+  const rest = resolveGoals(GOALS, 'rest')
+
+  it('averages each range across the days given, field by field, to one decimal', () => {
+    const blended = blendGoals([training, training, rest]) // 2 training days, 1 rest
+    expect(blended.protein.min).toBeCloseTo((125 + 125 + 115) / 3, 1)
+    expect(blended.protein.max).toBeCloseTo((130 + 130 + 120) / 3, 1)
+    expect(blended.calories.min).toBeCloseTo((1390 + 1390 + 1230) / 3, 1)
+  })
+
+  it('carries fiber, water and alcohol through unchanged -- one day is enough to know them', () => {
+    const blended = blendGoals([training, rest])
+    expect(blended.fiber).toBe(30)
+    expect(blended.water).toBe(96)
+  })
+
+  it('a single day blends to exactly that day\'s own goals', () => {
+    expect(blendGoals([training])).toEqual(training)
+  })
+
+  it('refuses an empty list rather than returning something meaningless', () => {
+    expect(() => blendGoals([] as ResolvedGoals[])).toThrow()
+  })
+})
+
 describe('dates', () => {
   it('formats the local calendar date', () => {
     expect(localDate(new Date(2026, 8, 5, 23, 30))).toBe('2026-09-05')
@@ -157,6 +270,34 @@ describe('dates', () => {
     expect(isDateString('2026-02-30')).toBe(false)
     expect(isDateString('26-9-26')).toBe(false)
     expect(isDateString('../../etc')).toBe(false)
+  })
+
+  it('finds the Monday starting the week of any day in it', () => {
+    expect(startOfWeek('2026-09-26')).toBe('2026-09-21') // a Saturday
+    expect(startOfWeek('2026-09-21')).toBe('2026-09-21') // already a Monday
+    expect(startOfWeek('2026-09-20')).toBe('2026-09-14') // a Sunday -- the *previous* Monday
+    expect(startOfWeek('2026-10-01')).toBe('2026-09-28') // crosses a month
+  })
+
+  it('finds the first and last day of the month', () => {
+    expect(startOfMonth('2026-09-26')).toBe('2026-09-01')
+    expect(endOfMonth('2026-09-26')).toBe('2026-09-30')
+    expect(endOfMonth('2028-02-14')).toBe('2028-02-29') // leap year
+  })
+
+  it('steps by whole months, clamping the day instead of overflowing', () => {
+    expect(addMonths('2026-09-15', 1)).toBe('2026-10-15')
+    expect(addMonths('2026-09-15', -1)).toBe('2026-08-15')
+    expect(addMonths('2026-01-31', 1)).toBe('2026-02-28') // Feb has no 31st
+    expect(addMonths('2028-01-31', 1)).toBe('2028-02-29') // leap year
+  })
+
+  it('counts whole days between two dates', () => {
+    expect(daysBetween('2026-09-20', '2026-09-27')).toBe(7)
+    expect(daysBetween('2026-09-27', '2026-09-20')).toBe(-7)
+    expect(daysBetween('2026-09-26', '2026-09-26')).toBe(0)
+    // Across the DST fall-back, where a naive Date subtraction would be off by an hour.
+    expect(daysBetween('2026-11-01', '2026-11-08')).toBe(7)
   })
 })
 

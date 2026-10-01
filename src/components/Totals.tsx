@@ -1,12 +1,15 @@
-import { LABELS, progress } from '../lib/nutrition.ts'
+import { LABELS, OVER_IS_BAD, progress, rangeStatus } from '../lib/nutrition.ts'
 import { fmt } from '../lib/format.ts'
-import type { DayTotals, Goals, NutrientKey } from '../types.ts'
+import type { DayTotals, DayType, MacroRange, NutrientKey, ResolvedGoals } from '../types.ts'
 
 interface TotalsProps extends DayTotals {
-  goals: Goals
+  goals: ResolvedGoals
+  dayType: DayType
+  onSetDayType: (type: DayType) => void
 }
 
-const MACROS: NutrientKey[] = ['protein', 'fat', 'carbs', 'fiber']
+type RangeMacroKey = 'protein' | 'fat' | 'carbs'
+const MACROS: RangeMacroKey[] = ['protein', 'fat', 'carbs']
 
 /** Marks a total that leaves out entries whose source didn't report it. */
 function Partial({ count }: { count: number }) {
@@ -18,24 +21,44 @@ function Partial({ count }: { count: number }) {
   )
 }
 
-export default function Totals({ totals, missing, goals }: TotalsProps) {
+/** "125-130" when the range has spread, or just "125" when min and max match (fiber). */
+function rangeLabel(range: MacroRange): string {
+  return range.min === range.max ? `${range.min}` : `${range.min}–${range.max}`
+}
+
+export default function Totals({ totals, missing, goals, dayType, onSetDayType }: TotalsProps) {
   const cal = totals.calories
-  const left = goals.calories - cal
+  const status = rangeStatus(cal, goals.calories)
+  const calLeftText =
+    status === 'under' ? `${Math.round(goals.calories.min - cal)} to go`
+    : status === 'over' ? `${Math.round(cal - goals.calories.max)} over`
+    : 'In range'
+
   return (
     <section className="totals" aria-label="Daily totals">
+      {/* Ticked on the days you trained; an unmarked day is a rest day, and
+          the goals below follow whichever it is. */}
+      <label className="day-type-check">
+        <input
+          type="checkbox"
+          checked={dayType === 'training'}
+          onChange={(e) => onSetDayType(e.target.checked ? 'training' : 'rest')}
+        />
+        <span>Training day</span>
+        <span className="day-type-note">{dayType === 'training' ? 'training-day goals' : 'rest-day goals'}</span>
+      </label>
+
       <div className="cal-row">
         <div>
           <div className="cal-value">
             {fmt('calories', cal)}
             <Partial count={missing.calories} />
-            <span className="cal-goal"> / {goals.calories} kcal</span>
+            <span className="cal-goal"> / {rangeLabel(goals.calories)} kcal</span>
           </div>
-          <div className={`cal-left${left < 0 ? ' over' : ''}`}>
-            {left >= 0 ? `${Math.round(left)} left` : `${Math.round(-left)} over`}
-          </div>
+          <div className={`cal-left${status === 'over' ? ' over' : ''}`}>{calLeftText}</div>
         </div>
       </div>
-      <Bar value={cal} goal={goals.calories} over={left < 0} kind="calories" />
+      <Bar value={cal} range={goals.calories} kind="calories" />
 
       <div className="macro-grid">
         {MACROS.map((key) => (
@@ -44,29 +67,42 @@ export default function Totals({ totals, missing, goals }: TotalsProps) {
               <span className="macro-name">{LABELS[key]}</span>
               <span className="macro-num">
                 {fmt(key, totals[key])}<Partial count={missing[key]} />
-                <span className="macro-goal">/{goals[key]}g</span>
+                <span className="macro-goal">/{rangeLabel(goals[key])}g</span>
               </span>
             </div>
-            <Bar value={totals[key]} goal={goals[key]} kind={key} />
+            <Bar value={totals[key]} range={goals[key]} kind={key} />
           </div>
         ))}
+        <div className="macro fiber">
+          <div className="macro-head">
+            <span className="macro-name">{LABELS.fiber}</span>
+            <span className="macro-num">
+              {fmt('fiber', totals.fiber)}<Partial count={missing.fiber} />
+              <span className="macro-goal">/{goals.fiber}g</span>
+            </span>
+          </div>
+          <Bar value={totals.fiber} range={{ min: 0, max: goals.fiber }} kind="fiber" />
+        </div>
       </div>
     </section>
   )
 }
 
-function Bar({ value, goal, kind, over = false }: { value: number; goal: number; kind: NutrientKey; over?: boolean }) {
-  const pct = Math.round(progress(value, goal) * 100)
+export function Bar({ value, range, kind }: { value: number; range: MacroRange; kind: NutrientKey }) {
+  const pct = Math.round(progress(value, range.max) * 100)
+  const minPct = range.min > 0 ? Math.round(progress(range.min, range.max) * 100) : 0
+  const over = OVER_IS_BAD.has(kind) && value > range.max
   return (
     <div
       className={`bar ${kind}${over ? ' over' : ''}`}
       role="progressbar"
       aria-label={LABELS[kind]}
       aria-valuemin={0}
-      aria-valuemax={goal}
+      aria-valuemax={range.max}
       aria-valuenow={Math.round(value)}
     >
       <div className="bar-fill" style={{ width: `${pct}%` }} />
+      {range.min > 0 && <div className="bar-min-tick" style={{ left: `${minPct}%` }} />}
     </div>
   )
 }

@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { Store, ValidationError } from './store.ts'
+import { DEFAULT_GOALS, addDays, startOfWeek } from '../src/lib/nutrition.ts'
 import type { NewEntry, Nutrients } from '../src/types.ts'
 
 let dir: string
@@ -236,13 +237,21 @@ describe('goals and settings', () => {
     expect(store.getGoals().fiber).toBe(30)
   })
 
-  it('updates only the goals given', () => {
-    store.setGoals({ protein: 180 })
-    expect(store.getGoals()).toMatchObject({ protein: 180, calories: 2000 })
+  it('updates only the goals given, leaving the rest as they were', () => {
+    store.setGoals({ fiber: 40 })
+    const goals = store.getGoals()
+    expect(goals.fiber).toBe(40)
+    expect(goals.training).toEqual(DEFAULT_GOALS.training)
+  })
+
+  it('replaces a whole day-type profile when one is given', () => {
+    store.setGoals({ training: { protein: { min: 140, max: 150 }, carbs: { min: 100, max: 110 }, fat: { min: 45, max: 50 } } })
+    expect(store.getGoals().training).toEqual({ protein: { min: 140, max: 150 }, carbs: { min: 100, max: 110 }, fat: { min: 45, max: 50 } })
   })
 
   it('refuses a nonsense goal', () => {
-    expect(() => store.setGoals({ calories: -1 })).toThrow(ValidationError)
+    expect(() => store.setGoals({ fiber: -1 })).toThrow(ValidationError)
+    expect(() => store.setGoals({ training: { protein: { min: 10, max: 5 }, carbs: { min: 0, max: 10 }, fat: { min: 0, max: 10 } } })).toThrow(ValidationError)
   })
 
   it('never exposes the USDA key', () => {
@@ -465,11 +474,14 @@ describe('migrating from log.json', () => {
   })
   afterEach(() => fs.rmSync(freshDir, { recursive: true, force: true }))
 
-  it('imports entries, foods, presets, goals and settings, then renames the JSON aside', () => {
+  it('imports entries, foods and presets, then renames the JSON aside; goals reset to today\'s defaults', () => {
     const legacyLog = {
       entries: { [DAY]: [{ ...banana(), id: 'e1', createdAt: 1, nutrients: BANANA_100G }] },
       foods: [{ id: 'custom:a', name: 'Apple', source: 'custom', per100g: BANANA_100G }],
       mealPresets: [{ id: 'meal:m1', name: 'Breakfast', createdAt: 1, items: [{ name: 'Eggs', per100g: BANANA_100G, grams: 100, source: 'usda' }] }],
+      // The old flat shape -- a single number per macro, no day types. No
+      // longer compatible with the range-per-day-type goals of today, so
+      // migration doesn't try to translate it; it's simply not imported.
       goals: { calories: 2200, protein: 170, fat: 70, carbs: 220, fiber: 32, water: 96 },
     }
     fs.writeFileSync(path.join(freshDir, 'log.json'), JSON.stringify(legacyLog))
@@ -480,7 +492,7 @@ describe('migrating from log.json', () => {
     expect(migrated.getDay(DAY).entries).toHaveLength(1)
     expect(migrated.listFoods().map((f) => f.name)).toEqual(['Apple'])
     expect(migrated.listPresets().map((p) => p.name)).toEqual(['Breakfast'])
-    expect(migrated.getGoals()).toEqual(legacyLog.goals)
+    expect(migrated.getGoals()).toEqual(DEFAULT_GOALS)
     expect(migrated.getPublicSettings()).toMatchObject({ hasUsdaKey: true, autoLookup: false })
     expect(fs.existsSync(path.join(freshDir, 'log.json'))).toBe(false)
     expect(fs.existsSync(path.join(freshDir, 'log.json.migrated'))).toBe(true)
@@ -489,14 +501,14 @@ describe('migrating from log.json', () => {
 
   it('is retried on next open if nothing was migrated yet', () => {
     const first = new Store({ dir: freshDir })
-    first.setGoals({ protein: 175 })
+    first.setGoals({ fiber: 40 })
     const reopened = new Store({ dir: freshDir })
-    expect(reopened.getGoals().protein).toBe(175)
+    expect(reopened.getGoals().fiber).toBe(40)
   })
 
-  it('adds the water column to a database that predates the water tracker', () => {
+  it('adds the day-type range columns to a database that predates them', () => {
     // Build exactly what an older Store version would have left: a goals
-    // table with no water_ounces column at all.
+    // table with only the old flat columns, none of today's range ones.
     const db = new DatabaseSync(path.join(freshDir, 'macros.sqlite'))
     db.exec(`CREATE TABLE goals (id INTEGER PRIMARY KEY CHECK (id = 1),
       calories REAL NOT NULL, protein REAL NOT NULL, fat REAL NOT NULL, carbs REAL NOT NULL, fiber REAL NOT NULL)`)
@@ -504,7 +516,10 @@ describe('migrating from log.json', () => {
     db.close()
 
     const upgraded = new Store({ dir: freshDir })
-    expect(upgraded.getGoals()).toMatchObject({ calories: 2000, water: 96 })
+    // The old flat columns are left in place but unused (fiber's column name
+    // is unchanged, so that value survives); water, alcohol and the new
+    // per-day-type ranges default to today's DEFAULT_GOALS.
+    expect(upgraded.getGoals()).toEqual({ ...DEFAULT_GOALS, fiber: 30 })
   })
 })
 
@@ -572,14 +587,18 @@ describe('online lookup cache', () => {
 
 describe('alcohol', () => {
   it('starts at zero', () => {
-    expect(store.getDay(DAY).alcohol).toEqual({ drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, lastLogId: null })
+    expect(store.getDay(DAY).alcohol).toEqual({
+      drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, weekTotal: 0, weekGoal: 7, lastLogId: null,
+    })
   })
 
   it('counts drinks by kind, and in total', () => {
     store.addAlcohol(DAY, 'wine')
     store.addAlcohol(DAY, 'wine')
     const last = store.addAlcohol(DAY, 'beer')
-    expect(store.getDay(DAY).alcohol).toEqual({ drinks: 3, byKind: { beer: 1, wine: 2, liquor: 0 }, lastLogId: last.id })
+    expect(store.getDay(DAY).alcohol).toEqual({
+      drinks: 3, byKind: { beer: 1, wine: 2, liquor: 0 }, weekTotal: 3, weekGoal: 7, lastLogId: last.id,
+    })
   })
 
   it('keeps days separate', () => {
@@ -602,6 +621,32 @@ describe('alcohol', () => {
   it('survives a restart', () => {
     store.addAlcohol(DAY, 'wine')
     expect(new Store({ dir }).getDay(DAY).alcohol.drinks).toBe(1)
+  })
+
+  describe('the weekly cap', () => {
+    it('defaults to 7 and is editable', () => {
+      expect(store.getGoals().alcoholWeekly).toBe(7)
+      store.setGoals({ alcoholWeekly: 4 })
+      expect(store.getGoals().alcoholWeekly).toBe(4)
+    })
+
+    it('refuses a nonsense goal', () => {
+      expect(() => store.setGoals({ alcoholWeekly: -1 })).toThrow(ValidationError)
+    })
+
+    it("totals the calendar week (Monday-start) a day falls in, not just that day", () => {
+      const weekStart = startOfWeek(DAY)
+      store.addAlcohol(weekStart, 'beer') // earlier in the same week
+      store.addAlcohol(DAY, 'wine')
+      store.addAlcohol(addDays(weekStart, 6), 'liquor') // later in the same week
+      store.addAlcohol(addDays(weekStart, -1), 'beer') // last week -- must not count
+      expect(store.getDay(DAY).alcohol.weekTotal).toBe(3)
+    })
+
+    it('reflects a changed goal in the day view', () => {
+      store.setGoals({ alcoholWeekly: 3 })
+      expect(store.getDay(DAY).alcohol.weekGoal).toBe(3)
+    })
   })
 })
 
@@ -661,5 +706,85 @@ describe('water', () => {
   it('survives a restart', () => {
     store.addWater(DAY, 32)
     expect(new Store({ dir }).getDay(DAY).water.ounces).toBe(32)
+  })
+})
+
+describe('ranges', () => {
+  const D1 = '2026-09-21'
+  const D2 = '2026-09-22'
+  const D3 = '2026-09-23'
+
+  it('has one entry per calendar day, even ones with nothing logged', () => {
+    store.addEntry(banana({ date: D1 }))
+    const range = store.getRange(D1, D3)
+    expect(range.days.map((d) => d.date)).toEqual([D1, D2, D3])
+    expect(range.days[0]!.entryCount).toBe(1)
+    expect(range.days[1]!.entryCount).toBe(0)
+    expect(range.totalDays).toBe(3)
+  })
+
+  it('sums totals across the range, and averages only over days that were logged', () => {
+    store.addEntry(banana({ date: D1 })) // 89 * 1.18 = 105.0 kcal
+    store.addEntry(banana({ date: D3, grams: 236 })) // 89 * 2.36 = 210.0 kcal
+    const range = store.getRange(D1, D3)
+    expect(range.loggedDays).toBe(2)
+    expect(range.totals.calories).toBeCloseTo(315, 0)
+    // Not /3: the untouched middle day would drag a real average down.
+    expect(range.averages.calories).toBeCloseTo(157.5, 1)
+  })
+
+  it('reports zeroed totals and averages over an untouched range, without dividing by zero', () => {
+    const range = store.getRange(D1, D3)
+    expect(range.loggedDays).toBe(0)
+    expect(range.totals).toEqual({ calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 })
+    expect(range.averages).toEqual({ calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 })
+  })
+
+  it('averages water and alcohol over every day in the range, not just logged ones', () => {
+    store.addWater(D1, 32)
+    store.addAlcohol(D1, 'wine')
+    store.addAlcohol(D3, 'beer')
+    const range = store.getRange(D1, D3)
+    // Rounded to one decimal, like every other total in this app.
+    // 32 oz on one day: logged, but short of the 96 oz goal; the other two days had none logged.
+    expect(range.water).toEqual({ total: 32, average: 10.7, met: 0, of: 1 })
+    expect(range.alcohol.total).toBe(2)
+    expect(range.alcohol.average).toBeCloseTo(0.7, 5)
+    expect(range.alcohol.byKind).toEqual({ beer: 1, wine: 1, liquor: 0 })
+  })
+
+  it('carries the current goals along, same as a day view', () => {
+    store.setGoals({ rest: { protein: { min: 140, max: 150 }, carbs: { min: 100, max: 110 }, fat: { min: 45, max: 50 } } })
+    // No day ticked as training, so every day in range resolves to rest: 140*4 + 100*4 + 45*9 = 1365.
+    expect(store.getRange(D1, D3).goals.calories.min).toBe(1365)
+    // Tick one of the three: the blended goal moves a third of the way to the training profile.
+    store.setDayType(D2, 'training')
+    const trainingMin = 130 * 4 + 221 * 4 + 55 * 9 // today's default training profile: 1899
+    expect(store.getRange(D1, D3).goals.calories.min).toBeCloseTo((1365 * 2 + trainingMin) / 3, 1)
+  })
+
+  it('scores each logged day against its own goal, and says how the days were split', () => {
+    // A rest-day target a banana can meet: 1-2 g protein, 20-30 g carbs, up to 1 g fat.
+    store.setGoals({ rest: { protein: { min: 1, max: 2 }, carbs: { min: 20, max: 30 }, fat: { min: 0, max: 1 } } })
+    store.addEntry(banana({ date: D1 })) // 118 g: 105 kcal, 1.3 g protein, 26.9 g carbs, 0.4 g fat, 3.1 g fiber
+    store.setDayType(D3, 'training')
+    const range = store.getRange(D1, D3)
+    expect(range.dayTypes).toEqual({ training: 1, rest: 2 })
+    expect(range.days[0]!.goals.carbs).toEqual({ min: 20, max: 30 })
+    // Only D1 was logged: it met everything but fiber (3.1 g of the 30 g goal).
+    expect(range.scorecard).toEqual({
+      calories: { met: 1, of: 1 }, protein: { met: 1, of: 1 }, fat: { met: 1, of: 1 }, carbs: { met: 1, of: 1 }, fiber: { met: 0, of: 1 },
+    })
+  })
+
+  it('rejects a malformed or backwards range', () => {
+    expect(() => store.getRange('not-a-date', D3)).toThrow(ValidationError)
+    expect(() => store.getRange(D1, 'nope')).toThrow(ValidationError)
+    expect(() => store.getRange(D3, D1)).toThrow(/end must not be before start/)
+  })
+
+  it('rejects a range longer than a year', () => {
+    expect(() => store.getRange('2025-01-01', '2026-01-02')).toThrow(/too long/)
+    expect(() => store.getRange('2025-01-01', '2026-01-01')).not.toThrow()
   })
 })

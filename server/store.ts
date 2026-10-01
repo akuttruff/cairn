@@ -5,10 +5,15 @@ import { DatabaseSync } from 'node:sqlite'
 import type { SQLInputValue, StatementSync } from 'node:sqlite'
 import { ALCOHOL_KINDS, MEALS, NUTRIENTS } from '../src/types.ts'
 import type {
-  AlcoholKind, AlcoholLog, Amount, DayView, Entry, Food, FoodSource, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients,
-  NutrientKey, PerServing, PublicSettings, Serving, Settings, SourceLink, WaterLog,
+  AlcoholKind, AlcoholLog, Amount, DaySummary, DayType, DayTypeGoals, DayView, Entry, Food, FoodSource, Goals,
+  MacroRange, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, NutrientKey, PerServing, PublicSettings,
+  RangeView, Serving, Settings, SourceLink, WaterLog,
 } from '../src/types.ts'
-import { DEFAULT_GOALS, isDateString, scale, sumDay } from '../src/lib/nutrition.ts'
+import {
+  addDays, blendGoals, DEFAULT_GOALS, daysBetween, isDateString, resolveGoals, round1, scale, scoreDays, scoreWater, startOfWeek,
+  sumDay,
+} from '../src/lib/nutrition.ts'
+import { DAY_TYPES } from '../src/types.ts'
 import { LOOKUP_MAX, LOOKUP_TTL_MS, normalizeQuery } from './research.ts'
 import type { ResearchResult } from './research.ts'
 import { multiply } from '../src/lib/units.ts'
@@ -23,7 +28,8 @@ export class ValidationError extends Error {}
 const MAX_NAME = 200
 const BACKUP_KEEP = 20
 /** 3 x 32oz bottles, the user's actual daily habit. */
-const DEFAULT_WATER_OUNCES = 96
+const DEFAULT_WATER_OUNCES = DEFAULT_GOALS.water
+const DEFAULT_ALCOHOL_WEEKLY = DEFAULT_GOALS.alcoholWeekly
 
 /** A nutrient value is a finite, non-negative number, or null for unknown. */
 function cleanNutrients(input: unknown, label: string): Nutrients {
@@ -79,6 +85,38 @@ function cleanAmount(input: unknown): Amount {
     unit: cleanLabel(a.unit, 'amount.unit'),
     unitGrams: a.unitGrams == null ? null : cleanGrams(a.unitGrams),
   }
+}
+
+/** A macro band: both ends non-negative, and the top can't be below the bottom. */
+function cleanMacroRange(input: unknown, label: string): MacroRange {
+  const r = input as Partial<MacroRange> | null
+  if (!r || typeof r !== 'object') throw new ValidationError(`${label} is required`)
+  const { min, max } = r
+  if (typeof min !== 'number' || !Number.isFinite(min) || min < 0 || min > 100_000) {
+    throw new ValidationError(`${label}.min must be a non-negative number`)
+  }
+  if (typeof max !== 'number' || !Number.isFinite(max) || max < 0 || max > 100_000) {
+    throw new ValidationError(`${label}.max must be a non-negative number`)
+  }
+  if (max < min) throw new ValidationError(`${label}.max must be at least ${label}.min`)
+  return { min, max }
+}
+
+function cleanDayTypeGoals(input: unknown, label: string): DayTypeGoals {
+  const g = input as Partial<DayTypeGoals> | null
+  if (!g || typeof g !== 'object') throw new ValidationError(`${label} is required`)
+  return {
+    protein: cleanMacroRange(g.protein, `${label}.protein`),
+    carbs: cleanMacroRange(g.carbs, `${label}.carbs`),
+    fat: cleanMacroRange(g.fat, `${label}.fat`),
+  }
+}
+
+function cleanDayType(input: unknown): DayType {
+  if (!(DAY_TYPES as readonly string[]).includes(input as string)) {
+    throw new ValidationError(`dayType must be one of ${DAY_TYPES.join(', ')}`)
+  }
+  return input as DayType
 }
 
 function cleanPerServing(input: unknown): PerServing | undefined {
@@ -176,11 +214,20 @@ CREATE TABLE IF NOT EXISTS meal_preset_items (
 );
 
 CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY CHECK (id = 1),
-  calories REAL NOT NULL, protein REAL NOT NULL, fat REAL NOT NULL, carbs REAL NOT NULL, fiber REAL NOT NULL,
-  water_ounces REAL NOT NULL DEFAULT 96);
+  training_protein_min REAL NOT NULL, training_protein_max REAL NOT NULL,
+  training_carbs_min REAL NOT NULL, training_carbs_max REAL NOT NULL,
+  training_fat_min REAL NOT NULL, training_fat_max REAL NOT NULL,
+  rest_protein_min REAL NOT NULL, rest_protein_max REAL NOT NULL,
+  rest_carbs_min REAL NOT NULL, rest_carbs_max REAL NOT NULL,
+  rest_fat_min REAL NOT NULL, rest_fat_max REAL NOT NULL,
+  fiber REAL NOT NULL, water_ounces REAL NOT NULL DEFAULT 96, alcohol_weekly REAL NOT NULL DEFAULT 7);
 CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK (id = 1),
   usda_api_key TEXT NOT NULL DEFAULT '', lm_studio_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:1234',
   lm_studio_token TEXT NOT NULL DEFAULT '', research_model TEXT NOT NULL DEFAULT '', auto_lookup INTEGER NOT NULL DEFAULT 1);
+
+-- No row for a date means a rest day (see getDayType): only the days you
+-- tick as training days get a row.
+CREATE TABLE IF NOT EXISTS day_types (date TEXT PRIMARY KEY, type TEXT NOT NULL CHECK (type IN ('training','rest')));
 
 CREATE TABLE IF NOT EXISTS water_logs (
   id TEXT PRIMARY KEY, date TEXT NOT NULL, ounces REAL NOT NULL, created_at INTEGER NOT NULL
@@ -225,6 +272,30 @@ function migrateSchema(db: DatabaseSync): void {
       db.exec(`ALTER TABLE goals ADD COLUMN water_ounces REAL NOT NULL DEFAULT ${DEFAULT_WATER_OUNCES}`)
     }
     db.exec('PRAGMA user_version = 1')
+  }
+  if (version < 2) {
+    const cols = db.prepare('PRAGMA table_info(goals)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'alcohol_weekly')) {
+      db.exec(`ALTER TABLE goals ADD COLUMN alcohol_weekly REAL NOT NULL DEFAULT ${DEFAULT_ALCOHOL_WEEKLY}`)
+    }
+    db.exec('PRAGMA user_version = 2')
+  }
+  if (version < 3) {
+    const cols = db.prepare('PRAGMA table_info(goals)').all() as { name: string }[]
+    const has = (name: string): boolean => cols.some((c) => c.name === name)
+    // The old flat calories/protein/fat/carbs columns are left in place,
+    // unused: SQLite can't drop a column without rebuilding the table, and
+    // there's nothing left reading them once these are here.
+    for (const [dayType, profile] of [['training', DEFAULT_GOALS.training], ['rest', DEFAULT_GOALS.rest]] as const) {
+      for (const macro of ['protein', 'carbs', 'fat'] as const) {
+        for (const bound of ['min', 'max'] as const) {
+          const column = `${dayType}_${macro}_${bound}`
+          if (!has(column)) db.exec(`ALTER TABLE goals ADD COLUMN ${column} REAL NOT NULL DEFAULT ${profile[macro][bound]}`)
+        }
+      }
+    }
+    db.exec("CREATE TABLE IF NOT EXISTS day_types (date TEXT PRIMARY KEY, type TEXT NOT NULL CHECK (type IN ('training','rest')))")
+    db.exec('PRAGMA user_version = 3')
   }
 }
 
@@ -380,7 +451,46 @@ function presetItemColumnParams(item: MealPresetItem): SQLInputValue[] {
   ]
 }
 
-interface GoalsRow { calories: number; protein: number; fat: number; carbs: number; fiber: number; water_ounces: number }
+interface GoalsRow {
+  training_protein_min: number; training_protein_max: number
+  training_carbs_min: number; training_carbs_max: number
+  training_fat_min: number; training_fat_max: number
+  rest_protein_min: number; rest_protein_max: number
+  rest_carbs_min: number; rest_carbs_max: number
+  rest_fat_min: number; rest_fat_max: number
+  fiber: number; water_ounces: number; alcohol_weekly: number
+}
+interface DayTypeRow { date: string; type: string }
+
+const GOALS_COLUMNS =
+  'training_protein_min,training_protein_max,training_carbs_min,training_carbs_max,training_fat_min,training_fat_max,' +
+  'rest_protein_min,rest_protein_max,rest_carbs_min,rest_carbs_max,rest_fat_min,rest_fat_max,fiber,water_ounces,alcohol_weekly'
+
+function goalsFromRow(row: GoalsRow): Goals {
+  return {
+    training: {
+      protein: { min: row.training_protein_min, max: row.training_protein_max },
+      carbs: { min: row.training_carbs_min, max: row.training_carbs_max },
+      fat: { min: row.training_fat_min, max: row.training_fat_max },
+    },
+    rest: {
+      protein: { min: row.rest_protein_min, max: row.rest_protein_max },
+      carbs: { min: row.rest_carbs_min, max: row.rest_carbs_max },
+      fat: { min: row.rest_fat_min, max: row.rest_fat_max },
+    },
+    fiber: row.fiber, water: row.water_ounces, alcoholWeekly: row.alcohol_weekly,
+  }
+}
+
+/** In GOALS_COLUMNS order. */
+function goalsParams(g: Goals): SQLInputValue[] {
+  return [
+    g.training.protein.min, g.training.protein.max, g.training.carbs.min, g.training.carbs.max,
+    g.training.fat.min, g.training.fat.max,
+    g.rest.protein.min, g.rest.protein.max, g.rest.carbs.min, g.rest.carbs.max, g.rest.fat.min, g.rest.fat.max,
+    g.fiber, g.water, g.alcoholWeekly,
+  ]
+}
 interface AlcoholLogRow { id: string; date: string; kind: string; created_at: number }
 interface WaterLogRow { id: string; date: string; ounces: number; created_at: number }
 interface SettingsRow {
@@ -420,12 +530,15 @@ interface LegacyLog {
  * stop the migration from ever being retried.
  */
 function migrateFromJson(paths: ReturnType<typeof locate>): void {
-  const raw = readJson<Partial<LegacyLog>>(paths.legacyLog, {})
+  // Goals predate this file's shape by years (calories/protein/fat/carbs as
+  // flat numbers, no training/rest split) -- nothing left to carry over from
+  // it, so a legacy log's own goals are never read, only the fresher fields.
+  const raw = readJson<Partial<Omit<LegacyLog, 'goals'>>>(paths.legacyLog, {})
   const log: LegacyLog = {
     entries: raw.entries ?? {},
     foods: raw.foods ?? [],
     mealPresets: raw.mealPresets ?? [],
-    goals: { ...DEFAULT_GOALS, water: DEFAULT_WATER_OUNCES, ...raw.goals },
+    goals: DEFAULT_GOALS,
   }
   const rawSettings = readJson<Partial<Settings>>(paths.legacySettings, {})
   const settings: Settings = {
@@ -481,8 +594,8 @@ function migrateFromJson(paths: ReturnType<typeof locate>): void {
       insertPreset.run(p.id, p.name, p.createdAt)
       p.items.forEach((item, i) => insertItem.run(p.id, i, ...presetItemColumnParams(item)))
     }
-    db.prepare('INSERT INTO goals (id,calories,protein,fat,carbs,fiber,water_ounces) VALUES (1,?,?,?,?,?,?)')
-      .run(log.goals.calories, log.goals.protein, log.goals.fat, log.goals.carbs, log.goals.fiber, log.goals.water)
+    db.prepare(`INSERT INTO goals (id,${GOALS_COLUMNS}) VALUES (1,${Array(15).fill('?').join(',')})`)
+      .run(...goalsParams(log.goals))
     db.prepare('INSERT INTO settings (id,usda_api_key,lm_studio_url,lm_studio_token,research_model,auto_lookup) VALUES (1,?,?,?,?,?)')
       .run(settings.usdaApiKey, settings.lmStudioUrl, settings.lmStudioToken, settings.researchModel, settings.autoLookup ? 1 : 0)
     db.exec('COMMIT')
@@ -516,6 +629,7 @@ export interface StoreOptions {
 interface Stmts {
   selectEntry: StatementSync
   selectEntriesByDate: StatementSync
+  selectEntriesBetween: StatementSync
   selectRecentPerFood: StatementSync
   selectAllFoodServings: StatementSync
   selectAllFoodSources: StatementSync
@@ -544,12 +658,17 @@ interface Stmts {
   deletePreset: StatementSync
   selectGoals: StatementSync
   updateGoals: StatementSync
+  selectDayType: StatementSync
+  selectDayTypesBetween: StatementSync
+  upsertDayType: StatementSync
   selectSettings: StatementSync
   updateSettings: StatementSync
   selectWaterByDate: StatementSync
+  selectWaterBetween: StatementSync
   insertWater: StatementSync
   deleteWater: StatementSync
   selectAlcoholByDate: StatementSync
+  selectAlcoholBetween: StatementSync
   insertAlcohol: StatementSync
   deleteAlcohol: StatementSync
   selectLookup: StatementSync
@@ -582,6 +701,7 @@ export class Store {
     this.stmts = {
       selectEntry: this.db.prepare('SELECT * FROM entries WHERE id = ?'),
       selectEntriesByDate: this.db.prepare('SELECT * FROM entries WHERE date = ?'),
+      selectEntriesBetween: this.db.prepare('SELECT * FROM entries WHERE date >= ? AND date <= ?'),
       // The latest entry of each distinct food that can be logged again (it
       // has a per-100g or per-serving basis) -- deduplicated in SQL so this
       // never reads the whole log, however long it gets.
@@ -657,15 +777,26 @@ export class Store {
       ),
       deletePreset: this.db.prepare('DELETE FROM meal_presets WHERE id = ?'),
       selectGoals: this.db.prepare('SELECT * FROM goals WHERE id = 1'),
-      updateGoals: this.db.prepare('UPDATE goals SET calories=?, protein=?, fat=?, carbs=?, fiber=?, water_ounces=? WHERE id=1'),
+      updateGoals: this.db.prepare(
+        `UPDATE goals SET training_protein_min=?, training_protein_max=?, training_carbs_min=?, training_carbs_max=?,
+          training_fat_min=?, training_fat_max=?, rest_protein_min=?, rest_protein_max=?, rest_carbs_min=?, rest_carbs_max=?,
+          rest_fat_min=?, rest_fat_max=?, fiber=?, water_ounces=?, alcohol_weekly=? WHERE id=1`,
+      ),
+      selectDayType: this.db.prepare('SELECT * FROM day_types WHERE date = ?'),
+      selectDayTypesBetween: this.db.prepare('SELECT * FROM day_types WHERE date >= ? AND date <= ?'),
+      upsertDayType: this.db.prepare(
+        'INSERT INTO day_types (date, type) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET type=excluded.type',
+      ),
       selectSettings: this.db.prepare('SELECT * FROM settings WHERE id = 1'),
       updateSettings: this.db.prepare(
         'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=? WHERE id=1',
       ),
       selectWaterByDate: this.db.prepare('SELECT * FROM water_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
+      selectWaterBetween: this.db.prepare('SELECT * FROM water_logs WHERE date >= ? AND date <= ?'),
       insertWater: this.db.prepare('INSERT INTO water_logs (id,date,ounces,created_at) VALUES (?,?,?,?)'),
       deleteWater: this.db.prepare('DELETE FROM water_logs WHERE id = ?'),
       selectAlcoholByDate: this.db.prepare('SELECT * FROM alcohol_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
+      selectAlcoholBetween: this.db.prepare('SELECT * FROM alcohol_logs WHERE date >= ? AND date <= ?'),
       insertAlcohol: this.db.prepare('INSERT INTO alcohol_logs (id,date,kind,created_at) VALUES (?,?,?,?)'),
       deleteAlcohol: this.db.prepare('DELETE FROM alcohol_logs WHERE id = ?'),
       selectLookup: this.db.prepare('SELECT at, result FROM lookup_cache WHERE key = ?'),
@@ -678,11 +809,8 @@ export class Store {
     }
 
     if (!this.stmts.selectGoals.get()) {
-      this.db.prepare('INSERT INTO goals (id,calories,protein,fat,carbs,fiber,water_ounces) VALUES (1,?,?,?,?,?,?)')
-        .run(
-          DEFAULT_GOALS.calories, DEFAULT_GOALS.protein, DEFAULT_GOALS.fat, DEFAULT_GOALS.carbs, DEFAULT_GOALS.fiber,
-          DEFAULT_WATER_OUNCES,
-        )
+      this.db.prepare(`INSERT INTO goals (id,${GOALS_COLUMNS}) VALUES (1,${Array(15).fill('?').join(',')})`)
+        .run(...goalsParams(DEFAULT_GOALS))
     }
     if (!this.stmts.selectSettings.get()) {
       this.db.prepare('INSERT INTO settings (id,usda_api_key,lm_studio_url,lm_studio_token,research_model,auto_lookup) VALUES (1,?,?,?,?,?)')
@@ -770,9 +898,70 @@ export class Store {
     const rows = this.stmts.selectEntriesByDate.all(date) as unknown as EntryRow[]
     const entries = rows.map(entryFromRow)
       .sort((a, b) => MEALS.indexOf(a.meal) - MEALS.indexOf(b.meal) || a.createdAt - b.createdAt)
-    const goals = this.getGoals()
+    const dayType = this.getDayType(date)
+    const goals = resolveGoals(this.getGoals(), dayType)
     const water = this.getWater(date, goals.water)
-    return { date, entries, goals, water, alcohol: this.getAlcohol(date), ...sumDay(entries) }
+    return { date, entries, dayType, goals, water, alcohol: this.getAlcohol(date, goals.alcoholWeekly), ...sumDay(entries) }
+  }
+
+  /**
+   * A week or month at a glance: one summary per calendar day (including
+   * empty ones, so a chart has a bar for every day) plus range-wide totals
+   * and averages. See RangeView for how the averages are scoped.
+   */
+  getRange(start: string, end: string): RangeView {
+    if (!isDateString(start)) throw new ValidationError('start must be YYYY-MM-DD')
+    if (!isDateString(end)) throw new ValidationError('end must be YYYY-MM-DD')
+    const span = daysBetween(start, end)
+    if (span < 0) throw new ValidationError('end must not be before start')
+    if (span >= 366) throw new ValidationError('range is too long (max 366 days)')
+
+    const entriesByDate = groupBy(
+      (this.stmts.selectEntriesBetween.all(start, end) as unknown as EntryRow[]).map(entryFromRow), 'date',
+    )
+    const waterByDate = groupBy(this.stmts.selectWaterBetween.all(start, end) as unknown as WaterLogRow[], 'date')
+    const alcoholRows = this.stmts.selectAlcoholBetween.all(start, end) as unknown as AlcoholLogRow[]
+    const alcoholByDate = groupBy(alcoholRows, 'date')
+    const dayTypeByDate = new Map(
+      (this.stmts.selectDayTypesBetween.all(start, end) as unknown as DayTypeRow[]).map((r) => [r.date, r.type]),
+    )
+
+    const goals = this.getGoals()
+    const days: DaySummary[] = []
+    for (let date = start; date <= end; date = addDays(date, 1)) {
+      const dayEntries = entriesByDate.get(date) ?? []
+      const water = (waterByDate.get(date) ?? []).reduce((sum, r) => sum + r.ounces, 0)
+      const dayType: DayType = dayTypeByDate.get(date) === 'training' ? 'training' : 'rest'
+      days.push({
+        date, entryCount: dayEntries.length, dayType, goals: resolveGoals(goals, dayType), water,
+        alcohol: (alcoholByDate.get(date) ?? []).length,
+        ...sumDay(dayEntries),
+      })
+    }
+    const dayTypes: Record<DayType, number> = {
+      training: days.filter((d) => d.dayType === 'training').length,
+      rest: days.filter((d) => d.dayType === 'rest').length,
+    }
+
+    const totalDays = days.length
+    const loggedDays = days.filter((d) => d.entryCount > 0).length
+    const totals = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 }
+    for (const d of days) for (const key of NUTRIENTS) totals[key] += d.totals[key]
+    for (const key of NUTRIENTS) totals[key] = round1(totals[key])
+    const averages = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 }
+    if (loggedDays) for (const key of NUTRIENTS) averages[key] = round1(totals[key] / loggedDays)
+
+    const waterTotal = days.reduce((sum, d) => sum + d.water, 0)
+    const alcoholTotal = days.reduce((sum, d) => sum + d.alcohol, 0)
+    const byKind = Object.fromEntries(ALCOHOL_KINDS.map((k) => [k, 0])) as Record<AlcoholKind, number>
+    for (const r of alcoholRows) if (r.kind in byKind) byKind[r.kind as AlcoholKind]++
+
+    return {
+      start, end, days, goals: blendGoals(days.map((d) => d.goals)), dayTypes, scorecard: scoreDays(days),
+      totalDays, loggedDays, totals, averages,
+      water: { total: round1(waterTotal), average: round1(waterTotal / totalDays), ...scoreWater(days, goals.water) },
+      alcohol: { total: alcoholTotal, average: round1(alcoholTotal / totalDays), byKind },
+    }
   }
 
   private getWater(date: string, goal: number): DayView['water'] {
@@ -781,11 +970,15 @@ export class Store {
     return { ounces, goal, lastLogId: rows[0]?.id ?? null }
   }
 
-  private getAlcohol(date: string): DayView['alcohol'] {
+  /** This day's drinks, plus the calendar week's (Monday-start, today included) against its own goal. */
+  private getAlcohol(date: string, weekGoal: number): DayView['alcohol'] {
     const rows = this.stmts.selectAlcoholByDate.all(date) as unknown as AlcoholLogRow[]
     const byKind = Object.fromEntries(ALCOHOL_KINDS.map((k) => [k, 0])) as Record<AlcoholKind, number>
     for (const r of rows) if (r.kind in byKind) byKind[r.kind as AlcoholKind]++
-    return { drinks: rows.length, byKind, lastLogId: rows[0]?.id ?? null }
+    const weekStart = startOfWeek(date)
+    const weekEnd = addDays(weekStart, 6)
+    const weekTotal = (this.stmts.selectAlcoholBetween.all(weekStart, weekEnd) as unknown as AlcoholLogRow[]).length
+    return { drinks: rows.length, byKind, weekTotal, weekGoal, lastLogId: rows[0]?.id ?? null }
   }
 
   /** One standard drink for one day. Just a record -- there is no goal to hit. */
@@ -1171,22 +1364,18 @@ export class Store {
   // --- goals and settings -----------------------------------------------------
 
   getGoals(): Goals {
-    const row = this.stmts.selectGoals.get() as unknown as GoalsRow
-    return {
-      calories: row.calories, protein: row.protein, fat: row.fat, carbs: row.carbs, fiber: row.fiber,
-      water: row.water_ounces,
-    }
+    return goalsFromRow(this.stmts.selectGoals.get() as unknown as GoalsRow)
   }
 
   setGoals(input: Partial<Goals>): Goals {
     const next = this.getGoals()
-    for (const key of NUTRIENTS) {
-      const v = (input as Record<string, unknown>)[key]
-      if (v === undefined) continue
-      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > 100_000) {
-        throw new ValidationError(`goal ${key} must be a non-negative number`)
+    if (input.training !== undefined) next.training = cleanDayTypeGoals(input.training, 'training')
+    if (input.rest !== undefined) next.rest = cleanDayTypeGoals(input.rest, 'rest')
+    if (input.fiber !== undefined) {
+      if (typeof input.fiber !== 'number' || !Number.isFinite(input.fiber) || input.fiber < 0 || input.fiber > 1000) {
+        throw new ValidationError('goal fiber must be a non-negative number')
       }
-      next[key] = v
+      next.fiber = input.fiber
     }
     if (input.water !== undefined) {
       if (typeof input.water !== 'number' || !Number.isFinite(input.water) || input.water < 0 || input.water > 1000) {
@@ -1194,8 +1383,32 @@ export class Store {
       }
       next.water = input.water
     }
-    this.stmts.updateGoals.run(next.calories, next.protein, next.fat, next.carbs, next.fiber, next.water)
+    if (input.alcoholWeekly !== undefined) {
+      if (typeof input.alcoholWeekly !== 'number' || !Number.isFinite(input.alcoholWeekly)
+        || input.alcoholWeekly < 0 || input.alcoholWeekly > 1000) {
+        throw new ValidationError('goal alcoholWeekly must be a non-negative number')
+      }
+      next.alcoholWeekly = input.alcoholWeekly
+    }
+    this.stmts.updateGoals.run(...goalsParams(next))
     return next
+  }
+
+  /**
+   * No row for a date means it was never marked -- a rest day. Training is
+   * the thing you tick off (the "Training day" box in Day view), so a day
+   * nobody touched can't claim the higher targets by default.
+   */
+  getDayType(date: string): DayType {
+    const row = this.stmts.selectDayType.get(date) as unknown as DayTypeRow | undefined
+    return row?.type === 'training' ? 'training' : 'rest'
+  }
+
+  setDayType(date: string, type: unknown): DayType {
+    if (!isDateString(date)) throw new ValidationError('date must be YYYY-MM-DD')
+    const clean = cleanDayType(type)
+    this.stmts.upsertDayType.run(date, clean)
+    return clean
   }
 
   getSettings(): Settings {

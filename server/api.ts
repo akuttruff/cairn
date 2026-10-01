@@ -78,6 +78,12 @@ export function createApi(options: ApiOptions = {}) {
       return json(res, 200, store.getDay(decodeURIComponent(m[1]!)))
     }
 
+    if (p === '/api/range' && method === 'GET') {
+      const start = url.searchParams.get('start') || ''
+      const end = url.searchParams.get('end') || ''
+      return json(res, 200, store.getRange(start, end))
+    }
+
     if (p === '/api/entries' && method === 'POST') {
       return json(res, 201, store.addEntry(await readBody(req) as never))
     }
@@ -179,6 +185,12 @@ export function createApi(options: ApiOptions = {}) {
     if (p === '/api/goals') {
       if (method === 'GET') return json(res, 200, store.getGoals())
       if (method === 'PUT') return json(res, 200, store.setGoals(await readBody(req) as never))
+    }
+
+    if ((m = /^\/api\/day-type\/([^/]+)$/.exec(p)) && method === 'PUT') {
+      const date = decodeURIComponent(m[1]!)
+      const body = await readBody(req) as { type?: unknown }
+      return json(res, 200, { date, type: store.setDayType(date, body.type) })
     }
 
     if (p === '/api/lm-models' && method === 'GET') {

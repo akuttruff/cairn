@@ -95,10 +95,53 @@ export interface Amount {
   unitGrams: number | null
 }
 
-/** Water isn't one of the NUTRIENTS: it's not per-food, so it never flows through sumDay's totals/missing. */
-export interface Goals extends Record<NutrientKey, number> {
+export const DAY_TYPES = ['training', 'rest'] as const
+export type DayType = (typeof DAY_TYPES)[number]
+
+/** A macro target as a band, e.g. 125-130g, not a single number to hit exactly. */
+export interface MacroRange {
+  min: number
+  max: number
+}
+
+/** One day type's macro targets. Calories are never one of these fields -- see ResolvedGoals. */
+export interface DayTypeGoals {
+  protein: MacroRange
+  carbs: MacroRange
+  fat: MacroRange
+}
+
+/**
+ * What Settings edits: a macro range for each day type, plus the goals that
+ * don't vary by day type. There is no stored calorie goal -- see
+ * ResolvedGoals for why, and resolveGoals() in lib/nutrition.ts for the math.
+ */
+export interface Goals {
+  training: DayTypeGoals
+  rest: DayTypeGoals
+  /** Grams per day; not a range like the macros above, and the same on any day type. */
+  fiber: number
   /** Ounces per day. */
   water: number
+  /** Standard drinks per calendar week (Monday-start), not per day -- see DayView.alcohol. */
+  alcoholWeekly: number
+}
+
+/**
+ * One day type's goals, resolved to concrete ranges a day or range view can
+ * compare a total against. Calories are computed from the macro ranges (4
+ * kcal/g protein and carbs, 9 kcal/g fat) by resolveGoals(), never stored on
+ * their own -- so they can never disagree with what the macros actually add
+ * up to, the way a hand-typed calorie goal could.
+ */
+export interface ResolvedGoals {
+  calories: MacroRange
+  protein: MacroRange
+  carbs: MacroRange
+  fat: MacroRange
+  fiber: number
+  water: number
+  alcoholWeekly: number
 }
 
 export interface DayTotals {
@@ -110,7 +153,7 @@ export interface DayTotals {
 export const ALCOHOL_KINDS = ['beer', 'wine', 'liquor'] as const
 export type AlcoholKind = (typeof ALCOHOL_KINDS)[number]
 
-/** One standard drink (12 oz beer, 5 oz wine, 1.5 oz liquor). Tracked, never held to a goal. */
+/** One standard drink (12 oz beer, 5 oz wine, 1.5 oz liquor). No daily goal -- see Goals.alcoholWeekly for the weekly one. */
 export interface AlcoholLog {
   id: string
   date: string
@@ -129,7 +172,9 @@ export interface WaterLog {
 export interface DayView extends DayTotals {
   date: string
   entries: Entry[]
-  goals: Goals
+  dayType: DayType
+  /** This day's goals, resolved from whichever of Goals.training/rest matches dayType -- see ResolvedGoals. */
+  goals: ResolvedGoals
   water: {
     /** Total logged for this day. */
     ounces: number
@@ -141,9 +186,57 @@ export interface DayView extends DayTotals {
     /** Standard drinks logged for this day. */
     drinks: number
     byKind: Record<AlcoholKind, number>
+    /** Standard drinks logged in the calendar week (Monday-start) containing this day, today included. */
+    weekTotal: number
+    weekGoal: number
     /** The most recent log's id, for a one-tap undo. Null with nothing logged yet. */
     lastLogId: string | null
   }
+}
+
+/** One calendar day's totals within a range view -- a bar in the week/month chart. */
+export interface DaySummary extends DayTotals {
+  date: string
+  /** How many things were logged this day, so an empty day reads as "not logged" rather than "ate nothing". */
+  entryCount: number
+  dayType: DayType
+  /** This day's own goals (training or rest): what its totals are judged against, never a blend. */
+  goals: ResolvedGoals
+  water: number
+  alcohol: number
+}
+
+/** Per nutrient, how many of the range's logged days met that day's own goal -- see goalMet() in lib/nutrition.ts. */
+export type Scorecard = Record<NutrientKey, { met: number; of: number }>
+
+/**
+ * A week or month at a glance: one summary per calendar day, plus totals and
+ * averages over it. Macro averages are per day *with an entry* (loggedDays)
+ * -- a day you forgot to log shouldn't drag the average down like a real
+ * zero-calorie day would. Water and alcohol average over every day in the
+ * range instead: whether you drank water is not conditional on having eaten.
+ *
+ * Training and rest days have different goals, so a range never judges a
+ * day against an average: `scorecard` counts, per nutrient, the logged days
+ * that met their own day's goal, and each DaySummary carries the goals it
+ * was judged by. `goals` is the blend across the range's mix of day types
+ * (see blendGoals()) -- a reference for the water card and the like, not a
+ * target any one day had.
+ */
+export interface RangeView {
+  start: string
+  end: string
+  days: DaySummary[]
+  goals: ResolvedGoals
+  dayTypes: Record<DayType, number>
+  scorecard: Scorecard
+  totalDays: number
+  loggedDays: number
+  totals: Record<NutrientKey, number>
+  averages: Record<NutrientKey, number>
+  /** `met` of `of`: days with any water logged that reached the daily goal -- see scoreWater(). */
+  water: { total: number; average: number; met: number; of: number }
+  alcohol: { total: number; average: number; byKind: Record<AlcoholKind, number> }
 }
 
 /** What a client sends to log something. The server assigns id and time. */

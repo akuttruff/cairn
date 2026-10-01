@@ -1,13 +1,29 @@
 import { NUTRIENTS } from '../types.ts'
-import type { DayTotals, Entry, Meal, NutrientKey, Nutrients } from '../types.ts'
+import type {
+  DaySummary, DayTotals, DayType, Entry, Goals, Meal, MacroRange, NutrientKey, Nutrients, ResolvedGoals, Scorecard,
+} from '../types.ts'
 
-export const DEFAULT_GOALS = {
-  calories: 2000,
-  protein: 150,
-  fat: 65,
-  carbs: 200,
+/**
+ * A starting point for Settings, not a fixed target: edit it to fit. Each
+ * macro is a single number here (min equals max) -- 130P/55F/221C works out
+ * to 1899 kcal, 120P/50F/192C to 1698, matching the 1,900/1,700 kcal targets
+ * they were set from.
+ */
+export const DEFAULT_GOALS: Goals = {
+  training: {
+    protein: { min: 130, max: 130 },
+    carbs: { min: 221, max: 221 },
+    fat: { min: 55, max: 55 },
+  },
+  rest: {
+    protein: { min: 120, max: 120 },
+    carbs: { min: 192, max: 192 },
+    fat: { min: 50, max: 50 },
+  },
   fiber: 30,
-} as const
+  water: 96,
+  alcoholWeekly: 7,
+}
 
 export const UNITS: Record<NutrientKey, string> = {
   calories: 'kcal',
@@ -29,7 +45,7 @@ export const emptyNutrients = (): Nutrients =>
   ({ calories: null, protein: null, fat: null, carbs: null, fiber: null })
 
 /** One decimal place: finer than any label or scale is accurate to. */
-const round1 = (n: number): number => Math.round(n * 10) / 10
+export const round1 = (n: number): number => Math.round(n * 10) / 10
 
 /** Amounts in `grams` of a food, from its per-100g values. Unknown stays unknown. */
 export function scale(per100g: Nutrients, grams: number): Nutrients {
@@ -114,6 +130,106 @@ export function progress(total: number, goal: number): number {
   return Math.min(1, Math.max(0, total / goal))
 }
 
+/** Where a total lands against a range: still to go, within it, or past the top. */
+export type RangeStatus = 'under' | 'in' | 'over'
+export function rangeStatus(total: number, range: MacroRange): RangeStatus {
+  if (total > range.max) return 'over'
+  if (total < range.min) return 'under'
+  return 'in'
+}
+
+/**
+ * Going past the top of the range only counts against these. Extra protein
+ * or fiber is fine (welcome, even), so they neither turn a bar red nor cost
+ * a day its goal.
+ */
+export const OVER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['calories', 'fat', 'carbs'])
+
+/** A nutrient's target as a range, fiber included (a single number, so min = max). */
+export function goalRangeFor(goals: ResolvedGoals, key: NutrientKey): MacroRange {
+  return key === 'fiber' ? { min: goals.fiber, max: goals.fiber } : goals[key]
+}
+
+/**
+ * Whether a day's total hit its goal. The goals are caps and floors, not
+ * targets to land on: calories, fat and carbs are met at or under the top
+ * of the range (coming in under is a win, not a miss), protein and fiber at
+ * or over the bottom of it (going over is fine). Exactly on the line counts.
+ */
+export function goalMet(total: number, range: MacroRange, kind: NutrientKey): boolean {
+  return OVER_IS_BAD.has(kind) ? total <= range.max : total >= range.min
+}
+
+/**
+ * Per nutrient, how many of the logged days met that day's own goal. Days
+ * with nothing logged are left out entirely -- a day you forgot to log is
+ * not a day you missed your protein.
+ */
+export function scoreDays(days: DaySummary[]): Scorecard {
+  const logged = days.filter((d) => d.entryCount > 0)
+  const out = {} as Scorecard
+  for (const key of NUTRIENTS) {
+    out[key] = {
+      met: logged.filter((d) => goalMet(d.totals[key], goalRangeFor(d.goals, key), key)).length,
+      of: logged.length,
+    }
+  }
+  return out
+}
+
+/** Water is like protein: reaching the goal is what counts, more is fine. */
+export function waterMet(ounces: number, goal: number): boolean {
+  return goal > 0 && ounces >= goal
+}
+
+/**
+ * How many days reached the water goal, of the days any water was logged
+ * on. A day with no water at all is almost always a day it wasn't logged,
+ * not a day of drinking nothing, so it's left out rather than counted as a
+ * miss.
+ */
+export function scoreWater(days: Pick<DaySummary, 'water'>[], goal: number): { met: number; of: number } {
+  const logged = days.filter((d) => d.water > 0)
+  return { met: logged.filter((d) => waterMet(d.water, goal)).length, of: logged.length }
+}
+
+/**
+ * A day type's goals, calories included -- but calories are never stored on
+ * their own (see Goals and ResolvedGoals). They're computed here from the
+ * macro ranges, at 4 kcal/g for protein and carbs and 9 for fat, so a
+ * calorie target can never disagree with what the macros it's made of
+ * actually add up to.
+ */
+export function resolveGoals(goals: Goals, dayType: DayType): ResolvedGoals {
+  const profile = goals[dayType]
+  const calories: MacroRange = {
+    min: round1(profile.protein.min * 4 + profile.carbs.min * 4 + profile.fat.min * 9),
+    max: round1(profile.protein.max * 4 + profile.carbs.max * 4 + profile.fat.max * 9),
+  }
+  return { calories, protein: profile.protein, carbs: profile.carbs, fat: profile.fat, fiber: goals.fiber, water: goals.water, alcoholWeekly: goals.alcoholWeekly }
+}
+
+/**
+ * One reference goal for a week or month that mixed training and rest days:
+ * each range field is the plain average of that field across every day's
+ * own resolved goal. Not a strict target -- a week of training days and one
+ * of rest days should read differently -- but a fair single line for a
+ * chart, and for comparing the period's averages against.
+ */
+export function blendGoals(perDay: ResolvedGoals[]): ResolvedGoals {
+  const first = perDay[0]
+  if (!first) throw new Error('blendGoals needs at least one day')
+  const avg = (pick: (g: ResolvedGoals) => MacroRange): MacroRange => ({
+    min: round1(perDay.reduce((sum, g) => sum + pick(g).min, 0) / perDay.length),
+    max: round1(perDay.reduce((sum, g) => sum + pick(g).max, 0) / perDay.length),
+  })
+  return {
+    calories: avg((g) => g.calories), protein: avg((g) => g.protein), carbs: avg((g) => g.carbs), fat: avg((g) => g.fat),
+    // These don't vary by day type, so every day's copy already agrees.
+    fiber: first.fiber, water: first.water, alcoholWeekly: first.alcoholWeekly,
+  }
+}
+
 /** Local calendar date for a moment, YYYY-MM-DD, in the device's timezone. */
 export function localDate(d: Date = new Date()): string {
   const y = d.getFullYear()
@@ -130,6 +246,44 @@ export function addDays(date: string, days: number): string {
 
 export const isDateString = (s: string): boolean =>
   /^\d{4}-\d{2}-\d{2}$/.test(s) && addDays(s, 0) === s
+
+/** First day (Monday) of the calendar week containing `date`. */
+export function startOfWeek(date: string): string {
+  const [y, m, d] = date.split('-').map(Number)
+  // getDay() is 0 = Sunday..6 = Saturday; shift so Monday is 0 and Sunday is 6.
+  const dow = (new Date(y!, m! - 1, d!).getDay() + 6) % 7
+  return addDays(date, -dow)
+}
+
+/** First day of the calendar month containing `date`. */
+export function startOfMonth(date: string): string {
+  const [y, m] = date.split('-').map(Number)
+  return localDate(new Date(y!, m! - 1, 1))
+}
+
+/** Last day of the calendar month containing `date`. */
+export function endOfMonth(date: string): string {
+  const [y, m] = date.split('-').map(Number)
+  return localDate(new Date(y!, m!, 0)) // day 0 of next month = last day of this one
+}
+
+/**
+ * Shift a date by whole calendar months, clamping the day so e.g. Jan 31
+ * minus one month lands on Feb 28 (or 29), not overflowing into March.
+ */
+export function addMonths(date: string, months: number): string {
+  const [y, m, d] = date.split('-').map(Number)
+  const lastDayOfTarget = new Date(y!, m! - 1 + months + 1, 0).getDate()
+  return localDate(new Date(y!, m! - 1 + months, Math.min(d!, lastDayOfTarget)))
+}
+
+/** Whole calendar days from `a` to `b` (positive when `b` is later). */
+export function daysBetween(a: string, b: string): number {
+  const [ay, am, ad] = a.split('-').map(Number)
+  const [by, bm, bd] = b.split('-').map(Number)
+  const ms = Date.UTC(by!, bm! - 1, bd!) - Date.UTC(ay!, am! - 1, ad!)
+  return Math.round(ms / 86_400_000)
+}
 
 /** The meal you are most likely logging at a given hour. */
 export function mealForHour(hour: number): Meal {

@@ -17,7 +17,11 @@ interface AlcoholTrackerProps {
   onLogged: () => void
 }
 
-/** A record, not a target: standard drinks for the day, by kind, with no goal or bar. */
+/**
+ * Today's drinks are just a record -- no daily goal or bar, same as before.
+ * The week they fall in is held to one, though (Monday-start, today
+ * included): that's the actual thing being limited, not any one day.
+ */
 export default function AlcoholTracker({ date, alcohol, onLogged }: AlcoholTrackerProps) {
   const add = async (kind: AlcoholKind): Promise<void> => {
     try {
@@ -43,6 +47,10 @@ export default function AlcoholTracker({ date, alcohol, onLogged }: AlcoholTrack
     .map((k) => `${alcohol.byKind[k]} ${KINDS[k].label.toLowerCase()}`)
     .join(' · ')
 
+  const weekPct = alcohol.weekGoal > 0 ? Math.min(100, Math.round((alcohol.weekTotal / alcohol.weekGoal) * 100)) : 0
+  const weekLeft = alcohol.weekGoal - alcohol.weekTotal
+  const weekOver = weekLeft < 0
+
   return (
     <section className="water-card alcohol-card" aria-label="Alcohol">
       <div className="water-head">
@@ -61,6 +69,30 @@ export default function AlcoholTracker({ date, alcohol, onLogged }: AlcoholTrack
         </span>
       </div>
       {breakdown && <div className="water-bottles" style={{ marginTop: 0 }}>{breakdown}</div>}
+
+      <div className="alcohol-week">
+        <div className="water-head">
+          <span className="water-label">This week</span>
+          <span className="water-num">
+            {alcohol.weekTotal}
+            <span className="water-goal"> / {alcohol.weekGoal}</span>
+          </span>
+        </div>
+        <div
+          className={`bar alcohol${weekOver ? ' over' : ''}`}
+          role="progressbar"
+          aria-label="Drinks this week"
+          aria-valuemin={0}
+          aria-valuemax={alcohol.weekGoal}
+          aria-valuenow={alcohol.weekTotal}
+        >
+          <div className="bar-fill" style={{ width: `${weekPct}%` }} />
+        </div>
+        <div className={`cal-left${weekOver ? ' over' : ''}`}>
+          {weekOver ? `${-weekLeft} over this week` : `${weekLeft} left this week`}
+        </div>
+      </div>
+
       <div className="water-actions">
         {ALCOHOL_KINDS.map((kind) => {
           const { label, Icon } = KINDS[kind]

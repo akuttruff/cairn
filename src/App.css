@@ -12,7 +12,8 @@
   --c-calories: #8FA382;
   --c-protein: #7FA6C4;
   --c-fat: #D9B26A;
-  --c-carbs: #C97B5A;
+  /* Not the rust of --rust: a carbs bar in its normal colour must never look like one that's gone over. */
+  --c-carbs: #CF8FAE;
   --c-fiber: #A58FC4;
   --c-water: #4FB8C9;
   --c-alcohol: #B8626F;
@@ -76,6 +77,26 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 .icon-btn:active { background: var(--bg-raised); }
 
+.mode-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+  padding: 0 12px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.mode-tab {
+  flex: 1;
+  padding: 7px 0;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  color: var(--paper-dim);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+.mode-tab.active { background: var(--bg-raised); color: var(--paper); }
+
 /* ====== Main ====== */
 .scroll {
   flex: 1 1 auto;
@@ -105,13 +126,26 @@ button:disabled { opacity: 0.45; cursor: default; }
   padding: 16px;
   margin-bottom: 18px;
 }
+.day-type-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.day-type-check input { width: 20px; height: 20px; margin: 0; accent-color: var(--moss); }
+/* Which set of goals the card below is showing, so unticked never reads as "no goals". */
+.day-type-note { margin-left: auto; font-family: var(--mono); font-size: 11px; font-weight: 400; color: var(--paper-dim); }
+
 .cal-row { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 10px; }
 .cal-value { font-size: 34px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .cal-goal { font-size: 14px; font-weight: 400; color: var(--paper-dim); letter-spacing: 0; }
 .cal-left { font-family: var(--mono); font-size: 12px; color: var(--moss); margin-top: 2px; }
 .cal-left.over { color: var(--rust); }
 
-.bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.bar { position: relative; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .bar-fill { height: 100%; border-radius: 4px; transition: width 0.35s ease; background: var(--c-calories); }
 .bar.protein .bar-fill { background: var(--c-protein); }
 .bar.fat .bar-fill { background: var(--c-fat); }
@@ -119,6 +153,9 @@ button:disabled { opacity: 0.45; cursor: default; }
 .bar.fiber .bar-fill { background: var(--c-fiber); }
 .bar.over .bar-fill { background: var(--rust); }
 .macro-grid .bar { height: 6px; }
+/* Marks the bottom of a goal's range (the top is the bar's own end) -- a
+   thin line, not another color, so it reads as a marker, not a second fill. */
+.bar-min-tick { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--paper); opacity: 0.5; }
 
 .macro-grid {
   display: grid;
@@ -166,6 +203,9 @@ button:disabled { opacity: 0.45; cursor: default; }
 .water-add:active { opacity: 0.7; }
 /* Three buttons share the row, so they're a touch tighter than the single water one. */
 .alcohol-summary { display: flex; align-items: baseline; gap: 10px; }
+.alcohol-week { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.bar.alcohol .bar-fill { background: var(--c-alcohol); }
+.bar.alcohol.over .bar-fill { background: var(--rust); }
 /* Undo lives up by the count, so the three buttons always share the whole row equally. */
 .alcohol-add { min-width: 0; white-space: nowrap; border-color: var(--c-alcohol); color: var(--c-alcohol); padding: 11px 6px; font-size: 13px; gap: 4px; }
 .water-undo {
@@ -188,6 +228,95 @@ button:disabled { opacity: 0.45; cursor: default; }
   margin-left: 2px;
   vertical-align: super;
 }
+
+/* ====== Week / month ====== */
+.range-summary { display: flex; flex-direction: column; }
+
+.range-chart-wrap {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin-bottom: 10px;
+}
+.range-chart-head { display: flex; align-items: center; gap: 7px; margin-bottom: 14px; }
+.range-chart-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--c-calories); }
+.range-chart-dot.protein { background: var(--c-protein); }
+.range-chart-dot.fiber { background: var(--c-fiber); }
+.range-chart-dot.water { background: var(--c-water); }
+.range-chart-label { font-size: 12px; font-weight: 600; color: var(--paper-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+
+/* The plot is now a plain box in normal flow below the head row, not
+   layered underneath it -- the two can no longer collide. */
+.range-chart-plot { position: relative; height: 56px; }
+.range-line-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* Each day's own goal: a short flat mark at that day, not one line for the whole range. */
+.range-goal-mark { stroke: var(--paper-dim); stroke-width: 2; opacity: 0.55; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.range-line { fill: none; stroke: var(--c-calories); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.range-line.protein { stroke: var(--c-protein); }
+.range-line.fiber { stroke: var(--c-fiber); }
+.range-line.water { stroke: var(--c-water); }
+
+/* Point markers sit in a separate, plain-HTML layer -- see RangeChart's doc
+   comment for why they aren't drawn in the SVG with the line itself. */
+.range-points { position: absolute; inset: 0; }
+.range-point {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: none;
+  transform: translate(-50%, 50%);
+}
+.range-point::after {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: var(--c-calories);
+  /* A ring in the card's own background, so a marker never blurs into the
+     line running directly through it. */
+  box-shadow: 0 0 0 3px var(--bg-raised);
+}
+.range-point.protein::after { background: var(--c-protein); }
+.range-point.fiber::after { background: var(--c-fiber); }
+.range-point.water::after { background: var(--c-water); }
+/* Met: filled. Missed: hollow, in the metric's colour. Nothing logged: faded. */
+.range-point.missed::after { inset: 4px; background: var(--bg-raised); border: 2px solid var(--c-calories); }
+.range-point.missed.protein::after { border-color: var(--c-protein); }
+.range-point.missed.fiber::after { border-color: var(--c-fiber); }
+.range-point.missed.water::after { border-color: var(--c-water); }
+.range-point.unlogged::after { opacity: 0.3; }
+
+/* --- goals met --- */
+.scorecard {
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 18px;
+}
+.scorecard-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.scorecard-note { font-size: 11px; color: var(--paper-dim); text-align: right; }
+.score-row { margin-top: 12px; }
+.score-row .bar { height: 6px; }
+.range-point.today::after { inset: 4px; outline: 2px solid var(--paper); outline-offset: 1px; }
+.range-point:active::after { opacity: 0.7; }
+
+/* One shared day axis under the stacked charts, instead of repeating it three times. */
+.range-axis { display: flex; gap: 2px; padding: 0 12px; margin-bottom: 14px; }
+.range-axis span {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: center;
+  font-size: 9px;
+  color: var(--paper-dim);
+  font-variant-numeric: tabular-nums;
+}
+.range-axis span.today { color: var(--paper); font-weight: 700; }
+
+.range-coverage { font-size: 12px; color: var(--paper-dim); margin-bottom: 18px; }
 
 /* ====== Meals ====== */
 .meal { margin-bottom: 18px; }
@@ -281,6 +410,12 @@ button:disabled { opacity: 0.45; cursor: default; }
 .nf.fiber label { color: var(--c-fiber); }
 .auto-tag { font-weight: 400; opacity: 0.6; }
 .nf.calories.auto input { color: var(--paper-dim); font-style: italic; }
+
+.profile-fields { margin-bottom: 8px; }
+.profile-fields .nutrient-fields { margin-bottom: 4px; }
+.range-inputs { display: flex; align-items: center; gap: 6px; }
+.range-inputs input { width: 0; flex: 1 1 0; }
+.range-sep { color: var(--paper-dim); flex: 0 0 auto; }
 
 .hint { font-size: 12px; color: var(--paper-dim); line-height: 1.5; margin: 4px 0 10px; }
 .hint.center { text-align: center; padding: 18px 8px; }
