@@ -438,7 +438,7 @@ describe('App', () => {
     expect(within(card).getByText('465')).toBeInTheDocument()
     expect(within(card).getByText('/ 2275 kcal')).toBeInTheDocument()
     expect(within(card).getByText('1810 to go')).toBeInTheDocument() // against the raised goal
-    expect(within(card).getByText(/goal \+275 for drinks/)).toBeInTheDocument()
+    expect(within(card).getByText('(goal +275 for drinks)')).toBeInTheDocument()
   })
 
   it('shows the drinks logged today by kind, with no daily goal', async () => {

@@ -61,7 +61,7 @@ export default function Totals({ totals, missing, goals, dayType, onSetDayType, 
           </div>
           <div className={`cal-left${status === 'over' ? ' over' : ''}`}>
             {calLeftText}
-            {alcoholCalories > 0 && <span className="cal-alcohol"> · goal +{Math.round(alcoholCalories)} for drinks</span>}
+            {alcoholCalories > 0 && <span className="cal-alcohol"> (goal +{Math.round(alcoholCalories)} for drinks)</span>}
           </div>
         </div>
       </div>
