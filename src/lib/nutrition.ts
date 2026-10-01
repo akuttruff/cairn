@@ -75,6 +75,18 @@ export function alcoholCalories(byKind: Record<AlcoholKind, number>): number {
   return ALCOHOL_KINDS.reduce((sum, kind) => sum + byKind[kind] * ALCOHOL_KCAL[kind], 0)
 }
 
+/**
+ * The day's goals with its drinks allowed for: the calorie goal rises by
+ * what they added, the way a training day's rises for its extra carbs. So
+ * a drink isn't a miss by itself -- the food is judged against the same
+ * cap as any other day, and the calorie total (which includes the drinks)
+ * against a cap raised to match.
+ */
+export function allowForAlcohol(goals: ResolvedGoals, alcoholKcal: number): ResolvedGoals {
+  if (alcoholKcal <= 0) return goals
+  return { ...goals, calories: { min: goals.calories.min + alcoholKcal, max: goals.calories.max + alcoholKcal } }
+}
+
 /** Sum a day's entries, counting which ones were missing each nutrient. */
 export function sumDay(entries: Entry[]): DayTotals {
   const totals = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 }

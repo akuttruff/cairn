@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addDays, addMonths, alcoholCalories, blendGoals, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalMet, impliedCalories,
+  addDays, addMonths, alcoholCalories, allowForAlcohol, blendGoals, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalMet,
+  impliedCalories,
   isDateString, localDate, macroCalories, progress, rangeStatus, resolveGoals, scale, scoreDays, scoreWater, startOfMonth,
   startOfWeek, sumDay, sumNutrients,
 } from './nutrition.ts'
@@ -226,6 +227,14 @@ describe('alcoholCalories', () => {
   it('counts standard drinks at 150 for beer, 125 for wine and 100 for liquor', () => {
     expect(alcoholCalories({ beer: 1, wine: 2, liquor: 1 })).toBe(500)
     expect(alcoholCalories({ beer: 0, wine: 0, liquor: 0 })).toBe(0)
+  })
+
+  it('raises only the calorie goal to allow for the drinks, like a training day raises carbs', () => {
+    const rest = resolveGoals(GOALS, 'rest')
+    const allowed = allowForAlcohol(rest, 200)
+    expect(allowed.calories).toEqual({ min: 1900, max: 1900 })
+    expect(allowed.carbs).toEqual(rest.carbs)
+    expect(allowForAlcohol(rest, 0)).toBe(rest) // nothing to allow for
   })
 })
 

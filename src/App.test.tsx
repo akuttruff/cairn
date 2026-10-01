@@ -425,17 +425,20 @@ describe('App', () => {
     expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/settings')!.body).toEqual({ researchModel: 'qwen/qwen3.8-27b' })
   })
 
-  it("says how much of the day's calories came from drinks", async () => {
+  it("shows the day's drinks raising the calorie goal, not just the total", async () => {
     stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
         totals: { calories: 465, protein: 6.5, fat: 3.4, carbs: 33, fiber: 5 }, // 190 of food + 275 of drinks
+        goals: { ...GOALS, calories: RANGE(2275) }, // the server raised 2000 by the 275
         alcohol: { drinks: 2, byKind: { beer: 1, wine: 1, liquor: 0 }, calories: 275, weekTotal: 2, weekGoal: 7, lastLogId: 'a2' },
       }),
     })
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Daily totals' })
     expect(within(card).getByText('465')).toBeInTheDocument()
-    expect(within(card).getByText(/incl\. 275 from alcohol/)).toBeInTheDocument()
+    expect(within(card).getByText('/ 2275 kcal')).toBeInTheDocument()
+    expect(within(card).getByText('1810 to go')).toBeInTheDocument() // against the raised goal
+    expect(within(card).getByText(/goal \+275 for drinks/)).toBeInTheDocument()
   })
 
   it('shows the drinks logged today by kind, with no daily goal', async () => {

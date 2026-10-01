@@ -232,6 +232,9 @@ describe('foods', () => {
     expect(day.totals.calories).toBe(330) // 105 + 125 + 100
     expect(day.totals.carbs).toBe(26.9) // alcohol is calories without macros
     expect(day.missing.calories).toBe(0) // a drink never reads as a partial total
+    // The calorie goal rises by the same amount, so the drinks aren't a miss by themselves.
+    expect(day.goals.calories).toEqual({ min: 1700 + 225, max: 1700 + 225 })
+    expect(day.goals.carbs).toEqual({ min: 160, max: 160 }) // nothing else moves
   })
 
   it('does not snapshot a saved food into history', () => {
@@ -763,6 +766,10 @@ describe('ranges', () => {
     expect(range.days[0]!.totals.calories).toBe(125) // the wine, no food
     expect(range.days[2]!.totals.calories).toBe(150) // the beer
     expect(range.totals.calories).toBe(275)
+    // Each day's calorie goal allows for its own drinks, so the scorecard judges fairly.
+    expect(range.days[0]!.goals.calories.max).toBe(1700 + 125)
+    expect(range.days[1]!.goals.calories.max).toBe(1700)
+    expect(range.days[2]!.goals.calories.max).toBe(1700 + 150)
   })
 
   it('carries the current goals along, same as a day view', () => {
