@@ -6,7 +6,7 @@ interface TotalsProps extends DayTotals {
   goals: ResolvedGoals
   dayType: DayType
   onSetDayType: (type: DayType) => void
-  /** Calories the day's drinks contributed: in the total, and added to the goal to allow for them. */
+  /** What the day's drinks came to -- shown for the record, not counted in the total or the goal. */
   alcoholCalories?: number
 }
 
@@ -61,7 +61,7 @@ export default function Totals({ totals, missing, goals, dayType, onSetDayType, 
           </div>
           <div className={`cal-left${status === 'over' ? ' over' : ''}`}>
             {calLeftText}
-            {alcoholCalories > 0 && <span className="cal-alcohol"> (goal +{Math.round(alcoholCalories)} for drinks)</span>}
+            {alcoholCalories > 0 && <span className="cal-alcohol"> (plus {Math.round(alcoholCalories)} from drinks, not counted)</span>}
           </div>
         </div>
       </div>

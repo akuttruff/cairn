@@ -10,7 +10,7 @@ import type {
   RangeView, Serving, Settings, SourceLink, WaterLog,
 } from '../src/types.ts'
 import {
-  addDays, alcoholCalories, allowForAlcohol, blendGoals, DEFAULT_GOALS, daysBetween, isDateString, resolveGoals, round1, scale,
+  addDays, alcoholCalories, blendGoals, DEFAULT_GOALS, daysBetween, isDateString, resolveGoals, round1, scale,
   scoreDays, scoreWater, startOfWeek, sumDay,
 } from '../src/lib/nutrition.ts'
 import { DAY_TYPES } from '../src/types.ts'
@@ -866,15 +866,12 @@ export class Store {
     const entries = rows.map(entryFromRow)
       .sort((a, b) => MEALS.indexOf(a.meal) - MEALS.indexOf(b.meal) || a.createdAt - b.createdAt)
     const dayType = this.getDayType(date)
-    const base = resolveGoals(this.getGoals(), dayType)
-    const water = this.getWater(date, base.water)
-    const alcohol = this.getAlcohol(date, base.alcoholWeekly)
-    const { totals, missing } = sumDay(entries)
-    // Drinks are calories with no macros behind them: they count in the
-    // day's calories, and the day's calorie goal rises to allow for them.
-    totals.calories = round1(totals.calories + alcohol.calories)
-    const goals = allowForAlcohol(base, alcohol.calories)
-    return { date, entries, dayType, goals, water, alcohol, totals, missing }
+    const goals = resolveGoals(this.getGoals(), dayType)
+    const water = this.getWater(date, goals.water)
+    // The drinks' calories are reported (alcohol.calories) but kept out of
+    // the day's totals and goals: food is judged on its own.
+    const alcohol = this.getAlcohol(date, goals.alcoholWeekly)
+    return { date, entries, dayType, goals, water, alcohol, ...sumDay(entries) }
   }
 
   /**
@@ -906,12 +903,9 @@ export class Store {
       const water = (waterByDate.get(date) ?? []).reduce((sum, r) => sum + r.ounces, 0)
       const dayType: DayType = dayTypeByDate.get(date) === 'training' ? 'training' : 'rest'
       const drinks = alcoholByDate.get(date) ?? []
-      const drinkKcal = alcoholCalories(countByKind(drinks))
-      const { totals, missing } = sumDay(dayEntries)
-      totals.calories = round1(totals.calories + drinkKcal)
       days.push({
-        date, entryCount: dayEntries.length, dayType, goals: allowForAlcohol(resolveGoals(goals, dayType), drinkKcal), water,
-        alcohol: drinks.length, totals, missing,
+        date, entryCount: dayEntries.length, dayType, goals: resolveGoals(goals, dayType), water,
+        alcohol: drinks.length, ...sumDay(dayEntries),
       })
     }
     const dayTypes: Record<DayType, number> = {

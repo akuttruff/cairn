@@ -223,18 +223,14 @@ describe('foods', () => {
     expect(store.recentFoods()).toEqual([])
   })
 
-  it("adds a drink's calories to the day, but not to its macros", () => {
+  it("reports a drink's calories beside the day without counting them in it", () => {
     store.addEntry(banana()) // 105 kcal, 26.9 g carbs
     store.addAlcohol(DAY, 'wine')
     store.addAlcohol(DAY, 'liquor')
     const day = store.getDay(DAY)
     expect(day.alcohol).toMatchObject({ drinks: 2, calories: 225 })
-    expect(day.totals.calories).toBe(330) // 105 + 125 + 100
-    expect(day.totals.carbs).toBe(26.9) // alcohol is calories without macros
-    expect(day.missing.calories).toBe(0) // a drink never reads as a partial total
-    // The calorie goal rises by the same amount, so the drinks aren't a miss by themselves.
-    expect(day.goals.calories).toEqual({ min: 1700 + 225, max: 1700 + 225 })
-    expect(day.goals.carbs).toEqual({ min: 160, max: 160 }) // nothing else moves
+    expect(day.totals.calories).toBe(105) // food only
+    expect(day.goals.calories).toEqual({ min: 1700, max: 1700 }) // and the goal is untouched
   })
 
   it('does not snapshot a saved food into history', () => {
@@ -761,15 +757,10 @@ describe('ranges', () => {
     expect(range.alcohol.total).toBe(2)
     expect(range.alcohol.average).toBeCloseTo(0.7, 5)
     expect(range.alcohol.byKind).toEqual({ beer: 1, wine: 1, liquor: 0 })
-    // The drinks' calories count toward the days they were logged on, and so toward the range.
+    // The drinks' calories are reported for the range, but stay out of the food totals and goals.
     expect(range.alcohol.calories).toBe(275)
-    expect(range.days[0]!.totals.calories).toBe(125) // the wine, no food
-    expect(range.days[2]!.totals.calories).toBe(150) // the beer
-    expect(range.totals.calories).toBe(275)
-    // Each day's calorie goal allows for its own drinks, so the scorecard judges fairly.
-    expect(range.days[0]!.goals.calories.max).toBe(1700 + 125)
-    expect(range.days[1]!.goals.calories.max).toBe(1700)
-    expect(range.days[2]!.goals.calories.max).toBe(1700 + 150)
+    expect(range.totals.calories).toBe(0)
+    expect(range.days[0]!.goals.calories.max).toBe(1700)
   })
 
   it('carries the current goals along, same as a day view', () => {

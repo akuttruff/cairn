@@ -66,25 +66,14 @@ export function sumNutrients(list: Nutrients[]): Nutrients {
 
 /**
  * Calories in one standard drink: a 12 oz beer at about 5%, a 5 oz glass of
- * wine, a 1.5 oz shot. Close enough to count; nobody logs the ABV. Alcohol
- * is calories without macros, so these go into a day's calories only.
+ * wine, a 1.5 oz shot. Close enough to count; nobody logs the ABV. Reported
+ * alongside a day's food, not folded into it.
  */
 export const ALCOHOL_KCAL: Record<AlcoholKind, number> = { beer: 150, wine: 125, liquor: 100 }
 
+/** What a day's drinks come to, for the record: shown beside the day, never added to its totals. */
 export function alcoholCalories(byKind: Record<AlcoholKind, number>): number {
   return ALCOHOL_KINDS.reduce((sum, kind) => sum + byKind[kind] * ALCOHOL_KCAL[kind], 0)
-}
-
-/**
- * The day's goals with its drinks allowed for: the calorie goal rises by
- * what they added, the way a training day's rises for its extra carbs. So
- * a drink isn't a miss by itself -- the food is judged against the same
- * cap as any other day, and the calorie total (which includes the drinks)
- * against a cap raised to match.
- */
-export function allowForAlcohol(goals: ResolvedGoals, alcoholKcal: number): ResolvedGoals {
-  if (alcoholKcal <= 0) return goals
-  return { ...goals, calories: { min: goals.calories.min + alcoholKcal, max: goals.calories.max + alcoholKcal } }
 }
 
 /** Sum a day's entries, counting which ones were missing each nutrient. */
