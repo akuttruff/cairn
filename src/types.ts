@@ -129,8 +129,13 @@ export interface Goals {
   water: number
   /** Standard drinks per calendar week (Monday-start), not per day -- see DayView.alcohol. */
   alcoholWeekly: number
-  /** Workout sessions per calendar week (Monday-start) -- see DayView.workouts. */
-  workoutsWeekly: number
+  /**
+   * The default weekly plan: sessions of each kind per calendar week
+   * (Monday-start). A week can have its own plan instead -- see
+   * DayView.workouts.planIsCustom -- so one week can differ without
+   * changing the rest.
+   */
+  workoutPlan: WorkoutPlan
   /** Minutes of meditation per day. */
   meditationMinutes: number
 }
@@ -151,7 +156,6 @@ export interface ResolvedGoals {
   fiber: number
   water: number
   alcoholWeekly: number
-  workoutsWeekly: number
   meditationMinutes: number
 }
 
@@ -183,6 +187,9 @@ export interface WaterLog {
 
 export const WORKOUT_KINDS = ['wod', 'weightlifting', 'run', 'cycling', 'yoga', 'pilates'] as const
 export type WorkoutKind = (typeof WORKOUT_KINDS)[number]
+
+/** Sessions of each kind to aim for in a week; 0 for a kind that isn't in the plan. */
+export type WorkoutPlan = Record<WorkoutKind, number>
 
 /**
  * One workout session. Logging a WOD or weightlifting session also ticks
@@ -238,7 +245,14 @@ export interface DayView extends DayTotals {
     sessions: WorkoutLog[]
     /** Minutes across them (sessions without a duration add nothing). */
     minutes: number
-    /** Sessions in the calendar week (Monday-start) containing this day, against the weekly goal. */
+    /** The Monday of this day's week: the plan below, and the counts, are that week's. */
+    weekStart: string
+    /** That week's plan: its own, if it has one, else the default from Settings. */
+    plan: WorkoutPlan
+    planIsCustom: boolean
+    /** Sessions of each kind logged in that week so far. */
+    weekByKind: Record<WorkoutKind, number>
+    /** All of them, against the plan's total. */
     weekTotal: number
     weekGoal: number
     lastLogId: string | null
@@ -299,8 +313,18 @@ export interface RangeView {
   water: { total: number; average: number; met: number; of: number }
   /** `calories`: what the range's drinks come to, reported beside the food totals, not in them. */
   alcohol: { total: number; average: number; calories: number; byKind: Record<AlcoholKind, number> }
-  /** Sessions over the range, the days that had one, and the minutes noted. */
-  workouts: { sessions: number; days: number; minutes: number; byKind: Record<WorkoutKind, number> }
+  /**
+   * Sessions over the range, the days that had one, the minutes noted, and
+   * the count of each kind against its goal. Goals come from each week's own
+   * plan, prorated by how many of that week's days fall in the range (a
+   * month starting midweek gets part of that week's plan), rounded.
+   */
+  workouts: {
+    sessions: number; days: number; minutes: number
+    byKind: Record<WorkoutKind, number>
+    goalByKind: Record<WorkoutKind, number>
+    goal: number
+  }
   /** `met` of `of`: days with any meditation logged that reached the daily minutes -- like water. `streak`: consecutive days ending at the range's end (or today, if earlier) with any logged. */
   meditation: { total: number; average: number; days: number; met: number; of: number; streak: number }
 }

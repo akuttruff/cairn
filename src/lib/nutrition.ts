@@ -18,7 +18,8 @@ export const DEFAULT_GOALS: Goals = {
   fiber: 30,
   water: 96,
   alcoholWeekly: 7,
-  workoutsWeekly: 6,
+  // Lifting twice, yoga four times, pilates once and two WODs a week.
+  workoutPlan: { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 },
   /** Two 25-minute sits a day (see SIT_MINUTES in MeditationTracker). */
   meditationMinutes: 50,
 }
@@ -278,7 +279,7 @@ export function resolveGoals(goals: Goals, dayType: DayType): ResolvedGoals {
     calories: exact(round1(goals.protein * 4 + carbs * 4 + goals.fat * 9 + goals.calorieBuffer)),
     protein: exact(goals.protein), carbs: exact(carbs), fat: exact(goals.fat),
     fiber: goals.fiber, water: goals.water, alcoholWeekly: goals.alcoholWeekly,
-    workoutsWeekly: goals.workoutsWeekly, meditationMinutes: goals.meditationMinutes,
+    meditationMinutes: goals.meditationMinutes,
   }
 }
 
@@ -300,7 +301,7 @@ export function blendGoals(perDay: ResolvedGoals[]): ResolvedGoals {
     calories: avg((g) => g.calories), protein: avg((g) => g.protein), carbs: avg((g) => g.carbs), fat: avg((g) => g.fat),
     // These don't vary by day type, so every day's copy already agrees.
     fiber: first.fiber, water: first.water, alcoholWeekly: first.alcoholWeekly,
-    workoutsWeekly: first.workoutsWeekly, meditationMinutes: first.meditationMinutes,
+    meditationMinutes: first.meditationMinutes,
   }
 }
 

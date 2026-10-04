@@ -281,6 +281,18 @@ describe('workouts and meditation', () => {
     expect((await call('POST', '/api/workouts', { date: DAY, kind: 'jousting' })).status).toBe(400)
   })
 
+  it("sets one week's own workout plan, and puts it back on the default", async () => {
+    const week = '2026-09-21' // a Monday
+    const set = await call('PUT', `/api/workout-plan/${week}`, { plan: { yoga: 5 } })
+    expect(set.status).toBe(200)
+    let day = (await call('GET', `/api/day/${week}`)).body as unknown as DayView
+    expect(day.workouts).toMatchObject({ planIsCustom: true, weekGoal: 5 })
+    await call('DELETE', `/api/workout-plan/${week}`)
+    day = (await call('GET', `/api/day/${week}`)).body as unknown as DayView
+    expect(day.workouts).toMatchObject({ planIsCustom: false, weekGoal: 9 })
+    expect((await call('PUT', `/api/workout-plan/2026-09-22`, { plan: { yoga: 1 } })).status).toBe(400)
+  })
+
   it('logs meditation toward the daily goal, and undoes it', async () => {
     const logged = await call('POST', '/api/meditation', { date: DAY, minutes: 10 })
     expect(logged.status).toBe(201)

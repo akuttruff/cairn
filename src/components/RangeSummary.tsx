@@ -219,9 +219,8 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
   const drankKinds = ALCOHOL_KINDS.filter((k) => alcohol.byKind[k] > 0)
   const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
   const unloggedWater = totalDays - water.of
-  // The weekly goal, scaled to however many weeks this range covers (a month is about 4.3).
-  const workoutGoal = Math.round((goals.workoutsWeekly * totalDays) / 7)
-  const workoutKinds = WORKOUT_KINDS.filter((k) => workouts.byKind[k] > 0)
+  // Every kind that was planned or done in the range, in the usual order.
+  const workoutKinds = WORKOUT_KINDS.filter((k) => workouts.goalByKind[k] > 0 || workouts.byKind[k] > 0)
 
   return (
     <section className="range-summary" aria-label="Range summary">
@@ -298,8 +297,8 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
         <div className="water-head">
           <span className="water-label">Workouts</span>
           <span className="water-num">
-            {workouts.sessions} of {workoutGoal}
-            <span className="water-goal"> · {goals.workoutsWeekly}/week goal</span>
+            {workouts.sessions} of {workouts.goal}
+            <span className="water-goal"> planned</span>
           </span>
         </div>
         <DayBoxes
@@ -311,12 +310,25 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
           onSelectDay={onSelectDay}
         />
         <div className="water-bottles">Worked out {workedOutDays} of {plural(elapsedDays, 'day')} so far</div>
-        <div className="water-bottles">
-          {workouts.sessions
-            ? <>{plural(workouts.days, 'day')} with a session{workouts.minutes > 0 && ` · ${workouts.minutes} min`}
-              {' · '}{workoutKinds.map((k) => `${workouts.byKind[k]} ${WORKOUTS[k].label.toLowerCase()}`).join(', ')}</>
-            : 'None logged'}
-        </div>
+        {/* Each activity against its goal for the range (from each week's own plan). */}
+        <ul className="plan-list range-plan" aria-label="Workouts by activity">
+          {workoutKinds.map((k) => {
+            const done = workouts.byKind[k]
+            const goal = workouts.goalByKind[k]
+            return (
+              <li key={k} className={`plan-row${goal > 0 && done >= goal ? ' met' : ''}`}>
+                <span className="plan-name">{WORKOUTS[k].label}</span>
+                <span className="plan-pips" aria-hidden="true">
+                  {Array.from({ length: Math.max(goal, done) }, (_, i) => (
+                    <span key={i} className={`pip${i < done ? ' done' : ''}${i >= goal ? ' extra' : ''}`} />
+                  ))}
+                </span>
+                <span className="plan-count">{done} of {goal}</span>
+              </li>
+            )
+          })}
+        </ul>
+        {workouts.minutes > 0 && <div className="water-bottles">{workouts.minutes} min logged</div>}
       </section>
 
       <section className="water-card" aria-label="Meditation">

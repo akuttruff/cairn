@@ -3,7 +3,9 @@ import { Drawer } from 'vaul'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import { parseNum } from '../lib/format.ts'
-import type { Goals, LmModelOption, PublicSettings } from '../types.ts'
+import { WORKOUT_KINDS } from '../types.ts'
+import type { Goals, LmModelOption, PublicSettings, WorkoutKind, WorkoutPlan } from '../types.ts'
+import { WORKOUTS } from './WorkoutTracker.tsx'
 
 interface SettingsSheetProps {
   open: boolean
@@ -28,7 +30,8 @@ export default function SettingsSheet({ open, session, onClose, onSaved }: Setti
 }
 
 /** The number fields, as typed; each is parsed and checked on every render. */
-type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'calorieBuffer' | 'fiber' | 'water' | 'alcoholWeekly' | 'workoutsWeekly' | 'meditationMinutes'
+type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'calorieBuffer' | 'fiber' | 'water' | 'alcoholWeekly' | 'meditationMinutes'
+  | `plan:${WorkoutKind}`
 const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
   // Each says which way it points: a min to reach, or a max to stay under.
   { key: 'protein', label: 'Protein (g, min)' },
@@ -40,9 +43,11 @@ const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
   { key: 'calorieBuffer', label: 'Calorie buffer (kcal)', hint: 'Added to the calorie goal every day, on top of what the macros add up to.' },
   { key: 'water', label: 'Water (oz)', hint: 'Defaults to 96oz -- 3 x 32oz bottles.' },
   { key: 'alcoholWeekly', label: 'Alcohol (drinks per week)', hint: 'A weekly cap, not a daily one -- shown against the running total for the week.' },
-  { key: 'workoutsWeekly', label: 'Workouts (sessions per week)', hint: 'Counted Monday to Sunday. Logging a WOD or weightlifting session also ticks the day as a training day.' },
   { key: 'meditationMinutes', label: 'Meditation (minutes per day)', hint: 'Sits are 25 minutes each, so 50 is two a day.' },
+  // The default weekly plan, one field per kind; drawn in a section of their own below.
+  ...WORKOUT_KINDS.map((k) => ({ key: `plan:${k}` as const, label: `${WORKOUTS[k].label} (per week)` })),
 ]
+const PLAN_START = NUMBER_FIELDS.findIndex((f) => f.key.startsWith('plan:'))
 
 /** Calories the macros add up to at 4/4/9 -- the same math as resolveGoals(), for a live preview. */
 const kcal = (protein: number, fat: number, carbs: number, buffer = 0): number => Math.round(protein * 4 + carbs * 4 + fat * 9 + buffer)
@@ -64,8 +69,9 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       setDrafts({
         protein: String(g.protein), fat: String(g.fat), carbs: String(g.carbs), trainingCarbs: String(g.trainingCarbs), calorieBuffer: String(g.calorieBuffer),
         fiber: String(g.fiber), water: String(g.water), alcoholWeekly: String(g.alcoholWeekly),
-        workoutsWeekly: String(g.workoutsWeekly), meditationMinutes: String(g.meditationMinutes),
-      })
+        meditationMinutes: String(g.meditationMinutes),
+        ...Object.fromEntries(WORKOUT_KINDS.map((k) => [`plan:${k}`, String(g.workoutPlan[k])])),
+      } as Record<NumberField, string>)
     }).catch((err) => toast.error((err as Error).message))
     api.settings().then(setSettings).catch(() => { /* the placeholder just stays generic */ })
     api.lmModels()
@@ -78,7 +84,10 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const parsed = drafts
     ? Object.fromEntries(NUMBER_FIELDS.map((f) => [f.key, parseNum(drafts[f.key])])) as Record<NumberField, number | null>
     : null
-  const invalid = parsed ? NUMBER_FIELDS.filter((f) => parsed[f.key] == null || parsed[f.key]! < 0).map((f) => f.key) : []
+  // A plan count is sessions: a whole number, at most two a day.
+  const badValue = (key: NumberField, v: number | null): boolean =>
+    v == null || v < 0 || (key.startsWith('plan:') && (!Number.isInteger(v) || v > 14))
+  const invalid = parsed ? NUMBER_FIELDS.filter((f) => badValue(f.key, parsed[f.key])).map((f) => f.key) : []
   const formInvalid = !parsed || invalid.length > 0
   // The preview leaves the buffer out while it's being typed wrong, rather than hiding the whole line.
   const buffer = parsed && !invalid.includes('calorieBuffer') ? parsed.calorieBuffer! : 0
@@ -90,7 +99,8 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       const next: Goals = {
         protein: parsed.protein!, fat: parsed.fat!, carbs: parsed.carbs!, trainingCarbs: parsed.trainingCarbs!, calorieBuffer: parsed.calorieBuffer!,
         fiber: parsed.fiber!, water: parsed.water!, alcoholWeekly: parsed.alcoholWeekly!,
-        workoutsWeekly: parsed.workoutsWeekly!, meditationMinutes: parsed.meditationMinutes!,
+        meditationMinutes: parsed.meditationMinutes!,
+        workoutPlan: Object.fromEntries(WORKOUT_KINDS.map((k) => [k, parsed[`plan:${k}`]!])) as WorkoutPlan,
       }
       await api.setGoals(next)
       const changes: Parameters<typeof api.setSettings>[0] = {}
@@ -121,7 +131,9 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
         onChange={(e) => setDrafts({ ...drafts, [f.key]: e.target.value })}
       />
       {f.hint && <div className="hint">{f.hint}</div>}
-      {invalid.includes(f.key) && <div className="hint bad">Needs a non-negative number.</div>}
+      {invalid.includes(f.key) && (
+        <div className="hint bad">{f.key.startsWith('plan:') ? 'A whole number, 0 to 14.' : 'Needs a non-negative number.'}</div>
+      )}
     </div>
   )
 
@@ -142,7 +154,11 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
                 )}
               </div>
             )}
-            {NUMBER_FIELDS.slice(4).map(field)}
+            {NUMBER_FIELDS.slice(4, PLAN_START).map(field)}
+
+            <h3 className="sheet-h">Default weekly workouts</h3>
+            <div className="hint">Sessions of each per week (Monday to Sunday). Any week can have its own from the Workouts card in Day view; this is what the rest get. Logging a WOD or lifting session also ticks the day as a training day.</div>
+            <div className="nutrient-fields">{NUMBER_FIELDS.slice(PLAN_START).map(field)}</div>
 
             <h3 className="sheet-h">Food search</h3>
             <div className="field">

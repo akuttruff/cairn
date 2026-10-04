@@ -155,7 +155,8 @@ describe('rangeStatus', () => {
 })
 
 const GOALS: Goals = {
-  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, calorieBuffer: 0, fiber: 30, water: 96, alcoholWeekly: 7, workoutsWeekly: 4, meditationMinutes: 10,
+  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, calorieBuffer: 0, fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10,
+  workoutPlan: { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 },
 }
 
 describe('resolveGoals', () => {
@@ -167,7 +168,6 @@ describe('resolveGoals', () => {
     expect(resolved.fiber).toBe(30)
     expect(resolved.water).toBe(96)
     expect(resolved.alcoholWeekly).toBe(7)
-    expect(resolved.workoutsWeekly).toBe(4)
     expect(resolved.meditationMinutes).toBe(10)
   })
 

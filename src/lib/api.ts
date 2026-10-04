@@ -1,6 +1,6 @@
 import type {
   DayType, DayView, Entry, Food, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeView, Serving,
-  AlcoholKind, AlcoholLog, WaterLog, LmModelOption, MeditationLog, WorkoutKind, WorkoutLog,
+  AlcoholKind, AlcoholLog, WaterLog, LmModelOption, MeditationLog, WorkoutKind, WorkoutLog, WorkoutPlan,
 } from '../types.ts'
 
 /** An online lookup in progress or finished; see server/research.ts. */
@@ -65,6 +65,11 @@ export const api = {
   addWorkout: (w: { date: string; kind: WorkoutKind; minutes?: number | null; note?: string }) =>
     request<WorkoutLog>('POST', '/api/workouts', w),
   deleteWorkout: (id: string) => request<{ ok: true }>('DELETE', `/api/workouts/${encodeURIComponent(id)}`),
+  /** Give one week (by its Monday) its own plan, or put it back on the default. */
+  setWeekPlan: (weekStart: string, plan: WorkoutPlan) =>
+    request<{ weekStart: string; plan: WorkoutPlan; custom: boolean }>('PUT', `/api/workout-plan/${encodeURIComponent(weekStart)}`, { plan }),
+  clearWeekPlan: (weekStart: string) =>
+    request<{ weekStart: string; plan: WorkoutPlan; custom: boolean }>('DELETE', `/api/workout-plan/${encodeURIComponent(weekStart)}`),
   addMeditation: (m: { date: string; minutes: number; note?: string }) => request<MeditationLog>('POST', '/api/meditation', m),
   deleteMeditation: (id: string) => request<{ ok: true }>('DELETE', `/api/meditation/${encodeURIComponent(id)}`),
   settings: () => request<PublicSettings>('GET', '/api/settings'),

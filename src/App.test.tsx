@@ -9,11 +9,19 @@ const TODAY = localDate()
 const RANGE = (n: number): { min: number; max: number } => ({ min: n, max: n })
 const GOALS = {
   calories: RANGE(2000), protein: RANGE(150), fat: RANGE(65), carbs: RANGE(200),
-  fiber: 30, water: 96, alcoholWeekly: 7, workoutsWeekly: 4, meditationMinutes: 10,
+  fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10,
+}
+/** Lifting 2, yoga 4, pilates 1, WOD 2 a week -- 9 sessions. */
+const PLAN = { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 }
+const NO_KINDS = { wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 0, pilates: 0 }
+/** A day's workouts: nothing today, nothing yet this week, on the default plan. */
+const WORKOUTS_DAY = {
+  sessions: [], minutes: 0, weekStart: startOfWeek(TODAY), plan: PLAN, planIsCustom: false, weekByKind: NO_KINDS,
+  weekTotal: 0, weekGoal: 9, lastLogId: null,
 }
 /** What Settings edits and /api/goals returns -- separate shape from GOALS above (a resolved, per-day view). */
 const STORED_GOALS: Goals = {
-  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, calorieBuffer: 100, fiber: 30, water: 96, alcoholWeekly: 7, workoutsWeekly: 4, meditationMinutes: 10,
+  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, calorieBuffer: 100, fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10, workoutPlan: PLAN,
 }
 /** A range day's workout and meditation fields, with nothing logged. */
 const DAY_ACTIVITY = { workouts: 0, workoutMinutes: 0, meditationMinutes: 0 }
@@ -36,7 +44,7 @@ const day = (entries: Entry[], over: Partial<DayView> = {}): DayView => ({
   missing: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 },
   water: { ounces: 0, goal: 96, lastLogId: null },
   alcohol: { drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, weekTotal: 0, weekGoal: 7, calories: 0, lastLogId: null },
-  workouts: { sessions: [], minutes: 0, weekTotal: 0, weekGoal: 4, lastLogId: null },
+  workouts: WORKOUTS_DAY,
   meditation: { sessions: [], minutes: 0, goal: 10, lastLogId: null },
   ...over,
 })
@@ -50,7 +58,7 @@ const range = (over: Partial<RangeView> = {}, start = startOfWeek(TODAY)): Range
   start, end: addDays(start, 6), goals: GOALS, dayTypes: { training: 7, rest: 0 }, scorecard: NO_SCORE, totalDays: 7, loggedDays: 0,
   totals: ZERO, averages: ZERO,
   water: { total: 0, average: 0, met: 0, of: 0 }, alcohol: { total: 0, average: 0, calories: 0, byKind: { beer: 0, wine: 0, liquor: 0 } },
-  workouts: { sessions: 0, days: 0, minutes: 0, byKind: { wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 0, pilates: 0 } },
+  workouts: { sessions: 0, days: 0, minutes: 0, byKind: NO_KINDS, goalByKind: PLAN, goal: 9 },
   meditation: { total: 0, average: 0, days: 0, met: 0, of: 0, streak: 0 },
   days: Array.from({ length: 7 }, (_, i) => ({
     date: addDays(start, i), entryCount: 0, water: 0, alcohol: 0, ...DAY_ACTIVITY, dayType: 'training' as const, goals: GOALS, totals: ZERO, missing: ZERO,
@@ -437,29 +445,66 @@ describe('App', () => {
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
         workouts: {
-          sessions: [{ id: 'w1', date: TODAY, kind: 'run', minutes: 30, createdAt: 1 }], minutes: 30,
-          weekTotal: 2, weekGoal: 4, lastLogId: 'w1',
+          ...WORKOUTS_DAY, sessions: [{ id: 'w1', date: TODAY, kind: 'run', minutes: 30, createdAt: 1 }], minutes: 30,
+          weekByKind: { ...NO_KINDS, run: 1, yoga: 1 }, weekTotal: 2, lastLogId: 'w1',
         },
       }),
       'POST /api/workouts': { id: 'w2', date: TODAY, kind: 'wod', minutes: 45, createdAt: 2 },
     })
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Workouts' })
-    expect(within(within(card).getByRole('list')).getByText('Run')).toBeInTheDocument()
+    expect(within(card.querySelector('.session-list') as HTMLElement).getByText('Run')).toBeInTheDocument()
     expect(within(card).getByText('30 min')).toBeInTheDocument()
     expect(within(card).getByRole('progressbar', { name: 'Workouts this week' })).toHaveAttribute('aria-valuenow', '2')
-    expect(within(card).getByText('2 to go this week')).toBeInTheDocument()
+    expect(within(card).getByText('/ 9')).toBeInTheDocument()
     await user.type(within(card).getByLabelText('Minutes (optional)'), '45')
     await user.click(within(card).getByRole('button', { name: 'WOD' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/workouts')).toBe(true))
     expect(calls.find((c) => c.url === '/api/workouts')!.body).toEqual({ date: TODAY, kind: 'wod', minutes: 45 })
   })
 
+  it("shows this week's plan activity by activity, and adjusts it for this week only", async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([], { workouts: { ...WORKOUTS_DAY, weekByKind: { ...NO_KINDS, yoga: 2, wod: 2, run: 1 }, weekTotal: 5 } }),
+      'PUT /api/workout-plan/': { weekStart: startOfWeek(TODAY), plan: { ...PLAN, yoga: 3, cycling: 1 }, custom: true },
+    })
+    render(<App />)
+    const card = await screen.findByRole('region', { name: 'Workouts' })
+    const rows = within(within(card).getByRole('list', { name: 'This week by activity' })).getAllByRole('listitem')
+    // Planned kinds, plus a run that wasn't in the plan; cycling (0 and none done) is left out.
+    expect(rows.map((r) => r.textContent)).toEqual(['WOD2 / 2', 'Lifting0 / 2', 'Run1 / 0', 'Yoga2 / 4', 'Pilates0 / 1'])
+    expect(rows[0]).toHaveClass('met')
+    await user.click(within(card).getByRole('button', { name: 'Adjust this week' }))
+    await user.click(within(card).getByRole('button', { name: 'Fewer Yoga' }))
+    await user.click(within(card).getByRole('button', { name: 'More Cycling' }))
+    expect(within(card).getByLabelText('Yoga this week')).toHaveTextContent('3')
+    await user.click(within(card).getByRole('button', { name: 'Save for this week' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url.startsWith('/api/workout-plan/'))).toBe(true))
+    const put = calls.find((c) => c.method === 'PUT' && c.url.startsWith('/api/workout-plan/'))!
+    expect(put.url).toBe(`/api/workout-plan/${startOfWeek(TODAY)}`)
+    expect(put.body).toEqual({ plan: { ...PLAN, yoga: 3, cycling: 1 } })
+  })
+
+  it('puts a week with its own plan back on the default', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([], { workouts: { ...WORKOUTS_DAY, plan: { ...PLAN, yoga: 2 }, planIsCustom: true, weekGoal: 7 } }),
+      'DELETE /api/workout-plan/': { weekStart: startOfWeek(TODAY), plan: PLAN, custom: false },
+    })
+    render(<App />)
+    const card = await screen.findByRole('region', { name: 'Workouts' })
+    expect(within(card).getByText('own plan')).toBeInTheDocument()
+    await user.click(within(card).getByRole('button', { name: 'Adjust this week' }))
+    await user.click(within(card).getByRole('button', { name: 'Use the default' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === `/api/workout-plan/${startOfWeek(TODAY)}`)).toBe(true))
+  })
+
   it('logs a workout without minutes, and removes one', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
-        workouts: { sessions: [{ id: 'w1', date: TODAY, kind: 'yoga', minutes: null, createdAt: 1 }], minutes: 0, weekTotal: 1, weekGoal: 4, lastLogId: 'w1' },
+        workouts: { ...WORKOUTS_DAY, sessions: [{ id: 'w1', date: TODAY, kind: 'yoga', minutes: null, createdAt: 1 }], weekByKind: { ...NO_KINDS, yoga: 1 }, weekTotal: 1, lastLogId: 'w1' },
       }),
       'POST /api/workouts': { id: 'w2', date: TODAY, kind: 'cycling', minutes: null, createdAt: 2 },
       'DELETE /api/workouts/w1': { ok: true },
@@ -533,25 +578,32 @@ describe('App', () => {
     expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/goals')!.body).toMatchObject({ calorieBuffer: 150 })
   })
 
-  it('edits the workout and meditation goals from Settings', async () => {
+  it('edits the default weekly plan, activity by activity, and the meditation goal from Settings', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([]),
       'GET /api/goals': STORED_GOALS,
-      'PUT /api/goals': { ...STORED_GOALS, workoutsWeekly: 5, meditationMinutes: 15 },
+      'PUT /api/goals': { ...STORED_GOALS, meditationMinutes: 15 },
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Settings' }))
-    const workouts = await screen.findByLabelText('Workouts (sessions per week)')
-    expect(workouts).toHaveValue('4')
-    await user.clear(workouts)
-    await user.type(workouts, '5')
+    const yoga = await screen.findByLabelText('Yoga (per week)')
+    expect(yoga).toHaveValue('4')
+    expect(screen.getByLabelText('Lifting (per week)')).toHaveValue('2')
+    await user.clear(yoga)
+    await user.type(yoga, '3.5')
+    expect(screen.getByText('A whole number, 0 to 14.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    await user.clear(yoga)
+    await user.type(yoga, '3')
     const meditation = screen.getByLabelText('Meditation (minutes per day)')
     await user.clear(meditation)
     await user.type(meditation, '15')
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/goals')).toBe(true))
-    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/goals')!.body).toMatchObject({ workoutsWeekly: 5, meditationMinutes: 15 })
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/goals')!.body).toMatchObject({
+      meditationMinutes: 15, workoutPlan: { ...PLAN, yoga: 3 },
+    })
   })
 
   it('undoes the most recent water log', async () => {
@@ -1128,7 +1180,7 @@ describe('App', () => {
         'GET /api/day/': day([]),
         'GET /api/range': range({
           goals,
-          workouts: { sessions: 3, days: 2, minutes: 85, byKind: { wod: 2, weightlifting: 0, run: 1, cycling: 0, yoga: 0, pilates: 0 } },
+          workouts: { sessions: 3, days: 2, minutes: 85, byKind: { ...NO_KINDS, wod: 2, run: 1 }, goalByKind: PLAN, goal: 9 },
           meditation: { total: 75, average: 10.7, days: 2, met: 1, of: 2, streak: 0 },
           days: base.days.map((d, i) => ({
             ...d, goals, workouts: [2, 0, 1, 0, 0, 0, 0][i]!, meditationMinutes: [0, 50, 25, 0, 0, 0, 0][i]!,
@@ -1142,7 +1194,13 @@ describe('App', () => {
       expect(within(workouts).getByRole('button', { name: `${start}: 2 workouts` })).toHaveClass('full')
       expect(within(workouts).getByRole('button', { name: `${addDays(start, 1)}: no workout` })).toHaveClass('empty')
       expect(within(workouts).getByText('Worked out 2 of 7 days so far')).toBeInTheDocument()
-      expect(within(workouts).getByText(/2 days with a session · 85 min · 2 wod, 1 run/)).toBeInTheDocument()
+      // Each activity against its goal for the week, planned or not.
+      expect(within(workouts).getByText('3 of 9')).toBeInTheDocument()
+      const byActivity = within(workouts).getByRole('list', { name: 'Workouts by activity' })
+      expect(within(byActivity).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+        'WOD2 of 2', 'Lifting0 of 2', 'Run1 of 0', 'Yoga0 of 4', 'Pilates0 of 1',
+      ])
+      expect(within(workouts).getByText('85 min logged')).toBeInTheDocument()
       const meditation = screen.getByRole('region', { name: 'Meditation' })
       expect(within(meditation).queryByRole('progressbar')).not.toBeInTheDocument()
       expect(within(meditation).getByRole('button', { name: `${addDays(start, 1)}: 2 sits, 50 min` })).toHaveClass('full')

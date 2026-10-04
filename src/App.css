@@ -246,6 +246,27 @@ button:disabled { opacity: 0.45; cursor: default; }
 .workout-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
 .workout-add { border-color: var(--c-workout); color: var(--c-workout); padding: 10px 6px; font-size: 13px; gap: 5px; }
 .workout-add:disabled { opacity: 0.4; }
+/* The week, activity by activity: name, one pip per planned session (filled as done), count. */
+.week-plan .bar { margin-bottom: 10px; }
+.plan-tag { margin-left: 6px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--c-workout); color: var(--c-workout); font-size: 10px; text-transform: none; letter-spacing: 0; }
+.plan-list { list-style: none; margin: 0; padding: 0; }
+.plan-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 14px; color: var(--c-workout); }
+.plan-name { color: var(--paper); min-width: 64px; }
+.plan-pips { display: flex; gap: 4px; flex: 1; }
+.pip { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--c-workout); }
+.pip.done { background: var(--c-workout); }
+/* Done beyond the plan: still counted, drawn dashed so it reads as extra. */
+.pip.extra { border-style: dashed; }
+.plan-count { font-family: var(--mono); font-size: 12px; color: var(--paper-dim); font-variant-numeric: tabular-nums; }
+.plan-row.met .plan-count { color: var(--c-workout); }
+.plan-editor { display: flex; flex-direction: column; gap: 6px; }
+.plan-edit-row { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.plan-edit-row .plan-name { flex: 1; }
+.stepper { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: transparent; display: flex; align-items: center; justify-content: center; }
+.plan-value { min-width: 20px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+.plan-actions { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.plan-actions .spacer { flex: 1; }
+.plan-save { padding: 8px 12px; border-radius: 10px; border: none; background: var(--c-workout); color: var(--bg); font-size: 13px; font-weight: 600; }
 .meditation-add { border-color: var(--c-meditation); color: var(--c-meditation); padding: 11px 6px; font-size: 13px; gap: 4px; white-space: nowrap; min-width: 0; }
 .range-chart-dot.meditation { background: var(--c-meditation); }
 .range-line.meditation { stroke: var(--c-meditation); }
