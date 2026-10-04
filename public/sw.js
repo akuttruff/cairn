@@ -1,6 +1,6 @@
 // App-shell cache so the installed app opens instantly and without a network.
 // The API is never cached: a food log served stale would show the wrong day.
-const CACHE = 'macros-v1'
+const CACHE = 'cairn-v1'
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(['/', '/manifest.webmanifest', '/icon.svg'])))

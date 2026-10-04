@@ -1,7 +1,7 @@
 {
-  "name": "Macros",
-  "short_name": "Macros",
-  "description": "Daily food log: calories, protein, fat, carbs and fiber.",
+  "name": "Cairn",
+  "short_name": "Cairn",
+  "description": "A daily log of food, water, workouts and meditation -- one stone a day.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
