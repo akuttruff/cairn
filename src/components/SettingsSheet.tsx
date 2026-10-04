@@ -30,7 +30,7 @@ export default function SettingsSheet({ open, session, onClose, onSaved }: Setti
 }
 
 /** The number fields, as typed; each is parsed and checked on every render. */
-type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'calorieBuffer' | 'fiber' | 'water' | 'alcoholWeekly' | 'meditationMinutes'
+type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'trainingWater' | 'calorieBuffer' | 'fiber' | 'water' | 'alcoholWeekly' | 'meditationMinutes'
   | `plan:${WorkoutKind}`
 const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
   // Each says which way it points: a min to reach, or a max to stay under.
@@ -42,6 +42,7 @@ const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
   { key: 'trainingCarbs', label: 'Extra carbs on training days (g)', hint: 'Fast carbs before the workout; 35 g is about 140 kcal. Tick a day as a training day in Day view.' },
   { key: 'calorieBuffer', label: 'Calorie buffer (kcal)', hint: 'Added to the calorie goal every day, on top of what the macros add up to.' },
   { key: 'water', label: 'Water (oz)', hint: 'Defaults to 96oz -- 3 x 32oz bottles.' },
+  { key: 'trainingWater', label: 'Extra water on training days (oz)', hint: 'Added to the water goal on a WOD or weightlifting day; 32 is one more bottle.' },
   { key: 'alcoholWeekly', label: 'Alcohol (drinks per week)', hint: 'A weekly cap, not a daily one -- shown against the running total for the week.' },
   { key: 'meditationMinutes', label: 'Meditation (minutes per day)', hint: 'Sits are 25 minutes each, so 50 is two a day.' },
   // The default weekly plan, one field per kind; drawn in a section of their own below.
@@ -86,7 +87,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   useEffect(() => {
     api.goals().then((g) => {
       setDrafts({
-        protein: String(g.protein), fat: String(g.fat), carbs: String(g.carbs), trainingCarbs: String(g.trainingCarbs), calorieBuffer: String(g.calorieBuffer),
+        protein: String(g.protein), fat: String(g.fat), carbs: String(g.carbs), trainingCarbs: String(g.trainingCarbs), trainingWater: String(g.trainingWater), calorieBuffer: String(g.calorieBuffer),
         fiber: String(g.fiber), water: String(g.water), alcoholWeekly: String(g.alcoholWeekly),
         meditationMinutes: String(g.meditationMinutes),
         ...Object.fromEntries(WORKOUT_KINDS.map((k) => [`plan:${k}`, String(g.workoutPlan[k])])),
@@ -116,7 +117,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     setBusy(true)
     try {
       const next: Goals = {
-        protein: parsed.protein!, fat: parsed.fat!, carbs: parsed.carbs!, trainingCarbs: parsed.trainingCarbs!, calorieBuffer: parsed.calorieBuffer!,
+        protein: parsed.protein!, fat: parsed.fat!, carbs: parsed.carbs!, trainingCarbs: parsed.trainingCarbs!, trainingWater: parsed.trainingWater!, calorieBuffer: parsed.calorieBuffer!,
         fiber: parsed.fiber!, water: parsed.water!, alcoholWeekly: parsed.alcoholWeekly!,
         meditationMinutes: parsed.meditationMinutes!,
         workoutPlan: Object.fromEntries(WORKOUT_KINDS.map((k) => [k, parsed[`plan:${k}`]!])) as WorkoutPlan,

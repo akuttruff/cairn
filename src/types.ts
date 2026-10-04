@@ -121,6 +121,8 @@ export interface Goals {
   carbs: number
   /** Grams of fast carbs a training day adds (before the workout): 35 g is about 140 kcal. */
   trainingCarbs: number
+  /** Ounces of water a training day adds to the daily water goal. */
+  trainingWater: number
   /** Calories allowed on top of what the macros add up to, every day -- room for the odd extra. */
   calorieBuffer: number
   /** Grams per day, the same on any day type. */

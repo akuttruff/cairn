@@ -21,7 +21,7 @@ const WORKOUTS_DAY = {
 }
 /** What Settings edits and /api/goals returns -- separate shape from GOALS above (a resolved, per-day view). */
 const STORED_GOALS: Goals = {
-  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, calorieBuffer: 100, fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10, workoutPlan: PLAN,
+  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, trainingWater: 32, calorieBuffer: 100, fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10, workoutPlan: PLAN,
 }
 /** A range day's workout and meditation fields, with nothing logged. */
 const DAY_ACTIVITY = { workouts: 0, workoutMinutes: 0, meditationMinutes: 0 }
@@ -572,6 +572,24 @@ describe('App', () => {
     expect(calls.find((c) => c.url === '/api/meditation')!.body).toEqual({ date: TODAY, minutes: 25 })
     await user.click(within(card).getByRole('button', { name: 'Undo' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/meditation/m1')).toBe(true))
+  })
+
+  it('edits the extra water a training day asks for, in Settings', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/goals': STORED_GOALS,
+      'PUT /api/goals': { ...STORED_GOALS, trainingWater: 24 },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    const field = await screen.findByLabelText('Extra water on training days (oz)')
+    expect(field).toHaveValue('32')
+    await user.clear(field)
+    await user.type(field, '24')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/goals')).toBe(true))
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/goals')!.body).toMatchObject({ trainingWater: 24 })
   })
 
   it('edits the fiber goal in Settings, alongside the macros', async () => {

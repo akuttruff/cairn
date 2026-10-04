@@ -155,7 +155,7 @@ describe('rangeStatus', () => {
 })
 
 const GOALS: Goals = {
-  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, calorieBuffer: 0, fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10,
+  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, trainingWater: 32, calorieBuffer: 0, fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10,
   workoutPlan: { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 },
 }
 
@@ -176,6 +176,11 @@ describe('resolveGoals', () => {
     expect(resolved.carbs).toEqual({ min: 195, max: 195 })
     expect(resolved.calories).toEqual({ min: 1840, max: 1840 }) // 1700 + 35*4
     expect(resolved.protein).toEqual({ min: 130, max: 130 }) // unchanged
+  })
+
+  it('adds a bottle of water on a training day, and none on a rest day', () => {
+    expect(resolveGoals(GOALS, 'rest').water).toBe(96)
+    expect(resolveGoals(GOALS, 'training').water).toBe(128) // 96 + 32
   })
 
   it('adds the calorie buffer on top of what the macros come to, on every day type', () => {
@@ -263,6 +268,11 @@ describe('scoreWater', () => {
     expect(scoreWater(days, 96)).toEqual({ met: 2, of: 3 })
     expect(scoreWater(days, 0)).toEqual({ met: 0, of: 3 }) // no goal set: nothing can be met
   })
+
+  it("judges each day against its own goal when it has one: 96 oz misses a training day's 128", () => {
+    const days = [{ water: 96, goals: { water: 96 } }, { water: 96, goals: { water: 128 } }, { water: 128, goals: { water: 128 } }]
+    expect(scoreWater(days, 96)).toEqual({ met: 2, of: 3 })
+  })
 })
 
 describe('meditation', () => {
@@ -306,10 +316,10 @@ describe('blendGoals', () => {
     expect(blended.protein.min).toBe(130) // the same every day
   })
 
-  it('carries fiber, water and alcohol through unchanged -- one day is enough to know them', () => {
+  it('carries fiber through unchanged, and averages water, which a training day raises', () => {
     const blended = blendGoals([training, rest])
     expect(blended.fiber).toBe(30)
-    expect(blended.water).toBe(96)
+    expect(blended.water).toBe(112) // (128 + 96) / 2
   })
 
   it('a single day blends to exactly that day\'s own goals', () => {

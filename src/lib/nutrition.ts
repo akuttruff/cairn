@@ -17,6 +17,8 @@ export const DEFAULT_GOALS: Goals = {
   calorieBuffer: 100,
   fiber: 30,
   water: 96,
+  // A WOD or lifting day: one more 32oz bottle.
+  trainingWater: 32,
   alcoholWeekly: 7,
   // Lifting twice, yoga four times, pilates once and two WODs a week.
   workoutPlan: { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 },
@@ -232,9 +234,10 @@ export function waterMet(ounces: number, goal: number): boolean {
  * not a day of drinking nothing, so it's left out rather than counted as a
  * miss.
  */
-export function scoreWater(days: Pick<DaySummary, 'water'>[], goal: number): { met: number; of: number } {
+export function scoreWater(days: (Pick<DaySummary, 'water'> & { goals?: { water: number } })[], goal: number): { met: number; of: number } {
   const logged = days.filter((d) => d.water > 0)
-  return { met: logged.filter((d) => waterMet(d.water, goal)).length, of: logged.length }
+  // Each day against its own goal when it carries one: a training day's is a bottle higher.
+  return { met: logged.filter((d) => waterMet(d.water, d.goals?.water ?? goal)).length, of: logged.length }
 }
 
 /** Meditation is like water: reaching the day's minutes is what counts, more is fine. */
@@ -278,7 +281,7 @@ export function resolveGoals(goals: Goals, dayType: DayType): ResolvedGoals {
     // The macros' calories, plus the buffer: the cap has a little room the macros themselves don't.
     calories: exact(round1(goals.protein * 4 + carbs * 4 + goals.fat * 9 + goals.calorieBuffer)),
     protein: exact(goals.protein), carbs: exact(carbs), fat: exact(goals.fat),
-    fiber: goals.fiber, water: goals.water, alcoholWeekly: goals.alcoholWeekly,
+    fiber: goals.fiber, water: goals.water + (dayType === 'training' ? goals.trainingWater : 0), alcoholWeekly: goals.alcoholWeekly,
     meditationMinutes: goals.meditationMinutes,
   }
 }
@@ -299,8 +302,8 @@ export function blendGoals(perDay: ResolvedGoals[]): ResolvedGoals {
   })
   return {
     calories: avg((g) => g.calories), protein: avg((g) => g.protein), carbs: avg((g) => g.carbs), fat: avg((g) => g.fat),
-    // These don't vary by day type, so every day's copy already agrees.
-    fiber: first.fiber, water: first.water, alcoholWeekly: first.alcoholWeekly,
+    // These don't vary by day type (water does -- a training day adds a bottle -- so it's averaged too).
+    fiber: first.fiber, water: round1(perDay.reduce((sum, g) => sum + g.water, 0) / perDay.length), alcoholWeekly: first.alcoholWeekly,
     meditationMinutes: first.meditationMinutes,
   }
 }

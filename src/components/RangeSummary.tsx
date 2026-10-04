@@ -305,6 +305,11 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
   const drankKinds = ALCOHOL_KINDS.filter((k) => alcohol.byKind[k] > 0)
   const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
   const unloggedWater = totalDays - water.of
+  // Training days ask for more water: show the range of goals the period had, e.g. "96–128".
+  const waterGoals = days.map((d) => d.goals.water)
+  const waterGoalLabel = days.length && Math.min(...waterGoals) !== Math.max(...waterGoals)
+    ? `${Math.round(Math.min(...waterGoals))}–${Math.round(Math.max(...waterGoals))}`
+    : String(Math.round(days[0]?.goals.water ?? goals.water))
   // Every kind that was planned or done in the range, in the usual order.
   const workoutKinds = WORKOUT_KINDS.filter((k) => workouts.goalByKind[k] > 0 || workouts.byKind[k] > 0)
 
@@ -357,7 +362,7 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
           <span className="water-label">Water</span>
           <span className="water-num">
             {water.of ? `${water.met} of ${plural(water.of, 'day')}` : '—'}
-            <span className="water-goal"> · {Math.round(goals.water)} oz goal</span>
+            <span className="water-goal"> · {waterGoalLabel} oz goal</span>
           </span>
         </div>
         <div

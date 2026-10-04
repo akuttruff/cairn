@@ -910,6 +910,21 @@ describe('meditation', () => {
   })
 })
 
+describe('training-day water', () => {
+  it('asks for a bottle more water on a training day, and scores the week against each day', () => {
+    expect(store.getGoals().trainingWater).toBe(32)
+    store.setDayType(DAY, 'training')
+    expect(store.getDay(DAY).water.goal).toBe(128)
+    expect(store.getDay('2026-09-27').water.goal).toBe(96) // a rest day
+    store.addWater(DAY, 96) // enough for a rest day, not this one
+    store.addWater('2026-09-25', 96)
+    expect(store.getRange('2026-09-25', DAY).water).toMatchObject({ met: 1, of: 2 })
+    store.setGoals({ trainingWater: 16 })
+    expect(new Store({ dir }).getDay(DAY).water.goal).toBe(112)
+    expect(() => store.setGoals({ trainingWater: -5 })).toThrow(ValidationError)
+  })
+})
+
 describe('body measurements', () => {
   const at = (date: string, hour = 7): string => `${date}T${String(hour).padStart(2, '0')}:00:00`
 
