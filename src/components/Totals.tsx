@@ -6,8 +6,6 @@ interface TotalsProps extends DayTotals {
   goals: ResolvedGoals
   dayType: DayType
   onSetDayType: (type: DayType) => void
-  /** What the day's drinks came to -- shown for the record, not counted in the total or the goal. */
-  alcoholCalories?: number
 }
 
 type RangeMacroKey = 'protein' | 'fat' | 'carbs'
@@ -28,7 +26,7 @@ function rangeLabel(range: MacroRange): string {
   return range.min === range.max ? `${range.min}` : `${range.min}–${range.max}`
 }
 
-export default function Totals({ totals, missing, goals, dayType, onSetDayType, alcoholCalories = 0 }: TotalsProps) {
+export default function Totals({ totals, missing, goals, dayType, onSetDayType }: TotalsProps) {
   const cal = totals.calories
   const status = rangeStatus(cal, goals.calories)
   const calLeftText =
@@ -59,10 +57,7 @@ export default function Totals({ totals, missing, goals, dayType, onSetDayType, 
             <Partial count={missing.calories} />
             <span className="cal-goal"> / {rangeLabel(goals.calories)} kcal</span>
           </div>
-          <div className={`cal-left${status === 'over' ? ' over' : ''}`}>
-            {calLeftText}
-            {alcoholCalories > 0 && <span className="cal-alcohol"> (plus {Math.round(alcoholCalories)} from drinks, not counted)</span>}
-          </div>
+          <div className={`cal-left${status === 'over' ? ' over' : ''}`}>{calLeftText}</div>
         </div>
       </div>
       <Bar value={cal} range={goals.calories} kind="calories" />

@@ -455,18 +455,6 @@ function MineTab({ onPick, onApplyMeal }: { onPick: (f: Food) => void; onApplyMe
     }
   }
 
-  const savedIds = useMemo(() => new Set((foods?.saved ?? []).map((f) => f.id)), [foods])
-  // A recent food's star: same save/unsave as My foods, so it doesn't have
-  // to be re-found to star it after the fact.
-  const toggleFavorite = async (food: Food): Promise<void> => {
-    if (savedIds.has(food.id)) { await remove(food); return }
-    try {
-      await api.saveFood(food)
-      setFoods((f) => f && { ...f, saved: [...f.saved, food] })
-    } catch (err) {
-      toast.error((err as Error).message)
-    }
-  }
   const inMeal = useMemo(() => mealFoodIds(presets), [presets])
 
   const removeMeal = async (preset: MealPreset): Promise<void> => {
@@ -550,19 +538,6 @@ function MineTab({ onPick, onApplyMeal }: { onPick: (f: Food) => void; onApplyMe
                 </div>
               )
             ))}
-            {!picking && (
-              <>
-                <h3 className="sheet-h">Recent</h3>
-                {foods.recent.length === 0 && <div className="hint">Foods you log show up here.</div>}
-                {foods.recent.map((f) => (
-                  <FoodRow
-                    key={f.id} food={f} onPick={onPick}
-                    favorited={savedIds.has(f.id)} onToggleFavorite={(food) => void toggleFavorite(food)}
-                    inMeal={inMeal.has(f.id)}
-                  />
-                ))}
-              </>
-            )}
           </>
         )}
       </div>

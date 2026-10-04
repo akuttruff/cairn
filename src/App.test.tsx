@@ -514,7 +514,7 @@ describe('App', () => {
     expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/settings')!.body).toEqual({ researchModel: 'qwen/qwen3.8-27b' })
   })
 
-  it("says what the day's drinks came to, beside a total that leaves them out", async () => {
+  it("leaves the day's drinks out of the calorie total, with no note about them", async () => {
     stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
         alcohol: { drinks: 2, byKind: { beer: 1, wine: 1, liquor: 0 }, calories: 275, weekTotal: 2, weekGoal: 7, lastLogId: 'a2' },
@@ -525,7 +525,7 @@ describe('App', () => {
     expect(within(card).getByText('190')).toBeInTheDocument() // food only
     expect(within(card).getByText('/ 2000 kcal')).toBeInTheDocument() // the goal is untouched
     expect(within(card).getByText('1810 to go')).toBeInTheDocument()
-    expect(within(card).getByText('(plus 275 from drinks, not counted)')).toBeInTheDocument()
+    expect(within(card).queryByText(/from drinks/)).not.toBeInTheDocument()
   })
 
   it('shows the drinks logged today by kind, with no daily goal', async () => {

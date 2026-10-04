@@ -146,8 +146,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 .cal-goal { font-size: 14px; font-weight: 400; color: var(--paper-dim); letter-spacing: 0; }
 .cal-left { font-family: var(--mono); font-size: 12px; color: var(--moss); margin-top: 2px; }
 .cal-left.over { color: var(--rust); }
-/* One line, one colour: the drinks note reads with "over"/"to go", not as an aside. */
-.cal-alcohol { color: inherit; }
 
 .bar { position: relative; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
 .bar-fill { height: 100%; border-radius: 4px; transition: width 0.35s ease; background: var(--c-calories); }
