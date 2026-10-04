@@ -308,6 +308,8 @@ export interface RangeView {
   goals: ResolvedGoals
   dayTypes: Record<DayType, number>
   scorecard: Scorecard
+  /** Which daily charts to draw, from Settings. */
+  charts: ChartKey[]
   totalDays: number
   loggedDays: number
   /** The finished days that averages and scores are over -- see above. */
@@ -379,6 +381,11 @@ export interface MealPreset {
 export const APP_ICONS = ['ring', 'stack', 'pillars', 'line', 'dawn', 'paper'] as const
 export type AppIcon = (typeof APP_ICONS)[number]
 
+/** What the Week and Month views can chart per day; Settings picks which. Shown in this order. */
+export const CHARTABLE = ['calories', 'protein', 'fat', 'carbs', 'fiber', 'water'] as const
+export type ChartKey = (typeof CHARTABLE)[number]
+export const DEFAULT_CHARTS: ChartKey[] = ['calories', 'protein', 'fiber', 'water']
+
 export interface Settings {
   /** Free key from api.data.gov; the shared DEMO_KEY allows 30 searches an hour. */
   usdaApiKey: string
@@ -390,6 +397,8 @@ export interface Settings {
   /** Start an online lookup by itself once you stop typing. */
   autoLookup: boolean
   appIcon: AppIcon
+  /** The daily charts to show in Week and Month, of CHARTABLE. */
+  charts: ChartKey[]
 }
 
 /** An LLM LM Studio has downloaded, and whether it's loaded right now. */
@@ -406,4 +415,6 @@ export interface PublicSettings {
   researchModel: string
   autoLookup: boolean
   appIcon: AppIcon
+  /** The daily charts to show in Week and Month, of CHARTABLE. */
+  charts: ChartKey[]
 }

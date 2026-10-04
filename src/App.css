@@ -320,6 +320,8 @@ button:disabled { opacity: 0.45; cursor: default; }
   margin-bottom: 10px;
 }
 .range-chart-wrap.protein { --series: var(--c-protein); }
+.range-chart-wrap.fat { --series: var(--c-fat); }
+.range-chart-wrap.carbs { --series: var(--c-carbs); }
 .range-chart-wrap.fiber { --series: var(--c-fiber); }
 .range-chart-wrap.water { --series: var(--c-water); }
 .range-chart-head { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; }
@@ -715,3 +717,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 }
 .icon-choice img { border-radius: 13px; display: block; }
 .icon-choice.chosen { border-color: var(--moss); color: var(--paper); }
+
+/* Settings: which charts to draw, two to a row. */
+.chart-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; margin: 6px 0 4px; }

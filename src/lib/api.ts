@@ -1,6 +1,6 @@
 import type {
   DayType, DayView, Entry, Food, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeView, Serving,
-  AlcoholKind, AlcoholLog, AppIcon, WaterLog, LmModelOption, MeditationLog, WorkoutKind, WorkoutLog, WorkoutPlan,
+  AlcoholKind, AlcoholLog, AppIcon, ChartKey, WaterLog, LmModelOption, MeditationLog, WorkoutKind, WorkoutLog, WorkoutPlan,
 } from '../types.ts'
 
 /** An online lookup in progress or finished; see server/research.ts. */
@@ -73,7 +73,7 @@ export const api = {
   addMeditation: (m: { date: string; minutes: number; note?: string }) => request<MeditationLog>('POST', '/api/meditation', m),
   deleteMeditation: (id: string) => request<{ ok: true }>('DELETE', `/api/meditation/${encodeURIComponent(id)}`),
   settings: () => request<PublicSettings>('GET', '/api/settings'),
-  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; autoLookup?: boolean; appIcon?: AppIcon }) =>
+  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; autoLookup?: boolean; appIcon?: AppIcon; charts?: ChartKey[] }) =>
     request<PublicSettings>('PUT', '/api/settings', s),
   /** LLMs LM Studio has downloaded, for the model picker. `error` says why the list is empty. */
   lmModels: () => request<{ models: LmModelOption[]; error: string | null }>('GET', '/api/lm-models'),

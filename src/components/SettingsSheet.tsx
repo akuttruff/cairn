@@ -3,8 +3,8 @@ import { Drawer } from 'vaul'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import { parseNum } from '../lib/format.ts'
-import { APP_ICONS, WORKOUT_KINDS } from '../types.ts'
-import type { AppIcon, Goals, LmModelOption, PublicSettings, WorkoutKind, WorkoutPlan } from '../types.ts'
+import { APP_ICONS, CHARTABLE, DEFAULT_CHARTS, WORKOUT_KINDS } from '../types.ts'
+import type { AppIcon, ChartKey, Goals, LmModelOption, PublicSettings, WorkoutKind, WorkoutPlan } from '../types.ts'
 import { WORKOUTS } from './WorkoutTracker.tsx'
 
 interface SettingsSheetProps {
@@ -49,6 +49,10 @@ const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
 ]
 const PLAN_START = NUMBER_FIELDS.findIndex((f) => f.key.startsWith('plan:'))
 
+const CHART_LABELS: Record<ChartKey, string> = {
+  calories: 'Calories', protein: 'Protein', fat: 'Fat', carbs: 'Carbs', fiber: 'Fiber', water: 'Water',
+}
+
 const ICON_LABELS: Record<AppIcon, string> = {
   ring: 'Ring', stack: 'Stack', pillars: 'Four pillars', line: 'Line', dawn: 'Dawn', paper: 'Paper',
 }
@@ -72,6 +76,8 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const [lmModel, setLmModel] = useState<string | null>(null)
   const [autoLookup, setAutoLookup] = useState<boolean | null>(null)
   const [appIcon, setAppIcon] = useState<AppIcon | null>(null)
+  // Which daily charts Week and Month draw; null until one is toggled.
+  const [charts, setCharts] = useState<ChartKey[] | null>(null)
   const [settings, setSettings] = useState<PublicSettings | null>(null)
   const [models, setModels] = useState<LmModelOption[]>([])
   const [modelsError, setModelsError] = useState<string | null>(null)
@@ -124,6 +130,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       if (autoLookup != null && autoLookup !== settings?.autoLookup) changes.autoLookup = autoLookup
       const iconChanged = appIcon != null && appIcon !== settings?.appIcon
       if (iconChanged) changes.appIcon = appIcon
+      if (charts && charts.join() !== (settings?.charts ?? DEFAULT_CHARTS).join()) changes.charts = charts
       if (Object.keys(changes).length) await api.setSettings(changes)
       // The tab icon follows at once; a home-screen icon only when the app is added again.
       if (iconChanged) refreshIconLinks()
@@ -176,6 +183,24 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
             <h3 className="sheet-h">Default weekly workouts</h3>
             <div className="hint">Sessions of each per week (Sunday to Saturday). Any week can have its own from the Workouts card in Day view; this is what the rest get. Logging a WOD or lifting session also ticks the day as a training day.</div>
             <div className="nutrient-fields">{NUMBER_FIELDS.slice(PLAN_START).map(field)}</div>
+
+            <h3 className="sheet-h">Charts</h3>
+            <div className="hint">Which daily charts the Week and Month views draw.</div>
+            <div className="chart-picker" role="group" aria-label="Charts">
+              {CHARTABLE.map((key) => {
+                const current = charts ?? settings?.charts ?? DEFAULT_CHARTS
+                return (
+                  <label key={key} className="check">
+                    <input
+                      type="checkbox"
+                      checked={current.includes(key)}
+                      onChange={(e) => setCharts(CHARTABLE.filter((k) => (k === key ? e.target.checked : current.includes(k))))}
+                    />
+                    {CHART_LABELS[key]}
+                  </label>
+                )
+              })}
+            </div>
 
             <h3 className="sheet-h">App icon</h3>
             <div className="icon-picker" role="radiogroup" aria-label="App icon">

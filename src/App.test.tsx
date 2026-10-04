@@ -55,7 +55,7 @@ const ZERO = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 }
 const NO_SCORE = { calories: { met: 0, of: 0 }, protein: { met: 0, of: 0 }, fat: { met: 0, of: 0 }, carbs: { met: 0, of: 0 }, fiber: { met: 0, of: 0 } }
 
 const range = (over: Partial<RangeView> = {}, start = startOfWeek(TODAY)): RangeView => ({
-  start, end: addDays(start, 6), goals: GOALS, dayTypes: { training: 7, rest: 0 }, scorecard: NO_SCORE, totalDays: 7, loggedDays: 0, averagedDays: 7,
+  start, end: addDays(start, 6), goals: GOALS, dayTypes: { training: 7, rest: 0 }, scorecard: NO_SCORE, charts: ['calories', 'protein', 'fiber', 'water'], totalDays: 7, loggedDays: 0, averagedDays: 7,
   totals: ZERO, averages: ZERO,
   water: { total: 0, average: 0, met: 0, of: 0 }, alcohol: { total: 0, average: 0, calories: 0, byKind: { beer: 0, wine: 0, liquor: 0 } },
   workouts: { sessions: 0, days: 0, minutes: 0, byKind: NO_KINDS, goalByKind: PLAN, goal: 9 },
@@ -710,6 +710,27 @@ describe('App', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/alcohol/a1')).toBe(true))
   })
 
+  it('chooses which charts Week and Month draw, in Settings', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/goals': STORED_GOALS,
+      'GET /api/settings': { hasUsdaKey: true, appIcon: 'ring', charts: ['calories', 'protein', 'fiber', 'water'] },
+      'PUT /api/goals': STORED_GOALS,
+      'PUT /api/settings': { hasUsdaKey: true },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    const group = await screen.findByRole('group', { name: 'Charts' })
+    await waitFor(() => expect(within(group).getByRole('checkbox', { name: 'Fiber' })).toBeChecked())
+    expect(within(group).getByRole('checkbox', { name: 'Carbs' })).not.toBeChecked()
+    await user.click(within(group).getByRole('checkbox', { name: 'Carbs' }))
+    await user.click(within(group).getByRole('checkbox', { name: 'Fiber' }))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/settings')).toBe(true))
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/settings')!.body).toEqual({ charts: ['calories', 'protein', 'carbs', 'water'] })
+  })
+
   it('picks the app icon in Settings and saves it with the rest', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
@@ -1295,6 +1316,15 @@ describe('App', () => {
       await user.click(await screen.findByRole('tab', { name: 'Week' }))
       const workouts = await screen.findByRole('region', { name: 'Workouts' })
       expect(within(workouts).getByRole('button', { name: `${start}: still ahead` })).toHaveClass('future')
+    })
+
+    it('draws only the charts chosen in Settings, in the usual order', async () => {
+      const user = userEvent.setup()
+      stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/range': range({ charts: ['fat', 'carbs', 'water'] }) })
+      render(<App />)
+      await user.click(await screen.findByRole('tab', { name: 'Week' }))
+      await screen.findByText(/^Logged 0 of 7 days/)
+      expect([...document.querySelectorAll('.range-chart-label')].map((el) => el.textContent)).toEqual(['Fat', 'Carbs', 'Water'])
     })
 
     it('says when averages cover only the finished days of a range', async () => {

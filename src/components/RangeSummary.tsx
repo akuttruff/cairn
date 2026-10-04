@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { ALCOHOL_KINDS, NUTRIENTS, WORKOUT_KINDS } from '../types.ts'
+import { ALCOHOL_KINDS, DEFAULT_CHARTS, NUTRIENTS, WORKOUT_KINDS } from '../types.ts'
 import { LABELS, UNITS, goalDirection, goalMet, goalRangeFor, localDate, meditationMet, progress, waterMet } from '../lib/nutrition.ts'
 import { fmt } from '../lib/format.ts'
 import { WORKOUTS } from './WorkoutTracker.tsx'
 import { SIT_MINUTES } from './MeditationTracker.tsx'
-import type { DaySummary, MacroRange, NutrientKey, RangeView } from '../types.ts'
+import type { ChartKey, DaySummary, MacroRange, NutrientKey, RangeView } from '../types.ts'
 
 interface RangeSummaryProps {
   view: RangeView
@@ -57,11 +57,14 @@ const WATER: Series = {
 }
 
 /**
- * What the daily charts plot, in order. Meditation and workouts are shown
- * as day boxes further down instead (a sit or a session is done or not --
- * there is no curve to read).
+ * Everything that can be charted per day; Settings picks which (view.charts).
+ * Meditation and workouts are shown as day boxes further down instead (a
+ * sit or a session is done or not -- there is no curve to read).
  */
-const CHARTED: Series[] = [nutrientSeries('calories'), nutrientSeries('protein'), nutrientSeries('fiber'), WATER]
+const SERIES: Record<ChartKey, Series> = {
+  calories: nutrientSeries('calories'), protein: nutrientSeries('protein'), fat: nutrientSeries('fat'),
+  carbs: nutrientSeries('carbs'), fiber: nutrientSeries('fiber'), water: WATER,
+}
 
 /** Where a day stands against its goal. Today isn't over, so it is only a hit or a miss once that can't change. */
 type DayState = 'met' | 'missed' | 'pending' | 'unlogged' | 'future'
@@ -306,10 +309,10 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
 
   return (
     <section className="range-summary" aria-label="Range summary">
-      {CHARTED.map((series) => (
+      {(view.charts ?? DEFAULT_CHARTS).map((key) => SERIES[key]).map((series) => (
         <RangeChart key={series.key} series={series} view={view} today={today} selected={selected} onPick={pick} />
       ))}
-      {!isWeek && <div className="range-hint">Tap a day for its numbers; tap it again to open that day.</div>}
+      {!isWeek && (view.charts ?? DEFAULT_CHARTS).length > 0 && <div className="range-hint">Tap a day for its numbers; tap it again to open that day.</div>}
       <div className="range-coverage">
         Logged {loggedDays} of {plural(totalDays, 'day')} · {dayTypes.training} training, {dayTypes.rest} rest
         {averagedDays < totalDays && <> · averages over {plural(averagedDays, 'finished day')}</>}

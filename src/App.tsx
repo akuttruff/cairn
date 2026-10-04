@@ -138,7 +138,8 @@ export default function App() {
         open={sheet === 'settings'}
         session={session}
         onClose={close}
-        onSaved={refresh}
+        // Goals and the chart choice shape the open range view too, so it reloads with the day.
+        onSaved={() => { refresh(); if (range) void range.refresh() }}
       />
     </div>
   )

@@ -243,6 +243,16 @@ describe('foods', () => {
 })
 
 describe('goals and settings', () => {
+  it('keeps which charts to draw: a default set, any subset in a fixed order, even none', () => {
+    expect(store.getPublicSettings().charts).toEqual(['calories', 'protein', 'fiber', 'water'])
+    expect(store.getRange(DAY, DAY).charts).toEqual(['calories', 'protein', 'fiber', 'water'])
+    store.setSettings({ charts: ['water', 'carbs', 'fat', 'carbs'] }) // any order, repeats
+    expect(new Store({ dir }).getRange(DAY, DAY).charts).toEqual(['fat', 'carbs', 'water'])
+    store.setSettings({ charts: [] })
+    expect(new Store({ dir }).getPublicSettings().charts).toEqual([]) // none is a choice, not "unset"
+    expect(() => store.setSettings({ charts: ['sodium'] as never })).toThrow(/charts must be a list of/)
+  })
+
   it('keeps the chosen app icon, Ring by default, and refuses one that does not exist', () => {
     expect(store.getPublicSettings().appIcon).toBe('ring')
     store.setSettings({ appIcon: 'dawn' })
@@ -270,7 +280,9 @@ describe('goals and settings', () => {
   it('never exposes the USDA key', () => {
     store.setSettings({ usdaApiKey: 'SECRETKEY', lmStudioToken: 'sk-lm-SECRET' })
     const pub = store.getPublicSettings()
-    expect(pub).toEqual({ hasUsdaKey: true, hasLmStudioToken: true, lmStudioUrl: 'http://127.0.0.1:1234', researchModel: '', autoLookup: true, appIcon: 'ring' })
+    expect(pub).toEqual({ hasUsdaKey: true, hasLmStudioToken: true, lmStudioUrl: 'http://127.0.0.1:1234', researchModel: '', autoLookup: true, appIcon: 'ring',
+      charts: ['calories', 'protein', 'fiber', 'water'],
+    })
     expect(JSON.stringify(pub)).not.toMatch(/SECRET/)
   })
 

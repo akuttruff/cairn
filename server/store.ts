@@ -3,9 +3,9 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import type { SQLInputValue, StatementSync } from 'node:sqlite'
-import { ALCOHOL_KINDS, APP_ICONS, MEALS, NUTRIENTS, WORKOUT_KINDS } from '../src/types.ts'
+import { ALCOHOL_KINDS, APP_ICONS, CHARTABLE, DEFAULT_CHARTS, MEALS, NUTRIENTS, WORKOUT_KINDS } from '../src/types.ts'
 import type {
-  AlcoholKind, AlcoholLog, Amount, AppIcon, DaySummary, DayType, DayView, Entry, Food, FoodSource, Goals,
+  AlcoholKind, AlcoholLog, Amount, AppIcon, ChartKey, DaySummary, DayType, DayView, Entry, Food, FoodSource, Goals,
   Meal, MealPreset, MealPresetItem, MeditationLog, NewEntry, Nutrients, NutrientKey, PerServing, PublicSettings,
   RangeView, Serving, Settings, SourceLink, WaterLog, WorkoutKind, WorkoutLog, WorkoutPlan,
 } from '../src/types.ts'
@@ -211,7 +211,7 @@ CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY CHECK (id = 1),
 CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK (id = 1),
   usda_api_key TEXT NOT NULL DEFAULT '', lm_studio_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:1234',
   lm_studio_token TEXT NOT NULL DEFAULT '', research_model TEXT NOT NULL DEFAULT '', auto_lookup INTEGER NOT NULL DEFAULT 1,
-  app_icon TEXT NOT NULL DEFAULT 'ring');
+  app_icon TEXT NOT NULL DEFAULT 'ring', charts TEXT);
 
 -- No row for a date means a rest day (see getDayType): only the days you
 -- tick as training days get a row.
@@ -335,6 +335,12 @@ function migrateSchema(db: DatabaseSync): void {
     const cols = db.prepare('PRAGMA table_info(settings)').all() as { name: string }[]
     if (!cols.some((c) => c.name === 'app_icon')) db.exec("ALTER TABLE settings ADD COLUMN app_icon TEXT NOT NULL DEFAULT 'ring'")
     db.exec('PRAGMA user_version = 9')
+  }
+  if (version < 10) {
+    // Which daily charts Week and Month show; null means the default set.
+    const cols = db.prepare('PRAGMA table_info(settings)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'charts')) db.exec('ALTER TABLE settings ADD COLUMN charts TEXT')
+    db.exec('PRAGMA user_version = 10')
   }
 }
 
@@ -572,13 +578,26 @@ const cleanNote = (input: unknown): string | undefined =>
   (typeof input === 'string' && input.trim() ? input.trim().slice(0, MAX_NAME) : undefined)
 interface SettingsRow {
   usda_api_key: string; lm_studio_url: string; lm_studio_token: string; research_model: string; auto_lookup: number
-  app_icon: string
+  app_icon: string; charts: string | null
 }
 function settingsFromRow(row: SettingsRow): Settings {
   return {
     usdaApiKey: row.usda_api_key, lmStudioUrl: row.lm_studio_url, lmStudioToken: row.lm_studio_token,
     researchModel: row.research_model, autoLookup: row.auto_lookup === 1,
     appIcon: (APP_ICONS as readonly string[]).includes(row.app_icon) ? row.app_icon as AppIcon : 'ring',
+    charts: parseCharts(row.charts),
+  }
+}
+
+/** The stored chart list, in CHARTABLE order; never set, or unreadable, is the default. An empty list is a real choice of none. */
+function parseCharts(raw: string | null): ChartKey[] {
+  if (raw == null) return [...DEFAULT_CHARTS]
+  try {
+    const list = JSON.parse(raw) as unknown
+    if (!Array.isArray(list)) return [...DEFAULT_CHARTS]
+    return CHARTABLE.filter((k) => list.includes(k))
+  } catch {
+    return [...DEFAULT_CHARTS]
   }
 }
 
@@ -627,6 +646,7 @@ function migrateFromJson(paths: ReturnType<typeof locate>): void {
     researchModel: typeof rawSettings.researchModel === 'string' ? rawSettings.researchModel : '',
     autoLookup: typeof rawSettings.autoLookup === 'boolean' ? rawSettings.autoLookup : true,
     appIcon: 'ring',
+    charts: [...DEFAULT_CHARTS],
   }
 
   const tmp = `${paths.sqlite}.${process.pid}.tmp`
@@ -876,7 +896,7 @@ export class Store {
       ),
       selectSettings: this.db.prepare('SELECT * FROM settings WHERE id = 1'),
       updateSettings: this.db.prepare(
-        'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=?, app_icon=? WHERE id=1',
+        'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=?, app_icon=?, charts=? WHERE id=1',
       ),
       selectWaterByDate: this.db.prepare('SELECT * FROM water_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
       selectWaterBetween: this.db.prepare('SELECT * FROM water_logs WHERE date >= ? AND date <= ?'),
@@ -1099,6 +1119,7 @@ export class Store {
 
     return {
       start, end, days, goals: blendGoals(days.map((d) => d.goals)), dayTypes, scorecard: scoreDays(basis),
+      charts: this.getSettings().charts,
       totalDays, loggedDays, averagedDays: basis.length, totals, averages,
       water: { total: round1(waterTotal), average: per(basis.reduce((s, d) => s + d.water, 0)), ...scoreWater(basis, goals.water) },
       alcohol: { total: alcoholTotal, average: per(basis.reduce((s, d) => s + d.alcohol, 0)), calories: alcoholCalories(byKind), byKind },
@@ -1656,6 +1677,7 @@ export class Store {
       researchModel: s.researchModel,
       autoLookup: s.autoLookup,
       appIcon: s.appIcon,
+      charts: s.charts,
     }
   }
 
@@ -1669,6 +1691,13 @@ export class Store {
       if (!(APP_ICONS as readonly string[]).includes(input.appIcon)) throw new ValidationError(`appIcon must be one of ${APP_ICONS.join(', ')}`)
       next.appIcon = input.appIcon
     }
+    if (input.charts !== undefined) {
+      const list: unknown = input.charts
+      if (!Array.isArray(list) || !list.every((k) => (CHARTABLE as readonly unknown[]).includes(k))) {
+        throw new ValidationError(`charts must be a list of ${CHARTABLE.join(', ')}`)
+      }
+      next.charts = CHARTABLE.filter((k) => list.includes(k)) // no repeats, always in the same order
+    }
     if (typeof input.lmStudioUrl === 'string') {
       const url = input.lmStudioUrl.trim().replace(/\/+$/, '')
       if (url) {
@@ -1680,7 +1709,7 @@ export class Store {
       }
       next.lmStudioUrl = url || 'http://127.0.0.1:1234'
     }
-    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon)
+    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon, JSON.stringify(next.charts))
     return this.getPublicSettings()
   }
 }
