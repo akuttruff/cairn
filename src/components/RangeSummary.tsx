@@ -208,7 +208,7 @@ function DayBoxes({ kind, days, today, state, describe, onSelectDay }: DayBoxesP
  * over days actually logged, water and alcohol over every day in the range.
  */
 export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
-  const { days, goals, dayTypes, scorecard, averages, loggedDays, totalDays, water, alcohol, workouts, meditation } = view
+  const { days, goals, dayTypes, scorecard, averages, loggedDays, totalDays, averagedDays, water, alcohol, workouts, meditation } = view
   const today = localDate()
   const workoutState = (d: DaySummary): BoxState => (d.workouts > 0 ? 'full' : 'empty')
   // Both sits is a full box; one sit (anything short of the goal) is half.
@@ -234,6 +234,7 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
       </div>
       <div className="range-coverage">
         Logged {loggedDays} of {plural(totalDays, 'day')} · {dayTypes.training} training, {dayTypes.rest} rest
+        {averagedDays < totalDays && <> · averages over {plural(averagedDays, 'finished day')}</>}
       </div>
 
       <section className="scorecard" aria-label="Goals met">

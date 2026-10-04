@@ -55,7 +55,7 @@ const ZERO = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 }
 const NO_SCORE = { calories: { met: 0, of: 0 }, protein: { met: 0, of: 0 }, fat: { met: 0, of: 0 }, carbs: { met: 0, of: 0 }, fiber: { met: 0, of: 0 } }
 
 const range = (over: Partial<RangeView> = {}, start = startOfWeek(TODAY)): RangeView => ({
-  start, end: addDays(start, 6), goals: GOALS, dayTypes: { training: 7, rest: 0 }, scorecard: NO_SCORE, totalDays: 7, loggedDays: 0,
+  start, end: addDays(start, 6), goals: GOALS, dayTypes: { training: 7, rest: 0 }, scorecard: NO_SCORE, totalDays: 7, loggedDays: 0, averagedDays: 7,
   totals: ZERO, averages: ZERO,
   water: { total: 0, average: 0, met: 0, of: 0 }, alcohol: { total: 0, average: 0, calories: 0, byKind: { beer: 0, wine: 0, liquor: 0 } },
   workouts: { sessions: 0, days: 0, minutes: 0, byKind: NO_KINDS, goalByKind: PLAN, goal: 9 },
@@ -1219,6 +1219,14 @@ describe('App', () => {
       await user.click(await screen.findByRole('tab', { name: 'Week' }))
       const workouts = await screen.findByRole('region', { name: 'Workouts' })
       expect(within(workouts).getByRole('button', { name: `${start}: still ahead` })).toHaveClass('future')
+    })
+
+    it('says when averages cover only the finished days of a range', async () => {
+      const user = userEvent.setup()
+      stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/range': range({ loggedDays: 3, averagedDays: 3 }) })
+      render(<App />)
+      await user.click(await screen.findByRole('tab', { name: 'Week' }))
+      expect(await screen.findByText(/averages over 3 finished days/)).toBeInTheDocument()
     })
 
     it('says nothing about alcohol when none was logged in the range', async () => {

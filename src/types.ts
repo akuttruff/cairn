@@ -286,10 +286,13 @@ export type Scorecard = Record<NutrientKey, { met: number; of: number }>
 
 /**
  * A week or month at a glance: one summary per calendar day, plus totals and
- * averages over it. Macro averages are per day *with an entry* (loggedDays)
- * -- a day you forgot to log shouldn't drag the average down like a real
- * zero-calorie day would. Water and alcohol average over every day in the
- * range instead: whether you drank water is not conditional on having eaten.
+ * averages over it. Averages and scores cover only *finished* days
+ * (averagedDays): today is still being logged and the days ahead haven't
+ * happened, so neither should drag an average down or count as a miss (on
+ * the range's first day, today stands in). Macro averages are further per
+ * finished day *with an entry* -- a day you forgot to log shouldn't count
+ * like a real zero-calorie day. Water, drinks and meditation average over
+ * every finished day: whether you drank water is not conditional on eating.
  *
  * Training and rest days have different goals, so a range never judges a
  * day against an average: `scorecard` counts, per nutrient, the logged days
@@ -307,6 +310,8 @@ export interface RangeView {
   scorecard: Scorecard
   totalDays: number
   loggedDays: number
+  /** The finished days that averages and scores are over -- see above. */
+  averagedDays: number
   totals: Record<NutrientKey, number>
   averages: Record<NutrientKey, number>
   /** `met` of `of`: days with any water logged that reached the daily goal -- see scoreWater(). */

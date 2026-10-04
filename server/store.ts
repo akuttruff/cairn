@@ -1049,8 +1049,20 @@ export class Store {
     const totals = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 }
     for (const d of days) for (const key of NUTRIENTS) totals[key] += d.totals[key]
     for (const key of NUTRIENTS) totals[key] = round1(totals[key])
+
+    // Averages and scores count finished days only: today is still being
+    // logged (a half-eaten day would drag the calories down and count as a
+    // protein miss), and the days still ahead haven't happened. Before any
+    // day in the range has finished -- the 1st of a month -- today stands in.
+    const today = localDate()
+    const finished = days.filter((d) => d.date < today)
+    const basis = finished.length ? finished : days.filter((d) => d.date === today)
+    const per = (sum: number): number => (basis.length ? round1(sum / basis.length) : 0)
+    const loggedBasis = basis.filter((d) => d.entryCount > 0)
     const averages = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 }
-    if (loggedDays) for (const key of NUTRIENTS) averages[key] = round1(totals[key] / loggedDays)
+    if (loggedBasis.length) {
+      for (const key of NUTRIENTS) averages[key] = round1(loggedBasis.reduce((s, d) => s + d.totals[key], 0) / loggedBasis.length)
+    }
 
     const waterTotal = days.reduce((sum, d) => sum + d.water, 0)
     const alcoholTotal = days.reduce((sum, d) => sum + d.alcohol, 0)
@@ -1069,14 +1081,17 @@ export class Store {
     }
     const goalByKind = Object.fromEntries(WORKOUT_KINDS.map((k) => [k, Math.round(goalShare[k])])) as Record<WorkoutKind, number>
     const meditationTotal = days.reduce((sum, d) => sum + d.meditationMinutes, 0)
-    // A streak runs up to today at the latest: the days still ahead in this week can't have broken it.
-    const through = end < localDate() ? end : localDate()
+    // A streak runs up to today at the latest -- the days still ahead can't have broken it -- and a
+    // today with nothing logged yet doesn't break it either: it counts back from yesterday until it does.
+    const lastDay = end < today ? end : today
+    const todayStarted = days.some((d) => d.date === today && d.meditationMinutes > 0)
+    const through = lastDay === today && !todayStarted ? addDays(today, -1) : lastDay
 
     return {
-      start, end, days, goals: blendGoals(days.map((d) => d.goals)), dayTypes, scorecard: scoreDays(days),
-      totalDays, loggedDays, totals, averages,
-      water: { total: round1(waterTotal), average: round1(waterTotal / totalDays), ...scoreWater(days, goals.water) },
-      alcohol: { total: alcoholTotal, average: round1(alcoholTotal / totalDays), calories: alcoholCalories(byKind), byKind },
+      start, end, days, goals: blendGoals(days.map((d) => d.goals)), dayTypes, scorecard: scoreDays(basis),
+      totalDays, loggedDays, averagedDays: basis.length, totals, averages,
+      water: { total: round1(waterTotal), average: per(basis.reduce((s, d) => s + d.water, 0)), ...scoreWater(basis, goals.water) },
+      alcohol: { total: alcoholTotal, average: per(basis.reduce((s, d) => s + d.alcohol, 0)), calories: alcoholCalories(byKind), byKind },
       workouts: {
         sessions: workoutRows.length,
         days: days.filter((d) => d.workouts > 0).length,
@@ -1087,9 +1102,9 @@ export class Store {
       },
       meditation: {
         total: meditationTotal,
-        average: round1(meditationTotal / totalDays),
+        average: per(basis.reduce((s, d) => s + d.meditationMinutes, 0)),
         days: days.filter((d) => d.meditationMinutes > 0).length,
-        ...scoreMeditation(days, goals.meditationMinutes),
+        ...scoreMeditation(basis, goals.meditationMinutes),
         streak: streakThrough(days, (d) => d.meditationMinutes > 0, through),
       },
     }

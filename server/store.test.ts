@@ -944,6 +944,38 @@ describe('ranges', () => {
     expect(range.averages).toEqual({ calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 })
   })
 
+  it("averages and scores only finished days: today's partial log and the days ahead don't drag the month down", () => {
+    // A month seen on its 4th: three full days logged, today barely started, 27 days to come.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 9, 4, 12)) // Oct 4, noon, local time
+    for (const date of ['2026-10-01', '2026-10-02', '2026-10-03']) {
+      store.addEntry(banana({ date, grams: 1000 })) // 890 kcal a day
+      store.addWater(date, 96)
+      store.addMeditation({ date, minutes: 50 })
+    }
+    store.addEntry(banana({ date: '2026-10-04', grams: 100 })) // today so far: 89 kcal
+    const r = store.getRange('2026-10-01', '2026-10-31')
+    expect(r).toMatchObject({ totalDays: 31, loggedDays: 4, averagedDays: 3 })
+    expect(r.averages.calories).toBe(890) // not (3 x 890 + 89) / 4
+    expect(r.totals.calories).toBeCloseTo(2759, 0) // totals still include today
+    expect(r.water.average).toBe(96) // 288 over the 3 finished days, not 31
+    expect(r.meditation.average).toBe(50)
+    expect(r.scorecard.protein.of).toBe(3) // today isn't a miss yet
+    // Nothing logged for meditation today doesn't break the streak; the run up to yesterday counts.
+    expect(r.meditation.streak).toBe(3)
+    store.addMeditation({ date: '2026-10-04', minutes: 25 })
+    expect(store.getRange('2026-10-01', '2026-10-31').meditation.streak).toBe(4)
+  })
+
+  it("on a range's first day, today stands in so there is something to show", () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 9, 1, 12))
+    store.addEntry(banana({ date: '2026-10-01' }))
+    const r = store.getRange('2026-10-01', '2026-10-31')
+    expect(r.averagedDays).toBe(1)
+    expect(r.averages.calories).toBeGreaterThan(0)
+  })
+
   it('averages water and alcohol over every day in the range, not just logged ones', () => {
     store.addWater(D1, 32)
     store.addAlcohol(D1, 'wine')
