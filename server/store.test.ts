@@ -962,7 +962,7 @@ describe('body measurements', () => {
     expect(() => store.addBodySamples([
       { type: 'Weight', value: 150, unit: 'lb', date: at('2026-09-24') },
       { type: 'Weight', value: -1, unit: 'lb', date: at('2026-09-25') },
-    ])).toThrow()
+    ])).toThrow(/sample 2: value must be a positive number/)
     expect(store.getDay('2026-09-24').body.weight).toBeNull()
   })
 })
