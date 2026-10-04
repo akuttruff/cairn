@@ -2,6 +2,7 @@ import { ALCOHOL_KINDS, NUTRIENTS, WORKOUT_KINDS } from '../types.ts'
 import { LABELS, UNITS, goalMet, goalRangeFor, localDate, meditationMet, progress, waterMet } from '../lib/nutrition.ts'
 import { fmt } from '../lib/format.ts'
 import { WORKOUTS } from './WorkoutTracker.tsx'
+import { SIT_MINUTES } from './MeditationTracker.tsx'
 import type { DaySummary, MacroRange, NutrientKey, RangeView } from '../types.ts'
 
 interface RangeSummaryProps {
@@ -142,6 +143,57 @@ function RangeChart({ series, days, today, onSelectDay }: RangeChartProps) {
   )
 }
 
+type BoxState = 'full' | 'half' | 'empty'
+
+/** Monday = 0 ... Sunday = 6, for lining a month up under weekday columns. */
+const weekdayIndex = (date: string): number => (new Date(`${date}T00:00:00`).getDay() + 6) % 7
+const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+
+interface DayBoxesProps {
+  /** Also the CSS class that colours it. */
+  kind: 'workout' | 'meditation'
+  days: DaySummary[]
+  today: string
+  state: (d: DaySummary) => BoxState
+  /** What the day had, for its label: "2 sits, 50 min". */
+  describe: (d: DaySummary) => string
+  onSelectDay: (date: string) => void
+}
+
+/**
+ * One box per day, in Monday-first weekday columns -- a week is one row, a
+ * month a little calendar. A box is filled for a day that did it, half
+ * filled for a day partway there (one sit of two), and empty otherwise;
+ * days still ahead are drawn faint, so an unfilled future isn't read as a
+ * miss. Tap a box to open that day.
+ */
+function DayBoxes({ kind, days, today, state, describe, onSelectDay }: DayBoxesProps) {
+  const lead = days.length ? weekdayIndex(days[0]!.date) : 0
+  return (
+    <div className={`day-boxes ${kind}`}>
+      {WEEKDAYS.map((w, i) => <span key={i} className="day-boxes-weekday" aria-hidden="true">{w}</span>)}
+      {Array.from({ length: lead }, (_, i) => <span key={`lead-${i}`} aria-hidden="true" />)}
+      {days.map((d) => {
+        const future = d.date > today
+        const s = future ? 'empty' : state(d)
+        const label = `${d.date}: ${future ? 'still ahead' : describe(d)}`
+        return (
+          <button
+            key={d.date}
+            type="button"
+            className={`day-box ${s}${future ? ' future' : ''}${d.date === today ? ' today' : ''}`}
+            onClick={() => onSelectDay(d.date)}
+            aria-label={label}
+            title={label}
+          >
+            <span className="day-box-num">{Number(d.date.slice(8, 10))}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 /**
  * A week or month at a glance: calories, protein, fiber and water per day
  * against each day's own goal (tap a marker to open that day), then a
@@ -152,6 +204,12 @@ function RangeChart({ series, days, today, onSelectDay }: RangeChartProps) {
 export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
   const { days, goals, dayTypes, scorecard, averages, loggedDays, totalDays, water, alcohol, workouts, meditation } = view
   const today = localDate()
+  const workoutState = (d: DaySummary): BoxState => (d.workouts > 0 ? 'full' : 'empty')
+  // Both sits is a full box; one sit (anything short of the goal) is half.
+  const meditationState = (d: DaySummary): BoxState =>
+    meditationMet(d.meditationMinutes, d.goals.meditationMinutes) ? 'full' : d.meditationMinutes > 0 ? 'half' : 'empty'
+  const workedOutDays = days.filter((d) => d.date <= today && workoutState(d) === 'full').length
+  const elapsedDays = days.filter((d) => d.date <= today).length
   const drankKinds = ALCOHOL_KINDS.filter((k) => alcohol.byKind[k] > 0)
   const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
   const unloggedWater = totalDays - water.of
@@ -238,16 +296,15 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
             <span className="water-goal"> · {goals.workoutsWeekly}/week goal</span>
           </span>
         </div>
-        <div
-          className="bar workout"
-          role="progressbar"
-          aria-label="Workouts against the goal"
-          aria-valuemin={0}
-          aria-valuemax={workoutGoal}
-          aria-valuenow={workouts.sessions}
-        >
-          <div className="bar-fill" style={{ width: `${Math.round(progress(workouts.sessions, workoutGoal) * 100)}%` }} />
-        </div>
+        <DayBoxes
+          kind="workout"
+          days={days}
+          today={today}
+          state={workoutState}
+          describe={(d) => (d.workouts ? `${plural(d.workouts, 'workout')}` : 'no workout')}
+          onSelectDay={onSelectDay}
+        />
+        <div className="water-bottles">Worked out {workedOutDays} of {plural(elapsedDays, 'day')} so far</div>
         <div className="water-bottles">
           {workouts.sessions
             ? <>{plural(workouts.days, 'day')} with a session{workouts.minutes > 0 && ` · ${workouts.minutes} min`}
@@ -264,16 +321,17 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
             <span className="water-goal"> · {goals.meditationMinutes} min goal</span>
           </span>
         </div>
-        <div
-          className="bar meditation"
-          role="progressbar"
-          aria-label="Meditation goal met"
-          aria-valuemin={0}
-          aria-valuemax={meditation.of}
-          aria-valuenow={meditation.met}
-        >
-          <div className="bar-fill" style={{ width: `${Math.round(progress(meditation.met, meditation.of) * 100)}%` }} />
-        </div>
+        <DayBoxes
+          kind="meditation"
+          days={days}
+          today={today}
+          state={meditationState}
+          describe={(d) => {
+            const sits = Math.round(d.meditationMinutes / SIT_MINUTES)
+            return d.meditationMinutes ? `${plural(sits, 'sit')}, ${d.meditationMinutes} min` : 'no meditation'
+          }}
+          onSelectDay={onSelectDay}
+        />
         <div className="water-bottles">
           {meditation.total} min total · {meditation.average} min avg/day
           {meditation.streak > 1 && ` · ${meditation.streak}-day streak`}

@@ -1051,28 +1051,49 @@ describe('App', () => {
       expect(screen.getByRole('button', { name: `${addDays(start, 3)}: 0 oz, nothing logged` })).toBeInTheDocument()
     })
 
-    it('sums the week\'s workouts against the weekly goal, and charts and scores meditation per day', async () => {
+    it('shows a box per day: filled for a workout or both sits, half for one sit, empty for none', async () => {
       const user = userEvent.setup()
-      const start = startOfWeek(TODAY)
-      const base = range()
-      stubApi({
-        [`GET /api/day/${TODAY}`]: day([]),
+      // Last week, so no day in it is still ahead, whatever today is.
+      const start = startOfWeek(addDays(TODAY, -7))
+      const base = range({}, start)
+      const goals = { ...GOALS, meditationMinutes: 50 }
+      const calls = stubApi({
+        'GET /api/day/': day([]),
         'GET /api/range': range({
+          goals,
           workouts: { sessions: 3, days: 2, minutes: 85, byKind: { wod: 2, weightlifting: 0, run: 1, cycling: 0, yoga: 0, pilates: 0 } },
-          meditation: { total: 25, average: 3.6, days: 2, met: 1, of: 2, streak: 2 },
-          days: base.days.map((d, i) => ({ ...d, meditationMinutes: [0, 15, 10, 0, 0, 0, 0][i]! })),
-        }),
+          meditation: { total: 75, average: 10.7, days: 2, met: 1, of: 2, streak: 0 },
+          days: base.days.map((d, i) => ({
+            ...d, goals, workouts: [2, 0, 1, 0, 0, 0, 0][i]!, meditationMinutes: [0, 50, 25, 0, 0, 0, 0][i]!,
+          })),
+        }, start),
       })
       render(<App />)
       await user.click(await screen.findByRole('tab', { name: 'Week' }))
       const workouts = await screen.findByRole('region', { name: 'Workouts' })
-      expect(within(workouts).getByText('3 of 4')).toBeInTheDocument()
+      expect(within(workouts).queryByRole('progressbar')).not.toBeInTheDocument()
+      expect(within(workouts).getByRole('button', { name: `${start}: 2 workouts` })).toHaveClass('full')
+      expect(within(workouts).getByRole('button', { name: `${addDays(start, 1)}: no workout` })).toHaveClass('empty')
+      expect(within(workouts).getByText('Worked out 2 of 7 days so far')).toBeInTheDocument()
       expect(within(workouts).getByText(/2 days with a session · 85 min · 2 wod, 1 run/)).toBeInTheDocument()
       const meditation = screen.getByRole('region', { name: 'Meditation' })
-      expect(within(meditation).getByText('1 of 2 days')).toBeInTheDocument()
-      expect(within(meditation).getByText(/25 min total · 3.6 min avg\/day · 2-day streak/)).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: `${addDays(start, 1)}: 15 min, goal met` })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: `${start}: 0 min, nothing logged` })).toBeInTheDocument()
+      expect(within(meditation).queryByRole('progressbar')).not.toBeInTheDocument()
+      expect(within(meditation).getByRole('button', { name: `${addDays(start, 1)}: 2 sits, 50 min` })).toHaveClass('full')
+      expect(within(meditation).getByRole('button', { name: `${addDays(start, 2)}: 1 sit, 25 min` })).toHaveClass('half')
+      expect(within(meditation).getByRole('button', { name: `${start}: no meditation` })).toHaveClass('empty')
+      // Tapping a box opens that day.
+      await user.click(within(meditation).getByRole('button', { name: `${addDays(start, 2)}: 1 sit, 25 min` }))
+      await waitFor(() => expect(calls.some((c) => c.url === `/api/day/${addDays(start, 2)}`)).toBe(true))
+    })
+
+    it('draws the days still ahead faintly, never as misses', async () => {
+      const user = userEvent.setup()
+      const start = startOfWeek(addDays(TODAY, 7)) // next week: every day is ahead
+      stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/range': range({}, start) })
+      render(<App />)
+      await user.click(await screen.findByRole('tab', { name: 'Week' }))
+      const workouts = await screen.findByRole('region', { name: 'Workouts' })
+      expect(within(workouts).getByRole('button', { name: `${start}: still ahead` })).toHaveClass('future')
     })
 
     it('says nothing about alcohol when none was logged in the range', async () => {

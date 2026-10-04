@@ -235,6 +235,23 @@ button:disabled { opacity: 0.45; cursor: default; }
 .range-point.meditation::after { background: var(--c-meditation); }
 .range-point.missed.meditation::after { border-color: var(--c-meditation); }
 
+/* Week/month: one box per day, Monday-first columns. A week is one row; a month, a small calendar. */
+.day-boxes { --box: var(--c-workout); display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin: 4px 0 2px; }
+.day-boxes.meditation { --box: var(--c-meditation); }
+.day-boxes-weekday { font-family: var(--mono); font-size: 10px; color: var(--paper-dim); text-align: center; }
+.day-box {
+  aspect-ratio: 1; max-height: 40px; width: 100%;
+  border-radius: 6px; border: 1.5px solid var(--box); background: transparent; padding: 0;
+  display: flex; align-items: flex-end; justify-content: flex-end; cursor: pointer;
+}
+.day-box.full { background: var(--box); }
+/* Half done (one sit of two): split corner to corner, so it reads as half at a glance. */
+.day-box.half { background: linear-gradient(135deg, var(--box) 50%, transparent 50%); }
+.day-box.future { border-style: dashed; opacity: 0.35; }
+.day-box.today { outline: 2px solid var(--paper); outline-offset: 1px; }
+.day-box-num { font-family: var(--mono); font-size: 9px; line-height: 1; padding: 0 3px 3px 0; color: var(--paper-dim); }
+.day-box.full .day-box-num { color: var(--bg); }
+
 .water-undo {
   display: flex;
   align-items: center;
