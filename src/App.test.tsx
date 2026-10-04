@@ -132,6 +132,17 @@ describe('App', () => {
     expect(screen.queryByRole('region', { name: 'Body' })).not.toBeInTheDocument()
   })
 
+  it('says which request could not reach the server, instead of a bare network error', async () => {
+    const user = userEvent.setup()
+    stubApi({ [`GET /api/day/${TODAY}`]: day([]) })
+    const ok = globalThis.fetch
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) =>
+      (url.startsWith('/api/goals') ? Promise.reject(new TypeError('NetworkError when attempting to fetch resource.')) : (ok as typeof fetch)(url, init))))
+    render(<App />) // App has its own toaster
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    expect(await screen.findByText(/Couldn.t reach Cairn \(GET \/api\/goals\)/)).toBeInTheDocument()
+  })
+
   it('marks a total as partial when an entry lacks that nutrient', async () => {
     stubApi({
       [`GET /api/day/${TODAY}`]: day([entry({ nutrients: { calories: 190, protein: 6.5, fat: 3.4, carbs: 33, fiber: null } })], {

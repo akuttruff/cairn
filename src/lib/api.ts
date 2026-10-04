@@ -25,11 +25,17 @@ export interface SearchResult {
 export class ApiError extends Error {}
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+  let res: Response
+  try {
+    res = await fetch(path, {
+      method,
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  } catch {
+    // No reply at all (a dropped connection, the server restarting): say which request, so a repeat can be traced.
+    throw new ApiError(`Couldn't reach Cairn (${method} ${path.split('?')[0]}). Check the connection and try again.`)
+  }
   const data = await res.json().catch(() => ({})) as { error?: string }
   if (!res.ok) throw new ApiError(data.error || `Request failed (${res.status})`)
   return data as T
