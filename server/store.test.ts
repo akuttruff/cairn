@@ -230,7 +230,7 @@ describe('foods', () => {
     const day = store.getDay(DAY)
     expect(day.alcohol).toMatchObject({ drinks: 2, calories: 225 })
     expect(day.totals.calories).toBe(105) // food only
-    expect(day.goals.calories).toEqual({ min: 1700, max: 1700 }) // and the goal is untouched
+    expect(day.goals.calories).toEqual({ min: 1800, max: 1800 }) // and the goal is untouched (1700 + the 100 buffer)
   })
 
   it('does not snapshot a saved food into history', () => {
@@ -788,6 +788,23 @@ describe('meditation', () => {
     expect(() => store.addMeditation({ date: DAY, minutes: 0 })).toThrow(/positive number/)
   })
 
+  it('adds a configurable calorie buffer to every day type, and keeps it through an upgrade', () => {
+    expect(store.getGoals().calorieBuffer).toBe(100)
+    expect(store.getDay(DAY).goals.calories.max).toBe(1800) // 1700 from the default macros + 100
+    store.setGoals({ calorieBuffer: 250 })
+    store.setDayType(DAY, 'training')
+    expect(store.getDay(DAY).goals.calories.max).toBe(2090) // 1840 + 250
+    expect(() => store.setGoals({ calorieBuffer: -10 })).toThrow(ValidationError)
+    const db = openRaw()
+    try {
+      db.exec('ALTER TABLE goals DROP COLUMN calorie_buffer')
+      db.exec('PRAGMA user_version = 5')
+    } finally {
+      db.close()
+    }
+    expect(new Store({ dir }).getGoals().calorieBuffer).toBe(100) // an older database gets the default
+  })
+
   it('takes its goal, and the weekly workout goal, from Settings', () => {
     store.setGoals({ meditationMinutes: 20, workoutsWeekly: 5 })
     const day = store.getDay(DAY)
@@ -803,6 +820,7 @@ describe('meditation', () => {
       // Back to version 4's shape: no new goal columns, no new tables.
       db.exec('ALTER TABLE goals DROP COLUMN workouts_weekly')
       db.exec('ALTER TABLE goals DROP COLUMN meditation_minutes')
+      db.exec('ALTER TABLE goals DROP COLUMN calorie_buffer')
       db.exec('DROP TABLE workout_logs')
       db.exec('DROP TABLE meditation_logs')
       db.exec('PRAGMA user_version = 4')
@@ -877,11 +895,11 @@ describe('ranges', () => {
     // The drinks' calories are reported for the range, but stay out of the food totals and goals.
     expect(range.alcohol.calories).toBe(275)
     expect(range.totals.calories).toBe(0)
-    expect(range.days[0]!.goals.calories.max).toBe(1700)
+    expect(range.days[0]!.goals.calories.max).toBe(1800)
   })
 
   it('carries the current goals along, same as a day view', () => {
-    store.setGoals({ protein: 140, fat: 45, carbs: 100, trainingCarbs: 20 })
+    store.setGoals({ protein: 140, fat: 45, carbs: 100, trainingCarbs: 20, calorieBuffer: 0 })
     // No day ticked as training, so every day in range is a rest day: 140*4 + 100*4 + 45*9 = 1365.
     expect(store.getRange(D1, D3).goals.calories.min).toBe(1365)
     // Tick one of the three: the blended goal moves a third of the way to the training day's 1445 (+20 g carbs).

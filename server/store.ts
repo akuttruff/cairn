@@ -206,7 +206,8 @@ CREATE TABLE IF NOT EXISTS meal_preset_items (
 CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY CHECK (id = 1),
   base_protein REAL NOT NULL, base_fat REAL NOT NULL, base_carbs REAL NOT NULL, training_carbs REAL NOT NULL,
   fiber REAL NOT NULL, water_ounces REAL NOT NULL DEFAULT 96, alcohol_weekly REAL NOT NULL DEFAULT 7,
-  workouts_weekly REAL NOT NULL DEFAULT 4, meditation_minutes REAL NOT NULL DEFAULT 10);
+  workouts_weekly REAL NOT NULL DEFAULT 4, meditation_minutes REAL NOT NULL DEFAULT 10,
+  calorie_buffer REAL NOT NULL DEFAULT 100);
 CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK (id = 1),
   usda_api_key TEXT NOT NULL DEFAULT '', lm_studio_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:1234',
   lm_studio_token TEXT NOT NULL DEFAULT '', research_model TEXT NOT NULL DEFAULT '', auto_lookup INTEGER NOT NULL DEFAULT 1);
@@ -305,6 +306,13 @@ function migrateSchema(db: DatabaseSync): void {
     if (!has('workouts_weekly')) db.exec(`ALTER TABLE goals ADD COLUMN workouts_weekly REAL NOT NULL DEFAULT ${DEFAULT_GOALS.workoutsWeekly}`)
     if (!has('meditation_minutes')) db.exec(`ALTER TABLE goals ADD COLUMN meditation_minutes REAL NOT NULL DEFAULT ${DEFAULT_GOALS.meditationMinutes}`)
     db.exec('PRAGMA user_version = 5')
+  }
+  if (version < 6) {
+    const cols = db.prepare('PRAGMA table_info(goals)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'calorie_buffer')) {
+      db.exec(`ALTER TABLE goals ADD COLUMN calorie_buffer REAL NOT NULL DEFAULT ${DEFAULT_GOALS.calorieBuffer}`)
+    }
+    db.exec('PRAGMA user_version = 6')
   }
 }
 
@@ -463,10 +471,11 @@ function presetItemColumnParams(item: MealPresetItem): SQLInputValue[] {
 interface GoalsRow {
   base_protein: number; base_fat: number; base_carbs: number; training_carbs: number
   fiber: number; water_ounces: number; alcohol_weekly: number; workouts_weekly: number; meditation_minutes: number
+  calorie_buffer: number
 }
 interface DayTypeRow { date: string; type: string }
 
-const GOALS_COLUMNS = 'base_protein,base_fat,base_carbs,training_carbs,fiber,water_ounces,alcohol_weekly,workouts_weekly,meditation_minutes'
+const GOALS_COLUMNS = 'base_protein,base_fat,base_carbs,training_carbs,fiber,water_ounces,alcohol_weekly,workouts_weekly,meditation_minutes,calorie_buffer'
 const GOALS_PLACEHOLDERS = GOALS_COLUMNS.split(',').map(() => '?').join(',')
 const GOALS_ASSIGNMENTS = GOALS_COLUMNS.split(',').map((c) => `${c}=?`).join(', ')
 
@@ -474,13 +483,13 @@ function goalsFromRow(row: GoalsRow): Goals {
   return {
     protein: row.base_protein, fat: row.base_fat, carbs: row.base_carbs, trainingCarbs: row.training_carbs,
     fiber: row.fiber, water: row.water_ounces, alcoholWeekly: row.alcohol_weekly,
-    workoutsWeekly: row.workouts_weekly, meditationMinutes: row.meditation_minutes,
+    workoutsWeekly: row.workouts_weekly, meditationMinutes: row.meditation_minutes, calorieBuffer: row.calorie_buffer,
   }
 }
 
 /** In GOALS_COLUMNS order. */
 function goalsParams(g: Goals): SQLInputValue[] {
-  return [g.protein, g.fat, g.carbs, g.trainingCarbs, g.fiber, g.water, g.alcoholWeekly, g.workoutsWeekly, g.meditationMinutes]
+  return [g.protein, g.fat, g.carbs, g.trainingCarbs, g.fiber, g.water, g.alcoholWeekly, g.workoutsWeekly, g.meditationMinutes, g.calorieBuffer]
 }
 interface AlcoholLogRow { id: string; date: string; kind: string; created_at: number }
 interface WaterLogRow { id: string; date: string; ounces: number; created_at: number }
@@ -1492,6 +1501,7 @@ export class Store {
     if (input.fat !== undefined) next.fat = cleanGoalNumber(input.fat, 'fat')
     if (input.carbs !== undefined) next.carbs = cleanGoalNumber(input.carbs, 'carbs')
     if (input.trainingCarbs !== undefined) next.trainingCarbs = cleanGoalNumber(input.trainingCarbs, 'trainingCarbs')
+    if (input.calorieBuffer !== undefined) next.calorieBuffer = cleanGoalNumber(input.calorieBuffer, 'calorieBuffer', 2000)
     if (input.fiber !== undefined) next.fiber = cleanGoalNumber(input.fiber, 'fiber', 1000)
     if (input.water !== undefined) next.water = cleanGoalNumber(input.water, 'water', 1000)
     if (input.alcoholWeekly !== undefined) next.alcoholWeekly = cleanGoalNumber(input.alcoholWeekly, 'alcoholWeekly', 1000)

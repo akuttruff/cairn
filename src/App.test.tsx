@@ -13,7 +13,7 @@ const GOALS = {
 }
 /** What Settings edits and /api/goals returns -- separate shape from GOALS above (a resolved, per-day view). */
 const STORED_GOALS: Goals = {
-  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, fiber: 30, water: 96, alcoholWeekly: 7, workoutsWeekly: 4, meditationMinutes: 10,
+  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, calorieBuffer: 100, fiber: 30, water: 96, alcoholWeekly: 7, workoutsWeekly: 4, meditationMinutes: 10,
 }
 /** A range day's workout and meditation fields, with nothing logged. */
 const DAY_ACTIVITY = { workouts: 0, workoutMinutes: 0, meditationMinutes: 0 }
@@ -466,6 +466,26 @@ describe('App', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/meditation/m1')).toBe(true))
   })
 
+  it('edits the calorie buffer in Settings, with the goal it makes shown as you type', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/goals': STORED_GOALS,
+      'PUT /api/goals': { ...STORED_GOALS, calorieBuffer: 150 },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    const field = await screen.findByLabelText('Calorie buffer (kcal)')
+    expect(field).toHaveValue('100')
+    expect(screen.getByText(/Every day: 1800 kcal/)).toHaveTextContent('(1700 from the macros + 100 buffer)')
+    await user.clear(field)
+    await user.type(field, '150')
+    expect(screen.getByText(/Every day: 1850 kcal/)).toHaveTextContent('Training days: 1990 kcal')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/goals')).toBe(true))
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/goals')!.body).toMatchObject({ calorieBuffer: 150 })
+  })
+
   it('edits the workout and meditation goals from Settings', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
@@ -606,7 +626,7 @@ describe('App', () => {
     await user.clear(protein)
     await user.type(protein, '128')
     // The calorie math follows along as you type: 128*4 + 60*9 + 160*4, and +35 g carbs on training days.
-    expect(screen.getByText(/Every day: 1692 kcal\. Training days: 1832 kcal with 195 g carbs\./)).toBeInTheDocument()
+    expect(screen.getByText(/Every day: 1792 kcal \(1692 from the macros \+ 100 buffer\)\. Training days: 1932 kcal with 195 g carbs\./)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true))
     expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ protein: 128, trainingCarbs: 35 })

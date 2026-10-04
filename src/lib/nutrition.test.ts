@@ -154,7 +154,7 @@ describe('rangeStatus', () => {
 })
 
 const GOALS: Goals = {
-  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, fiber: 30, water: 96, alcoholWeekly: 7, workoutsWeekly: 4, meditationMinutes: 10,
+  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, calorieBuffer: 0, fiber: 30, water: 96, alcoholWeekly: 7, workoutsWeekly: 4, meditationMinutes: 10,
 }
 
 describe('resolveGoals', () => {
@@ -175,6 +175,13 @@ describe('resolveGoals', () => {
     expect(resolved.carbs).toEqual({ min: 195, max: 195 })
     expect(resolved.calories).toEqual({ min: 1840, max: 1840 }) // 1700 + 35*4
     expect(resolved.protein).toEqual({ min: 130, max: 130 }) // unchanged
+  })
+
+  it('adds the calorie buffer on top of what the macros come to, on every day type', () => {
+    const buffered = { ...GOALS, calorieBuffer: 100 }
+    expect(resolveGoals(buffered, 'rest').calories).toEqual({ min: 1800, max: 1800 }) // 1700 + 100
+    expect(resolveGoals(buffered, 'training').calories).toEqual({ min: 1940, max: 1940 }) // 1840 + 100
+    expect(resolveGoals(buffered, 'rest').protein).toEqual({ min: 130, max: 130 }) // the macros themselves don't move
   })
 })
 

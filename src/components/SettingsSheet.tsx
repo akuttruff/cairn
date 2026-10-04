@@ -28,12 +28,13 @@ export default function SettingsSheet({ open, session, onClose, onSaved }: Setti
 }
 
 /** The number fields, as typed; each is parsed and checked on every render. */
-type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'fiber' | 'water' | 'alcoholWeekly' | 'workoutsWeekly' | 'meditationMinutes'
+type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'calorieBuffer' | 'fiber' | 'water' | 'alcoholWeekly' | 'workoutsWeekly' | 'meditationMinutes'
 const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
   { key: 'protein', label: 'Protein (g)' },
   { key: 'fat', label: 'Fat (g)' },
   { key: 'carbs', label: 'Carbs (g)' },
   { key: 'trainingCarbs', label: 'Extra carbs on training days (g)', hint: 'Fast carbs before the workout; 35 g is about 140 kcal. Tick a day as a training day in Day view.' },
+  { key: 'calorieBuffer', label: 'Calorie buffer (kcal)', hint: 'Added to the calorie goal every day, on top of what the macros add up to.' },
   { key: 'fiber', label: 'Fiber (g)', hint: 'Same target on any day.' },
   { key: 'water', label: 'Water (oz)', hint: 'Defaults to 96oz -- 3 x 32oz bottles.' },
   { key: 'alcoholWeekly', label: 'Alcohol (drinks per week)', hint: 'A weekly cap, not a daily one -- shown against the running total for the week.' },
@@ -42,7 +43,7 @@ const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
 ]
 
 /** Calories the macros add up to at 4/4/9 -- the same math as resolveGoals(), for a live preview. */
-const kcal = (protein: number, fat: number, carbs: number): number => Math.round(protein * 4 + carbs * 4 + fat * 9)
+const kcal = (protein: number, fat: number, carbs: number, buffer = 0): number => Math.round(protein * 4 + carbs * 4 + fat * 9 + buffer)
 
 function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [drafts, setDrafts] = useState<Record<NumberField, string> | null>(null)
@@ -59,7 +60,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   useEffect(() => {
     api.goals().then((g) => {
       setDrafts({
-        protein: String(g.protein), fat: String(g.fat), carbs: String(g.carbs), trainingCarbs: String(g.trainingCarbs),
+        protein: String(g.protein), fat: String(g.fat), carbs: String(g.carbs), trainingCarbs: String(g.trainingCarbs), calorieBuffer: String(g.calorieBuffer),
         fiber: String(g.fiber), water: String(g.water), alcoholWeekly: String(g.alcoholWeekly),
         workoutsWeekly: String(g.workoutsWeekly), meditationMinutes: String(g.meditationMinutes),
       })
@@ -77,13 +78,15 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     : null
   const invalid = parsed ? NUMBER_FIELDS.filter((f) => parsed[f.key] == null || parsed[f.key]! < 0).map((f) => f.key) : []
   const formInvalid = !parsed || invalid.length > 0
+  // The preview leaves the buffer out while it's being typed wrong, rather than hiding the whole line.
+  const buffer = parsed && !invalid.includes('calorieBuffer') ? parsed.calorieBuffer! : 0
 
   const save = async (): Promise<void> => {
     if (!parsed || formInvalid) return
     setBusy(true)
     try {
       const next: Goals = {
-        protein: parsed.protein!, fat: parsed.fat!, carbs: parsed.carbs!, trainingCarbs: parsed.trainingCarbs!,
+        protein: parsed.protein!, fat: parsed.fat!, carbs: parsed.carbs!, trainingCarbs: parsed.trainingCarbs!, calorieBuffer: parsed.calorieBuffer!,
         fiber: parsed.fiber!, water: parsed.water!, alcoholWeekly: parsed.alcoholWeekly!,
         workoutsWeekly: parsed.workoutsWeekly!, meditationMinutes: parsed.meditationMinutes!,
       }
@@ -129,9 +132,10 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
             </div>
             {parsed && !invalid.includes('protein') && !invalid.includes('fat') && !invalid.includes('carbs') && (
               <div className="hint">
-                Every day: {kcal(parsed.protein!, parsed.fat!, parsed.carbs!)} kcal.
+                Every day: {kcal(parsed.protein!, parsed.fat!, parsed.carbs!, buffer)} kcal
+                {buffer > 0 && <> ({kcal(parsed.protein!, parsed.fat!, parsed.carbs!)} from the macros + {buffer} buffer)</>}.
                 {!invalid.includes('trainingCarbs') && (
-                  <> Training days: {kcal(parsed.protein!, parsed.fat!, parsed.carbs! + parsed.trainingCarbs!)} kcal
+                  <> Training days: {kcal(parsed.protein!, parsed.fat!, parsed.carbs! + parsed.trainingCarbs!, buffer)} kcal
                   with {parsed.carbs! + parsed.trainingCarbs!} g carbs.</>
                 )}
               </div>

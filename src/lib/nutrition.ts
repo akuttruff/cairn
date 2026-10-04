@@ -14,6 +14,7 @@ export const DEFAULT_GOALS: Goals = {
   fat: 60,
   carbs: 160,
   trainingCarbs: 35,
+  calorieBuffer: 100,
   fiber: 30,
   water: 96,
   alcoholWeekly: 7,
@@ -252,7 +253,8 @@ export function resolveGoals(goals: Goals, dayType: DayType): ResolvedGoals {
   const carbs = goals.carbs + (dayType === 'training' ? goals.trainingCarbs : 0)
   const exact = (n: number): MacroRange => ({ min: n, max: n })
   return {
-    calories: exact(round1(goals.protein * 4 + carbs * 4 + goals.fat * 9)),
+    // The macros' calories, plus the buffer: the cap has a little room the macros themselves don't.
+    calories: exact(round1(goals.protein * 4 + carbs * 4 + goals.fat * 9 + goals.calorieBuffer)),
     protein: exact(goals.protein), carbs: exact(carbs), fat: exact(goals.fat),
     fiber: goals.fiber, water: goals.water, alcoholWeekly: goals.alcoholWeekly,
     workoutsWeekly: goals.workoutsWeekly, meditationMinutes: goals.meditationMinutes,
