@@ -1,6 +1,7 @@
-import { ALCOHOL_KINDS, NUTRIENTS } from '../types.ts'
-import { LABELS, UNITS, goalMet, goalRangeFor, localDate, progress, waterMet } from '../lib/nutrition.ts'
+import { ALCOHOL_KINDS, NUTRIENTS, WORKOUT_KINDS } from '../types.ts'
+import { LABELS, UNITS, goalMet, goalRangeFor, localDate, meditationMet, progress, waterMet } from '../lib/nutrition.ts'
 import { fmt } from '../lib/format.ts'
+import { WORKOUTS } from './WorkoutTracker.tsx'
 import type { DaySummary, MacroRange, NutrientKey, RangeView } from '../types.ts'
 
 interface RangeSummaryProps {
@@ -12,7 +13,7 @@ interface RangeSummaryProps {
 /** One line on the daily charts: a nutrient, or water, read off each day the same way. */
 interface Series {
   /** Also the CSS class that colours it. */
-  key: NutrientKey | 'water'
+  key: NutrientKey | 'water' | 'meditation'
   label: string
   unit: string
   value: (d: DaySummary) => number
@@ -45,8 +46,19 @@ const WATER: Series = {
   format: (value) => String(Math.round(value)),
 }
 
-/** What the daily charts plot, in order. */
-const CHARTED: Series[] = [nutrientSeries('calories'), nutrientSeries('protein'), nutrientSeries('fiber'), WATER]
+const MEDITATION: Series = {
+  key: 'meditation',
+  label: 'Meditation',
+  unit: 'min',
+  value: (d) => d.meditationMinutes,
+  goal: (d) => ({ min: d.goals.meditationMinutes, max: d.goals.meditationMinutes }),
+  logged: (d) => d.meditationMinutes > 0,
+  met: (value, goal) => meditationMet(value, goal.min),
+  format: (value) => String(Math.round(value)),
+}
+
+/** What the daily charts plot, in order. Workouts have a weekly goal, not a daily one, so they get a card below instead. */
+const CHARTED: Series[] = [nutrientSeries('calories'), nutrientSeries('protein'), nutrientSeries('fiber'), WATER, MEDITATION]
 
 interface RangeChartProps {
   series: Series
@@ -138,11 +150,14 @@ function RangeChart({ series, days, today, onSelectDay }: RangeChartProps) {
  * over days actually logged, water and alcohol over every day in the range.
  */
 export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
-  const { days, goals, dayTypes, scorecard, averages, loggedDays, totalDays, water, alcohol } = view
+  const { days, goals, dayTypes, scorecard, averages, loggedDays, totalDays, water, alcohol, workouts, meditation } = view
   const today = localDate()
   const drankKinds = ALCOHOL_KINDS.filter((k) => alcohol.byKind[k] > 0)
   const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
   const unloggedWater = totalDays - water.of
+  // The weekly goal, scaled to however many weeks this range covers (a month is about 4.3).
+  const workoutGoal = Math.round((goals.workoutsWeekly * totalDays) / 7)
+  const workoutKinds = WORKOUT_KINDS.filter((k) => workouts.byKind[k] > 0)
 
   return (
     <section className="range-summary" aria-label="Range summary">
@@ -212,6 +227,56 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
         <div className="water-bottles">
           {Math.round(water.total)} oz total · {Math.round(water.average)} oz avg/day
           {unloggedWater > 0 && ` · ${plural(unloggedWater, 'day')} with none logged`}
+        </div>
+      </section>
+
+      <section className="water-card" aria-label="Workouts">
+        <div className="water-head">
+          <span className="water-label">Workouts</span>
+          <span className="water-num">
+            {workouts.sessions} of {workoutGoal}
+            <span className="water-goal"> · {goals.workoutsWeekly}/week goal</span>
+          </span>
+        </div>
+        <div
+          className="bar workout"
+          role="progressbar"
+          aria-label="Workouts against the goal"
+          aria-valuemin={0}
+          aria-valuemax={workoutGoal}
+          aria-valuenow={workouts.sessions}
+        >
+          <div className="bar-fill" style={{ width: `${Math.round(progress(workouts.sessions, workoutGoal) * 100)}%` }} />
+        </div>
+        <div className="water-bottles">
+          {workouts.sessions
+            ? <>{plural(workouts.days, 'day')} with a session{workouts.minutes > 0 && ` · ${workouts.minutes} min`}
+              {' · '}{workoutKinds.map((k) => `${workouts.byKind[k]} ${WORKOUTS[k].label.toLowerCase()}`).join(', ')}</>
+            : 'None logged'}
+        </div>
+      </section>
+
+      <section className="water-card" aria-label="Meditation">
+        <div className="water-head">
+          <span className="water-label">Meditation</span>
+          <span className="water-num">
+            {meditation.of ? `${meditation.met} of ${plural(meditation.of, 'day')}` : '—'}
+            <span className="water-goal"> · {goals.meditationMinutes} min goal</span>
+          </span>
+        </div>
+        <div
+          className="bar meditation"
+          role="progressbar"
+          aria-label="Meditation goal met"
+          aria-valuemin={0}
+          aria-valuemax={meditation.of}
+          aria-valuenow={meditation.met}
+        >
+          <div className="bar-fill" style={{ width: `${Math.round(progress(meditation.met, meditation.of) * 100)}%` }} />
+        </div>
+        <div className="water-bottles">
+          {meditation.total} min total · {meditation.average} min avg/day
+          {meditation.streak > 1 && ` · ${meditation.streak}-day streak`}
         </div>
       </section>
 

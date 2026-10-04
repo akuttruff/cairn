@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   addDays, addMonths, alcoholCalories, blendGoals, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalMet,
   impliedCalories,
-  isDateString, localDate, macroCalories, progress, rangeStatus, resolveGoals, scale, scoreDays, scoreWater, startOfMonth,
-  startOfWeek, sumDay, sumNutrients,
+  isDateString, localDate, macroCalories, meditationMet, progress, rangeStatus, resolveGoals, scale, scoreDays, scoreMeditation,
+  scoreWater, startOfMonth, startOfWeek, streakThrough, sumDay, sumNutrients,
 } from './nutrition.ts'
 import type { DaySummary, Entry, Goals, NutrientKey, Nutrients, ResolvedGoals } from '../types.ts'
 
@@ -153,7 +153,9 @@ describe('rangeStatus', () => {
   })
 })
 
-const GOALS: Goals = { protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, fiber: 30, water: 96, alcoholWeekly: 7 }
+const GOALS: Goals = {
+  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, fiber: 30, water: 96, alcoholWeekly: 7, workoutsWeekly: 4, meditationMinutes: 10,
+}
 
 describe('resolveGoals', () => {
   it('computes calories from the macros themselves -- never a separately stated number', () => {
@@ -164,6 +166,8 @@ describe('resolveGoals', () => {
     expect(resolved.fiber).toBe(30)
     expect(resolved.water).toBe(96)
     expect(resolved.alcoholWeekly).toBe(7)
+    expect(resolved.workoutsWeekly).toBe(4)
+    expect(resolved.meditationMinutes).toBe(10)
   })
 
   it('adds the training-day carbs on top of the base, and the calories they bring', () => {
@@ -206,6 +210,7 @@ describe('scoreDays', () => {
   const rest = resolveGoals(GOALS, 'rest')
   const summary = (dayType: 'training' | 'rest', totals: Partial<Record<NutrientKey, number>>, entryCount = 1): DaySummary => ({
     date: '2026-09-22', entryCount, dayType, goals: dayType === 'training' ? training : rest, water: 0, alcohol: 0,
+    workouts: 0, workoutMinutes: 0, meditationMinutes: 0,
     totals: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0, ...totals },
     missing: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 },
   })
@@ -237,6 +242,36 @@ describe('scoreWater', () => {
     // 96 and 128 reach the goal; 92 falls short; the 0 day is left out, not a miss.
     expect(scoreWater(days, 96)).toEqual({ met: 2, of: 3 })
     expect(scoreWater(days, 0)).toEqual({ met: 0, of: 3 }) // no goal set: nothing can be met
+  })
+})
+
+describe('meditation', () => {
+  it('meets the goal at or over the minutes, and scores only the days any was logged, like water', () => {
+    expect(meditationMet(10, 10)).toBe(true)
+    expect(meditationMet(25, 10)).toBe(true)
+    expect(meditationMet(9, 10)).toBe(false)
+    expect(meditationMet(30, 0)).toBe(false) // no goal set
+    const days = [{ meditationMinutes: 10 }, { meditationMinutes: 5 }, { meditationMinutes: 0 }, { meditationMinutes: 20 }]
+    expect(scoreMeditation(days, 10)).toEqual({ met: 2, of: 3 })
+  })
+})
+
+describe('streakThrough', () => {
+  const days = ['2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04']
+    .map((date, i) => ({ date, minutes: [5, 0, 10, 10, 10, 0, 0][i]! }))
+  const sat = (d: { minutes: number }): boolean => d.minutes > 0
+
+  it('counts consecutive logged days back from a date, stopping at the first gap', () => {
+    expect(streakThrough(days, sat, '2026-10-02')).toBe(3) // the 30th, 1st and 2nd; the 29th is the gap
+  })
+
+  it("ignores days after the date -- days still ahead in the week can't break a streak", () => {
+    // Midweek: the 3rd and 4th are empty because they haven't happened yet.
+    expect(streakThrough(days, sat, '2026-10-01')).toBe(2)
+  })
+
+  it('is zero when the most recent day had nothing', () => {
+    expect(streakThrough(days, sat, '2026-10-03')).toBe(0)
   })
 })
 

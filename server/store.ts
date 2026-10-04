@@ -3,15 +3,15 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import type { SQLInputValue, StatementSync } from 'node:sqlite'
-import { ALCOHOL_KINDS, MEALS, NUTRIENTS } from '../src/types.ts'
+import { ALCOHOL_KINDS, MEALS, NUTRIENTS, WORKOUT_KINDS } from '../src/types.ts'
 import type {
   AlcoholKind, AlcoholLog, Amount, DaySummary, DayType, DayView, Entry, Food, FoodSource, Goals,
-  Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, NutrientKey, PerServing, PublicSettings,
-  RangeView, Serving, Settings, SourceLink, WaterLog,
+  Meal, MealPreset, MealPresetItem, MeditationLog, NewEntry, Nutrients, NutrientKey, PerServing, PublicSettings,
+  RangeView, Serving, Settings, SourceLink, WaterLog, WorkoutKind, WorkoutLog,
 } from '../src/types.ts'
 import {
-  addDays, alcoholCalories, blendGoals, DEFAULT_GOALS, daysBetween, isDateString, resolveGoals, round1, scale,
-  scoreDays, scoreWater, startOfWeek, sumDay,
+  addDays, alcoholCalories, blendGoals, DEFAULT_GOALS, daysBetween, isDateString, localDate, resolveGoals, round1, scale,
+  scoreDays, scoreMeditation, scoreWater, startOfWeek, streakThrough, sumDay, TRAINING_KINDS,
 } from '../src/lib/nutrition.ts'
 import { DAY_TYPES } from '../src/types.ts'
 import { LOOKUP_MAX, LOOKUP_TTL_MS, normalizeQuery } from './research.ts'
@@ -205,7 +205,8 @@ CREATE TABLE IF NOT EXISTS meal_preset_items (
 
 CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY CHECK (id = 1),
   base_protein REAL NOT NULL, base_fat REAL NOT NULL, base_carbs REAL NOT NULL, training_carbs REAL NOT NULL,
-  fiber REAL NOT NULL, water_ounces REAL NOT NULL DEFAULT 96, alcohol_weekly REAL NOT NULL DEFAULT 7);
+  fiber REAL NOT NULL, water_ounces REAL NOT NULL DEFAULT 96, alcohol_weekly REAL NOT NULL DEFAULT 7,
+  workouts_weekly REAL NOT NULL DEFAULT 4, meditation_minutes REAL NOT NULL DEFAULT 10);
 CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK (id = 1),
   usda_api_key TEXT NOT NULL DEFAULT '', lm_studio_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:1234',
   lm_studio_token TEXT NOT NULL DEFAULT '', research_model TEXT NOT NULL DEFAULT '', auto_lookup INTEGER NOT NULL DEFAULT 1);
@@ -223,6 +224,16 @@ CREATE TABLE IF NOT EXISTS alcohol_logs (
   id TEXT PRIMARY KEY, date TEXT NOT NULL, kind TEXT NOT NULL, created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_alcohol_logs_date ON alcohol_logs(date);
+
+CREATE TABLE IF NOT EXISTS workout_logs (
+  id TEXT PRIMARY KEY, date TEXT NOT NULL, kind TEXT NOT NULL, minutes REAL, note TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_workout_logs_date ON workout_logs(date);
+
+CREATE TABLE IF NOT EXISTS meditation_logs (
+  id TEXT PRIMARY KEY, date TEXT NOT NULL, minutes REAL NOT NULL, note TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_meditation_logs_date ON meditation_logs(date);
 
 CREATE TABLE IF NOT EXISTS lookup_cache (
   key TEXT PRIMARY KEY, at INTEGER NOT NULL, result TEXT NOT NULL
@@ -286,6 +297,14 @@ function migrateSchema(db: DatabaseSync): void {
       if (!has(column)) db.exec(`ALTER TABLE goals ADD COLUMN ${column} REAL NOT NULL DEFAULT ${value}`)
     }
     db.exec('PRAGMA user_version = 4')
+  }
+  if (version < 5) {
+    // Workout and meditation goals; their log tables come from the schema above.
+    const cols = db.prepare('PRAGMA table_info(goals)').all() as { name: string }[]
+    const has = (name: string): boolean => cols.some((c) => c.name === name)
+    if (!has('workouts_weekly')) db.exec(`ALTER TABLE goals ADD COLUMN workouts_weekly REAL NOT NULL DEFAULT ${DEFAULT_GOALS.workoutsWeekly}`)
+    if (!has('meditation_minutes')) db.exec(`ALTER TABLE goals ADD COLUMN meditation_minutes REAL NOT NULL DEFAULT ${DEFAULT_GOALS.meditationMinutes}`)
+    db.exec('PRAGMA user_version = 5')
   }
 }
 
@@ -443,11 +462,11 @@ function presetItemColumnParams(item: MealPresetItem): SQLInputValue[] {
 
 interface GoalsRow {
   base_protein: number; base_fat: number; base_carbs: number; training_carbs: number
-  fiber: number; water_ounces: number; alcohol_weekly: number
+  fiber: number; water_ounces: number; alcohol_weekly: number; workouts_weekly: number; meditation_minutes: number
 }
 interface DayTypeRow { date: string; type: string }
 
-const GOALS_COLUMNS = 'base_protein,base_fat,base_carbs,training_carbs,fiber,water_ounces,alcohol_weekly'
+const GOALS_COLUMNS = 'base_protein,base_fat,base_carbs,training_carbs,fiber,water_ounces,alcohol_weekly,workouts_weekly,meditation_minutes'
 const GOALS_PLACEHOLDERS = GOALS_COLUMNS.split(',').map(() => '?').join(',')
 const GOALS_ASSIGNMENTS = GOALS_COLUMNS.split(',').map((c) => `${c}=?`).join(', ')
 
@@ -455,15 +474,40 @@ function goalsFromRow(row: GoalsRow): Goals {
   return {
     protein: row.base_protein, fat: row.base_fat, carbs: row.base_carbs, trainingCarbs: row.training_carbs,
     fiber: row.fiber, water: row.water_ounces, alcoholWeekly: row.alcohol_weekly,
+    workoutsWeekly: row.workouts_weekly, meditationMinutes: row.meditation_minutes,
   }
 }
 
 /** In GOALS_COLUMNS order. */
 function goalsParams(g: Goals): SQLInputValue[] {
-  return [g.protein, g.fat, g.carbs, g.trainingCarbs, g.fiber, g.water, g.alcoholWeekly]
+  return [g.protein, g.fat, g.carbs, g.trainingCarbs, g.fiber, g.water, g.alcoholWeekly, g.workoutsWeekly, g.meditationMinutes]
 }
 interface AlcoholLogRow { id: string; date: string; kind: string; created_at: number }
 interface WaterLogRow { id: string; date: string; ounces: number; created_at: number }
+interface WorkoutLogRow { id: string; date: string; kind: string; minutes: number | null; note: string | null; created_at: number }
+interface MeditationLogRow { id: string; date: string; minutes: number; note: string | null; created_at: number }
+
+const workoutFromRow = (r: WorkoutLogRow): WorkoutLog => ({
+  id: r.id, date: r.date, kind: r.kind as WorkoutKind, minutes: r.minutes, createdAt: r.created_at,
+  ...(r.note ? { note: r.note } : {}),
+})
+const meditationFromRow = (r: MeditationLogRow): MeditationLog => ({
+  id: r.id, date: r.date, minutes: r.minutes, createdAt: r.created_at, ...(r.note ? { note: r.note } : {}),
+})
+
+/** Minutes for a session: a positive number of them, within a day; null when not noted. */
+function cleanMinutes(input: unknown, required: boolean): number | null {
+  if (input == null || input === '') {
+    if (required) throw new ValidationError('minutes is required')
+    return null
+  }
+  if (typeof input !== 'number' || !Number.isFinite(input) || input <= 0 || input > 24 * 60) {
+    throw new ValidationError('minutes must be a positive number of minutes')
+  }
+  return Math.round(input)
+}
+const cleanNote = (input: unknown): string | undefined =>
+  (typeof input === 'string' && input.trim() ? input.trim().slice(0, MAX_NAME) : undefined)
 interface SettingsRow {
   usda_api_key: string; lm_studio_url: string; lm_studio_token: string; research_model: string; auto_lookup: number
 }
@@ -642,6 +686,14 @@ interface Stmts {
   selectAlcoholBetween: StatementSync
   insertAlcohol: StatementSync
   deleteAlcohol: StatementSync
+  selectWorkoutsByDate: StatementSync
+  selectWorkoutsBetween: StatementSync
+  insertWorkout: StatementSync
+  deleteWorkout: StatementSync
+  selectMeditationByDate: StatementSync
+  selectMeditationBetween: StatementSync
+  insertMeditation: StatementSync
+  deleteMeditation: StatementSync
   selectLookup: StatementSync
   upsertLookup: StatementSync
   pruneLookups: StatementSync
@@ -766,6 +818,14 @@ export class Store {
       selectAlcoholBetween: this.db.prepare('SELECT * FROM alcohol_logs WHERE date >= ? AND date <= ?'),
       insertAlcohol: this.db.prepare('INSERT INTO alcohol_logs (id,date,kind,created_at) VALUES (?,?,?,?)'),
       deleteAlcohol: this.db.prepare('DELETE FROM alcohol_logs WHERE id = ?'),
+      selectWorkoutsByDate: this.db.prepare('SELECT * FROM workout_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
+      selectWorkoutsBetween: this.db.prepare('SELECT * FROM workout_logs WHERE date >= ? AND date <= ?'),
+      insertWorkout: this.db.prepare('INSERT INTO workout_logs (id,date,kind,minutes,note,created_at) VALUES (?,?,?,?,?,?)'),
+      deleteWorkout: this.db.prepare('DELETE FROM workout_logs WHERE id = ?'),
+      selectMeditationByDate: this.db.prepare('SELECT * FROM meditation_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
+      selectMeditationBetween: this.db.prepare('SELECT * FROM meditation_logs WHERE date >= ? AND date <= ?'),
+      insertMeditation: this.db.prepare('INSERT INTO meditation_logs (id,date,minutes,note,created_at) VALUES (?,?,?,?,?)'),
+      deleteMeditation: this.db.prepare('DELETE FROM meditation_logs WHERE id = ?'),
       selectLookup: this.db.prepare('SELECT at, result FROM lookup_cache WHERE key = ?'),
       upsertLookup: this.db.prepare(
         'INSERT INTO lookup_cache (key,at,result) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET at=excluded.at, result=excluded.result',
@@ -871,7 +931,9 @@ export class Store {
     // The drinks' calories are reported (alcohol.calories) but kept out of
     // the day's totals and goals: food is judged on its own.
     const alcohol = this.getAlcohol(date, goals.alcoholWeekly)
-    return { date, entries, dayType, goals, water, alcohol, ...sumDay(entries) }
+    const workouts = this.getWorkouts(date, goals.workoutsWeekly)
+    const meditation = this.getMeditation(date, goals.meditationMinutes)
+    return { date, entries, dayType, goals, water, alcohol, workouts, meditation, ...sumDay(entries) }
   }
 
   /**
@@ -892,6 +954,9 @@ export class Store {
     const waterByDate = groupBy(this.stmts.selectWaterBetween.all(start, end) as unknown as WaterLogRow[], 'date')
     const alcoholRows = this.stmts.selectAlcoholBetween.all(start, end) as unknown as AlcoholLogRow[]
     const alcoholByDate = groupBy(alcoholRows, 'date')
+    const workoutRows = this.stmts.selectWorkoutsBetween.all(start, end) as unknown as WorkoutLogRow[]
+    const workoutsByDate = groupBy(workoutRows, 'date')
+    const meditationByDate = groupBy(this.stmts.selectMeditationBetween.all(start, end) as unknown as MeditationLogRow[], 'date')
     const dayTypeByDate = new Map(
       (this.stmts.selectDayTypesBetween.all(start, end) as unknown as DayTypeRow[]).map((r) => [r.date, r.type]),
     )
@@ -903,9 +968,14 @@ export class Store {
       const water = (waterByDate.get(date) ?? []).reduce((sum, r) => sum + r.ounces, 0)
       const dayType: DayType = dayTypeByDate.get(date) === 'training' ? 'training' : 'rest'
       const drinks = alcoholByDate.get(date) ?? []
+      const sessions = workoutsByDate.get(date) ?? []
       days.push({
         date, entryCount: dayEntries.length, dayType, goals: resolveGoals(goals, dayType), water,
-        alcohol: drinks.length, ...sumDay(dayEntries),
+        alcohol: drinks.length,
+        workouts: sessions.length,
+        workoutMinutes: sessions.reduce((sum, r) => sum + (r.minutes ?? 0), 0),
+        meditationMinutes: (meditationByDate.get(date) ?? []).reduce((sum, r) => sum + r.minutes, 0),
+        ...sumDay(dayEntries),
       })
     }
     const dayTypes: Record<DayType, number> = {
@@ -925,12 +995,91 @@ export class Store {
     const alcoholTotal = days.reduce((sum, d) => sum + d.alcohol, 0)
     const byKind = countByKind(alcoholRows)
 
+    const workoutsByKind = Object.fromEntries(WORKOUT_KINDS.map((k) => [k, 0])) as Record<WorkoutKind, number>
+    for (const r of workoutRows) if (r.kind in workoutsByKind) workoutsByKind[r.kind as WorkoutKind]++
+    const meditationTotal = days.reduce((sum, d) => sum + d.meditationMinutes, 0)
+    // A streak runs up to today at the latest: the days still ahead in this week can't have broken it.
+    const through = end < localDate() ? end : localDate()
+
     return {
       start, end, days, goals: blendGoals(days.map((d) => d.goals)), dayTypes, scorecard: scoreDays(days),
       totalDays, loggedDays, totals, averages,
       water: { total: round1(waterTotal), average: round1(waterTotal / totalDays), ...scoreWater(days, goals.water) },
       alcohol: { total: alcoholTotal, average: round1(alcoholTotal / totalDays), calories: alcoholCalories(byKind), byKind },
+      workouts: {
+        sessions: workoutRows.length,
+        days: days.filter((d) => d.workouts > 0).length,
+        minutes: days.reduce((sum, d) => sum + d.workoutMinutes, 0),
+        byKind: workoutsByKind,
+      },
+      meditation: {
+        total: meditationTotal,
+        average: round1(meditationTotal / totalDays),
+        days: days.filter((d) => d.meditationMinutes > 0).length,
+        ...scoreMeditation(days, goals.meditationMinutes),
+        streak: streakThrough(days, (d) => d.meditationMinutes > 0, through),
+      },
     }
+  }
+
+  /** This day's sessions, plus the calendar week's count (Monday-start) against the weekly goal. */
+  private getWorkouts(date: string, weekGoal: number): DayView['workouts'] {
+    const sessions = (this.stmts.selectWorkoutsByDate.all(date) as unknown as WorkoutLogRow[]).map(workoutFromRow)
+    const weekStart = startOfWeek(date)
+    const weekTotal = (this.stmts.selectWorkoutsBetween.all(weekStart, addDays(weekStart, 6)) as unknown as WorkoutLogRow[]).length
+    return {
+      sessions, minutes: sessions.reduce((sum, s) => sum + (s.minutes ?? 0), 0),
+      weekTotal, weekGoal, lastLogId: sessions[0]?.id ?? null,
+    }
+  }
+
+  private getMeditation(date: string, goal: number): DayView['meditation'] {
+    const sessions = (this.stmts.selectMeditationByDate.all(date) as unknown as MeditationLogRow[]).map(meditationFromRow)
+    return { sessions, minutes: sessions.reduce((sum, s) => sum + s.minutes, 0), goal, lastLogId: sessions[0]?.id ?? null }
+  }
+
+  /**
+   * One workout session. A WOD or weightlifting session is what a training
+   * day is, so logging one ticks the day as training -- the extra carbs
+   * apply without a second tap. Other kinds (a walk, yoga) leave the day
+   * type alone, and the box in Day view can still be changed by hand.
+   */
+  addWorkout(input: { date?: unknown; kind?: unknown; minutes?: unknown; note?: unknown }): WorkoutLog {
+    const { date, kind } = input
+    if (typeof date !== 'string' || !isDateString(date)) throw new ValidationError('date must be YYYY-MM-DD')
+    if (typeof kind !== 'string' || !(WORKOUT_KINDS as readonly string[]).includes(kind)) {
+      throw new ValidationError(`kind must be one of ${WORKOUT_KINDS.join(', ')}`)
+    }
+    const note = cleanNote(input.note)
+    const log: WorkoutLog = {
+      id: randomUUID(), date, kind: kind as WorkoutKind, minutes: cleanMinutes(input.minutes, false), createdAt: Date.now(),
+      ...(note ? { note } : {}),
+    }
+    this.stmts.insertWorkout.run(log.id, log.date, log.kind, log.minutes, log.note ?? null, log.createdAt)
+    if (TRAINING_KINDS.has(log.kind)) this.stmts.upsertDayType.run(date, 'training')
+    return log
+  }
+
+  deleteWorkout(id: string): void {
+    const result = this.stmts.deleteWorkout.run(id)
+    if (result.changes === 0) throw new ValidationError('no such log')
+  }
+
+  /** One sit, in minutes. */
+  addMeditation(input: { date?: unknown; minutes?: unknown; note?: unknown }): MeditationLog {
+    const { date } = input
+    if (typeof date !== 'string' || !isDateString(date)) throw new ValidationError('date must be YYYY-MM-DD')
+    const note = cleanNote(input.note)
+    const log: MeditationLog = {
+      id: randomUUID(), date, minutes: cleanMinutes(input.minutes, true)!, createdAt: Date.now(), ...(note ? { note } : {}),
+    }
+    this.stmts.insertMeditation.run(log.id, log.date, log.minutes, log.note ?? null, log.createdAt)
+    return log
+  }
+
+  deleteMeditation(id: string): void {
+    const result = this.stmts.deleteMeditation.run(id)
+    if (result.changes === 0) throw new ValidationError('no such log')
   }
 
   private getWater(date: string, goal: number): DayView['water'] {
@@ -1346,6 +1495,8 @@ export class Store {
     if (input.fiber !== undefined) next.fiber = cleanGoalNumber(input.fiber, 'fiber', 1000)
     if (input.water !== undefined) next.water = cleanGoalNumber(input.water, 'water', 1000)
     if (input.alcoholWeekly !== undefined) next.alcoholWeekly = cleanGoalNumber(input.alcoholWeekly, 'alcoholWeekly', 1000)
+    if (input.workoutsWeekly !== undefined) next.workoutsWeekly = cleanGoalNumber(input.workoutsWeekly, 'workoutsWeekly', 50)
+    if (input.meditationMinutes !== undefined) next.meditationMinutes = cleanGoalNumber(input.meditationMinutes, 'meditationMinutes', 1440)
     this.stmts.updateGoals.run(...goalsParams(next))
     return next
   }

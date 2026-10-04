@@ -28,7 +28,7 @@ export default function SettingsSheet({ open, session, onClose, onSaved }: Setti
 }
 
 /** The number fields, as typed; each is parsed and checked on every render. */
-type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'fiber' | 'water' | 'alcoholWeekly'
+type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'fiber' | 'water' | 'alcoholWeekly' | 'workoutsWeekly' | 'meditationMinutes'
 const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
   { key: 'protein', label: 'Protein (g)' },
   { key: 'fat', label: 'Fat (g)' },
@@ -37,6 +37,8 @@ const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
   { key: 'fiber', label: 'Fiber (g)', hint: 'Same target on any day.' },
   { key: 'water', label: 'Water (oz)', hint: 'Defaults to 96oz -- 3 x 32oz bottles.' },
   { key: 'alcoholWeekly', label: 'Alcohol (drinks per week)', hint: 'A weekly cap, not a daily one -- shown against the running total for the week.' },
+  { key: 'workoutsWeekly', label: 'Workouts (sessions per week)', hint: 'Counted Monday to Sunday. Logging a WOD or weightlifting session also ticks the day as a training day.' },
+  { key: 'meditationMinutes', label: 'Meditation (minutes per day)', hint: 'However many sits it takes to get there.' },
 ]
 
 /** Calories the macros add up to at 4/4/9 -- the same math as resolveGoals(), for a live preview. */
@@ -59,6 +61,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       setDrafts({
         protein: String(g.protein), fat: String(g.fat), carbs: String(g.carbs), trainingCarbs: String(g.trainingCarbs),
         fiber: String(g.fiber), water: String(g.water), alcoholWeekly: String(g.alcoholWeekly),
+        workoutsWeekly: String(g.workoutsWeekly), meditationMinutes: String(g.meditationMinutes),
       })
     }).catch((err) => toast.error((err as Error).message))
     api.settings().then(setSettings).catch(() => { /* the placeholder just stays generic */ })
@@ -82,6 +85,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       const next: Goals = {
         protein: parsed.protein!, fat: parsed.fat!, carbs: parsed.carbs!, trainingCarbs: parsed.trainingCarbs!,
         fiber: parsed.fiber!, water: parsed.water!, alcoholWeekly: parsed.alcoholWeekly!,
+        workoutsWeekly: parsed.workoutsWeekly!, meditationMinutes: parsed.meditationMinutes!,
       }
       await api.setGoals(next)
       const changes: Parameters<typeof api.setSettings>[0] = {}

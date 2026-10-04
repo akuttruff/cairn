@@ -1,6 +1,6 @@
 import type {
   DayType, DayView, Entry, Food, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeView, Serving,
-  AlcoholKind, AlcoholLog, WaterLog, LmModelOption,
+  AlcoholKind, AlcoholLog, WaterLog, LmModelOption, MeditationLog, WorkoutKind, WorkoutLog,
 } from '../types.ts'
 
 /** An online lookup in progress or finished; see server/research.ts. */
@@ -62,6 +62,11 @@ export const api = {
   deleteWater: (id: string) => request<{ ok: true }>('DELETE', `/api/water/${encodeURIComponent(id)}`),
   addAlcohol: (date: string, kind: AlcoholKind) => request<AlcoholLog>('POST', '/api/alcohol', { date, kind }),
   deleteAlcohol: (id: string) => request<{ ok: true }>('DELETE', `/api/alcohol/${encodeURIComponent(id)}`),
+  addWorkout: (w: { date: string; kind: WorkoutKind; minutes?: number | null; note?: string }) =>
+    request<WorkoutLog>('POST', '/api/workouts', w),
+  deleteWorkout: (id: string) => request<{ ok: true }>('DELETE', `/api/workouts/${encodeURIComponent(id)}`),
+  addMeditation: (m: { date: string; minutes: number; note?: string }) => request<MeditationLog>('POST', '/api/meditation', m),
+  deleteMeditation: (id: string) => request<{ ok: true }>('DELETE', `/api/meditation/${encodeURIComponent(id)}`),
   settings: () => request<PublicSettings>('GET', '/api/settings'),
   setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; autoLookup?: boolean }) =>
     request<PublicSettings>('PUT', '/api/settings', s),

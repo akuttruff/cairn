@@ -112,6 +112,20 @@ export function createApi(options: ApiOptions = {}) {
       store.deleteWater(decodeURIComponent(m[1]!))
       return json(res, 200, { ok: true })
     }
+    if (p === '/api/workouts' && method === 'POST') {
+      return json(res, 201, store.addWorkout(await readBody(req) as Record<string, unknown>))
+    }
+    if ((m = /^\/api\/workouts\/([^/]+)$/.exec(p)) && method === 'DELETE') {
+      store.deleteWorkout(decodeURIComponent(m[1]!))
+      return json(res, 200, { ok: true })
+    }
+    if (p === '/api/meditation' && method === 'POST') {
+      return json(res, 201, store.addMeditation(await readBody(req) as Record<string, unknown>))
+    }
+    if ((m = /^\/api\/meditation\/([^/]+)$/.exec(p)) && method === 'DELETE') {
+      store.deleteMeditation(decodeURIComponent(m[1]!))
+      return json(res, 200, { ok: true })
+    }
 
     if (p === '/api/foods' && method === 'GET') {
       return json(res, 200, { saved: store.listFoods(), recent: store.recentFoods() })

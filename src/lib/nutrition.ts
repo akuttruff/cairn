@@ -1,6 +1,7 @@
 import { ALCOHOL_KINDS, NUTRIENTS } from '../types.ts'
 import type {
   AlcoholKind, DaySummary, DayTotals, DayType, Entry, Goals, Meal, MacroRange, NutrientKey, Nutrients, ResolvedGoals, Scorecard,
+  WorkoutKind,
 } from '../types.ts'
 
 /**
@@ -16,7 +17,12 @@ export const DEFAULT_GOALS: Goals = {
   fiber: 30,
   water: 96,
   alcoholWeekly: 7,
+  workoutsWeekly: 4,
+  meditationMinutes: 10,
 }
+
+/** The workout kinds that make a day a training day (the carb bump is for these). */
+export const TRAINING_KINDS: ReadonlySet<WorkoutKind> = new Set(['wod', 'weightlifting'])
 
 export const UNITS: Record<NutrientKey, string> = {
   calories: 'kcal',
@@ -207,6 +213,33 @@ export function scoreWater(days: Pick<DaySummary, 'water'>[], goal: number): { m
   return { met: logged.filter((d) => waterMet(d.water, goal)).length, of: logged.length }
 }
 
+/** Meditation is like water: reaching the day's minutes is what counts, more is fine. */
+export function meditationMet(minutes: number, goal: number): boolean {
+  return goal > 0 && minutes >= goal
+}
+
+/** Days that reached the meditation goal, of the days any was logged -- the same reasoning as scoreWater. */
+export function scoreMeditation(days: Pick<DaySummary, 'meditationMinutes'>[], goal: number): { met: number; of: number } {
+  const logged = days.filter((d) => d.meditationMinutes > 0)
+  return { met: logged.filter((d) => meditationMet(d.meditationMinutes, goal)).length, of: logged.length }
+}
+
+/**
+ * How many days in a row, counting back from `through` (the range's end,
+ * or today if that comes first -- days still ahead can't break a streak),
+ * had something logged. Zero when the most recent day didn't.
+ */
+export function streakThrough<T extends { date: string }>(days: T[], logged: (d: T) => boolean, through: string): number {
+  let n = 0
+  for (let i = days.length - 1; i >= 0; i--) {
+    const d = days[i]!
+    if (d.date > through) continue
+    if (!logged(d)) break
+    n++
+  }
+  return n
+}
+
 /**
  * A day's goals, calories included -- but calories are never stored on
  * their own (see Goals and ResolvedGoals). They're computed here from the
@@ -221,6 +254,7 @@ export function resolveGoals(goals: Goals, dayType: DayType): ResolvedGoals {
     calories: exact(round1(goals.protein * 4 + carbs * 4 + goals.fat * 9)),
     protein: exact(goals.protein), carbs: exact(carbs), fat: exact(goals.fat),
     fiber: goals.fiber, water: goals.water, alcoholWeekly: goals.alcoholWeekly,
+    workoutsWeekly: goals.workoutsWeekly, meditationMinutes: goals.meditationMinutes,
   }
 }
 
@@ -242,6 +276,7 @@ export function blendGoals(perDay: ResolvedGoals[]): ResolvedGoals {
     calories: avg((g) => g.calories), protein: avg((g) => g.protein), carbs: avg((g) => g.carbs), fat: avg((g) => g.fat),
     // These don't vary by day type, so every day's copy already agrees.
     fiber: first.fiber, water: first.water, alcoholWeekly: first.alcoholWeekly,
+    workoutsWeekly: first.workoutsWeekly, meditationMinutes: first.meditationMinutes,
   }
 }
 

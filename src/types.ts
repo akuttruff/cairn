@@ -127,6 +127,10 @@ export interface Goals {
   water: number
   /** Standard drinks per calendar week (Monday-start), not per day -- see DayView.alcohol. */
   alcoholWeekly: number
+  /** Workout sessions per calendar week (Monday-start) -- see DayView.workouts. */
+  workoutsWeekly: number
+  /** Minutes of meditation per day. */
+  meditationMinutes: number
 }
 
 /**
@@ -145,6 +149,8 @@ export interface ResolvedGoals {
   fiber: number
   water: number
   alcoholWeekly: number
+  workoutsWeekly: number
+  meditationMinutes: number
 }
 
 export interface DayTotals {
@@ -173,6 +179,33 @@ export interface WaterLog {
   createdAt: number
 }
 
+export const WORKOUT_KINDS = ['wod', 'weightlifting', 'run', 'walk', 'yoga', 'other'] as const
+export type WorkoutKind = (typeof WORKOUT_KINDS)[number]
+
+/**
+ * One workout session. Logging a WOD or weightlifting session also ticks
+ * the day as a training day (see Store.addWorkout), since that is what the
+ * box means; the box can still be unticked by hand.
+ */
+export interface WorkoutLog {
+  id: string
+  date: string
+  kind: WorkoutKind
+  /** How long, when noted; null when just the session was logged. */
+  minutes: number | null
+  note?: string
+  createdAt: number
+}
+
+/** One sit. Minutes are the unit: a daily goal of ten is ten, however many sits it took. */
+export interface MeditationLog {
+  id: string
+  date: string
+  minutes: number
+  note?: string
+  createdAt: number
+}
+
 export interface DayView extends DayTotals {
   date: string
   entries: Entry[]
@@ -198,6 +231,22 @@ export interface DayView extends DayTotals {
     /** The most recent log's id, for a one-tap undo. Null with nothing logged yet. */
     lastLogId: string | null
   }
+  workouts: {
+    /** This day's sessions, newest first. */
+    sessions: WorkoutLog[]
+    /** Minutes across them (sessions without a duration add nothing). */
+    minutes: number
+    /** Sessions in the calendar week (Monday-start) containing this day, against the weekly goal. */
+    weekTotal: number
+    weekGoal: number
+    lastLogId: string | null
+  }
+  meditation: {
+    sessions: MeditationLog[]
+    minutes: number
+    goal: number
+    lastLogId: string | null
+  }
 }
 
 /** One calendar day's totals within a range view -- a bar in the week/month chart. */
@@ -210,6 +259,10 @@ export interface DaySummary extends DayTotals {
   goals: ResolvedGoals
   water: number
   alcohol: number
+  /** Sessions and minutes that day. */
+  workouts: number
+  workoutMinutes: number
+  meditationMinutes: number
 }
 
 /** Per nutrient, how many of the range's logged days met that day's own goal -- see goalMet() in lib/nutrition.ts. */
@@ -244,6 +297,10 @@ export interface RangeView {
   water: { total: number; average: number; met: number; of: number }
   /** `calories`: what the range's drinks come to, reported beside the food totals, not in them. */
   alcohol: { total: number; average: number; calories: number; byKind: Record<AlcoholKind, number> }
+  /** Sessions over the range, the days that had one, and the minutes noted. */
+  workouts: { sessions: number; days: number; minutes: number; byKind: Record<WorkoutKind, number> }
+  /** `met` of `of`: days with any meditation logged that reached the daily minutes -- like water. `streak`: consecutive days ending at the range's end (or today, if earlier) with any logged. */
+  meditation: { total: number; average: number; days: number; met: number; of: number; streak: number }
 }
 
 /** What a client sends to log something. The server assigns id and time. */

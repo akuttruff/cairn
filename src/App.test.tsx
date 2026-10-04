@@ -9,10 +9,14 @@ const TODAY = localDate()
 const RANGE = (n: number): { min: number; max: number } => ({ min: n, max: n })
 const GOALS = {
   calories: RANGE(2000), protein: RANGE(150), fat: RANGE(65), carbs: RANGE(200),
-  fiber: 30, water: 96, alcoholWeekly: 7,
+  fiber: 30, water: 96, alcoholWeekly: 7, workoutsWeekly: 4, meditationMinutes: 10,
 }
 /** What Settings edits and /api/goals returns -- separate shape from GOALS above (a resolved, per-day view). */
-const STORED_GOALS: Goals = { protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, fiber: 30, water: 96, alcoholWeekly: 7 }
+const STORED_GOALS: Goals = {
+  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, fiber: 30, water: 96, alcoholWeekly: 7, workoutsWeekly: 4, meditationMinutes: 10,
+}
+/** A range day's workout and meditation fields, with nothing logged. */
+const DAY_ACTIVITY = { workouts: 0, workoutMinutes: 0, meditationMinutes: 0 }
 
 const banana: Food = {
   id: 'usda:173944', name: 'Bananas, raw', source: 'usda', sourceId: '173944',
@@ -32,6 +36,8 @@ const day = (entries: Entry[], over: Partial<DayView> = {}): DayView => ({
   missing: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 },
   water: { ounces: 0, goal: 96, lastLogId: null },
   alcohol: { drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, weekTotal: 0, weekGoal: 7, calories: 0, lastLogId: null },
+  workouts: { sessions: [], minutes: 0, weekTotal: 0, weekGoal: 4, lastLogId: null },
+  meditation: { sessions: [], minutes: 0, goal: 10, lastLogId: null },
   ...over,
 })
 
@@ -44,8 +50,10 @@ const range = (over: Partial<RangeView> = {}, start = startOfWeek(TODAY)): Range
   start, end: addDays(start, 6), goals: GOALS, dayTypes: { training: 7, rest: 0 }, scorecard: NO_SCORE, totalDays: 7, loggedDays: 0,
   totals: ZERO, averages: ZERO,
   water: { total: 0, average: 0, met: 0, of: 0 }, alcohol: { total: 0, average: 0, calories: 0, byKind: { beer: 0, wine: 0, liquor: 0 } },
+  workouts: { sessions: 0, days: 0, minutes: 0, byKind: { wod: 0, weightlifting: 0, run: 0, walk: 0, yoga: 0, other: 0 } },
+  meditation: { total: 0, average: 0, days: 0, met: 0, of: 0, streak: 0 },
   days: Array.from({ length: 7 }, (_, i) => ({
-    date: addDays(start, i), entryCount: 0, water: 0, alcohol: 0, dayType: 'training' as const, goals: GOALS, totals: ZERO, missing: ZERO,
+    date: addDays(start, i), entryCount: 0, water: 0, alcohol: 0, ...DAY_ACTIVITY, dayType: 'training' as const, goals: GOALS, totals: ZERO, missing: ZERO,
   })),
   ...over,
 })
@@ -394,6 +402,87 @@ describe('App', () => {
     render(<App />)
     await screen.findByRole('region', { name: 'Water' })
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+  })
+
+  it("shows the day's workouts and the week's count, and logs one with optional minutes", async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([], {
+        workouts: {
+          sessions: [{ id: 'w1', date: TODAY, kind: 'run', minutes: 30, createdAt: 1 }], minutes: 30,
+          weekTotal: 2, weekGoal: 4, lastLogId: 'w1',
+        },
+      }),
+      'POST /api/workouts': { id: 'w2', date: TODAY, kind: 'wod', minutes: 45, createdAt: 2 },
+    })
+    render(<App />)
+    const card = await screen.findByRole('region', { name: 'Workouts' })
+    expect(within(within(card).getByRole('list')).getByText('Run')).toBeInTheDocument()
+    expect(within(card).getByText('30 min')).toBeInTheDocument()
+    expect(within(card).getByRole('progressbar', { name: 'Workouts this week' })).toHaveAttribute('aria-valuenow', '2')
+    expect(within(card).getByText('2 to go this week')).toBeInTheDocument()
+    await user.type(within(card).getByLabelText('Minutes (optional)'), '45')
+    await user.click(within(card).getByRole('button', { name: 'WOD' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/workouts')).toBe(true))
+    expect(calls.find((c) => c.url === '/api/workouts')!.body).toEqual({ date: TODAY, kind: 'wod', minutes: 45 })
+  })
+
+  it('logs a workout without minutes, and removes one', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([], {
+        workouts: { sessions: [{ id: 'w1', date: TODAY, kind: 'yoga', minutes: null, createdAt: 1 }], minutes: 0, weekTotal: 1, weekGoal: 4, lastLogId: 'w1' },
+      }),
+      'POST /api/workouts': { id: 'w2', date: TODAY, kind: 'walk', minutes: null, createdAt: 2 },
+      'DELETE /api/workouts/w1': { ok: true },
+    })
+    render(<App />)
+    const card = await screen.findByRole('region', { name: 'Workouts' })
+    await user.click(within(card).getByRole('button', { name: 'Walk' }))
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/workouts')).toBe(true))
+    expect(calls.find((c) => c.url === '/api/workouts')!.body).toEqual({ date: TODAY, kind: 'walk', minutes: null })
+    await user.click(within(card).getByRole('button', { name: 'Remove Yoga' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/workouts/w1')).toBe(true))
+  })
+
+  it('logs meditation a sit at a time against the daily goal, and undoes the last', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([], {
+        meditation: { sessions: [{ id: 'm1', date: TODAY, minutes: 5, createdAt: 1 }], minutes: 5, goal: 10, lastLogId: 'm1' },
+      }),
+      'POST /api/meditation': { id: 'm2', date: TODAY, minutes: 10, createdAt: 2 },
+      'DELETE /api/meditation/m1': { ok: true },
+    })
+    render(<App />)
+    const card = await screen.findByRole('region', { name: 'Meditation' })
+    expect(within(card).getByRole('progressbar', { name: 'Meditation' })).toHaveAttribute('aria-valuenow', '5')
+    await user.click(within(card).getByRole('button', { name: /\+ 10 min/ }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/meditation')).toBe(true))
+    expect(calls.find((c) => c.url === '/api/meditation')!.body).toEqual({ date: TODAY, minutes: 10 })
+    await user.click(within(card).getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/meditation/m1')).toBe(true))
+  })
+
+  it('edits the workout and meditation goals from Settings', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/goals': STORED_GOALS,
+      'PUT /api/goals': { ...STORED_GOALS, workoutsWeekly: 5, meditationMinutes: 15 },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    const workouts = await screen.findByLabelText('Workouts (sessions per week)')
+    expect(workouts).toHaveValue('4')
+    await user.clear(workouts)
+    await user.type(workouts, '5')
+    const meditation = screen.getByLabelText('Meditation (minutes per day)')
+    await user.clear(meditation)
+    await user.type(meditation, '15')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/goals')).toBe(true))
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/goals')!.body).toMatchObject({ workoutsWeekly: 5, meditationMinutes: 15 })
   })
 
   it('undoes the most recent water log', async () => {
@@ -918,11 +1007,11 @@ describe('App', () => {
         'GET /api/range': range({
           days: [
             {
-              date: start, entryCount: 1, water: 0, alcohol: 0, dayType: 'training' as const, goals: GOALS, missing: ZERO,
+              date: start, entryCount: 1, water: 0, alcohol: 0, ...DAY_ACTIVITY, dayType: 'training' as const, goals: GOALS, missing: ZERO,
               totals: { ...ZERO, calories: 2100, protein: 140, fiber: 28 },
             },
             ...Array.from({ length: 6 }, (_, i) => ({
-              date: addDays(start, i + 1), entryCount: 0, water: 0, alcohol: 0, dayType: 'training' as const, goals: GOALS, totals: ZERO, missing: ZERO,
+              date: addDays(start, i + 1), entryCount: 0, water: 0, alcohol: 0, ...DAY_ACTIVITY, dayType: 'training' as const, goals: GOALS, totals: ZERO, missing: ZERO,
             })),
           ],
         }),
@@ -958,6 +1047,30 @@ describe('App', () => {
       expect(screen.getByRole('button', { name: `${start}: 96 oz, goal met` })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: `${addDays(start, 2)}: 32 oz, goal missed` })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: `${addDays(start, 3)}: 0 oz, nothing logged` })).toBeInTheDocument()
+    })
+
+    it('sums the week\'s workouts against the weekly goal, and charts and scores meditation per day', async () => {
+      const user = userEvent.setup()
+      const start = startOfWeek(TODAY)
+      const base = range()
+      stubApi({
+        [`GET /api/day/${TODAY}`]: day([]),
+        'GET /api/range': range({
+          workouts: { sessions: 3, days: 2, minutes: 85, byKind: { wod: 2, weightlifting: 0, run: 1, walk: 0, yoga: 0, other: 0 } },
+          meditation: { total: 25, average: 3.6, days: 2, met: 1, of: 2, streak: 2 },
+          days: base.days.map((d, i) => ({ ...d, meditationMinutes: [0, 15, 10, 0, 0, 0, 0][i]! })),
+        }),
+      })
+      render(<App />)
+      await user.click(await screen.findByRole('tab', { name: 'Week' }))
+      const workouts = await screen.findByRole('region', { name: 'Workouts' })
+      expect(within(workouts).getByText('3 of 4')).toBeInTheDocument()
+      expect(within(workouts).getByText(/2 days with a session · 85 min · 2 wod, 1 run/)).toBeInTheDocument()
+      const meditation = screen.getByRole('region', { name: 'Meditation' })
+      expect(within(meditation).getByText('1 of 2 days')).toBeInTheDocument()
+      expect(within(meditation).getByText(/25 min total · 3.6 min avg\/day · 2-day streak/)).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: `${addDays(start, 1)}: 15 min, goal met` })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: `${start}: 0 min, nothing logged` })).toBeInTheDocument()
     })
 
     it('says nothing about alcohol when none was logged in the range', async () => {

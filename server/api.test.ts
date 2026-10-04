@@ -267,6 +267,33 @@ describe('water', () => {
   })
 })
 
+describe('workouts and meditation', () => {
+  it('logs a workout, ticks the training day, and removes it over one round trip', async () => {
+    const logged = await call('POST', '/api/workouts', { date: DAY, kind: 'wod', minutes: 45 })
+    expect(logged.status).toBe(201)
+    const id = (logged.body as unknown as { id: string }).id
+    let day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
+    expect(day.dayType).toBe('training')
+    expect(day.workouts).toMatchObject({ minutes: 45, weekTotal: 1, lastLogId: id })
+    await call('DELETE', `/api/workouts/${id}`)
+    day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
+    expect(day.workouts.sessions).toEqual([])
+    expect((await call('POST', '/api/workouts', { date: DAY, kind: 'jousting' })).status).toBe(400)
+  })
+
+  it('logs meditation toward the daily goal, and undoes it', async () => {
+    const logged = await call('POST', '/api/meditation', { date: DAY, minutes: 10 })
+    expect(logged.status).toBe(201)
+    const id = (logged.body as unknown as { id: string }).id
+    let day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
+    expect(day.meditation).toMatchObject({ minutes: 10, goal: 10, lastLogId: id })
+    await call('DELETE', `/api/meditation/${id}`)
+    day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
+    expect(day.meditation.minutes).toBe(0)
+    expect((await call('POST', '/api/meditation', { date: DAY })).status).toBe(400)
+  })
+})
+
 describe('meal presets', () => {
   const eggs = { name: 'Eggs', per100g: BANANA, grams: 100, source: 'usda' }
 
