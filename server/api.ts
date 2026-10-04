@@ -204,7 +204,8 @@ export function createApi(options: ApiOptions = {}) {
       if (method === 'DELETE') return json(res, 200, { cancelled: research.cancel(id) })
     }
 
-    if (p === '/api/goals') {
+    // /api/targets is what the app uses (blockers block "goals" URLs); /api/goals stays for anything else.
+    if (p === '/api/targets' || p === '/api/goals') {
       if (method === 'GET') return json(res, 200, store.getGoals())
       if (method === 'PUT') return json(res, 200, store.setGoals(await readBody(req) as never))
     }

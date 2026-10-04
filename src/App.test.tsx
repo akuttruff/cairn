@@ -137,10 +137,10 @@ describe('App', () => {
     stubApi({ [`GET /api/day/${TODAY}`]: day([]) })
     const ok = globalThis.fetch
     vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) =>
-      (url.startsWith('/api/goals') ? Promise.reject(new TypeError('NetworkError when attempting to fetch resource.')) : (ok as typeof fetch)(url, init))))
+      (url.startsWith('/api/targets') ? Promise.reject(new TypeError('NetworkError when attempting to fetch resource.')) : (ok as typeof fetch)(url, init))))
     render(<App />) // App has its own toaster
     await user.click(await screen.findByRole('button', { name: 'Settings' }))
-    expect(await screen.findByText(/Couldn.t reach Cairn \(GET \/api\/goals\)/)).toBeInTheDocument()
+    expect(await screen.findByText(/Couldn.t reach Cairn \(GET \/api\/targets\)/)).toBeInTheDocument()
   })
 
   it('marks a total as partial when an entry lacks that nutrient', async () => {
@@ -589,8 +589,8 @@ describe('App', () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([]),
-      'GET /api/goals': STORED_GOALS,
-      'PUT /api/goals': { ...STORED_GOALS, trainingWater: 24 },
+      'GET /api/targets': STORED_GOALS,
+      'PUT /api/targets': { ...STORED_GOALS, trainingWater: 24 },
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Settings' }))
@@ -599,16 +599,16 @@ describe('App', () => {
     await user.clear(field)
     await user.type(field, '24')
     await user.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/goals')).toBe(true))
-    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/goals')!.body).toMatchObject({ trainingWater: 24 })
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/targets')).toBe(true))
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({ trainingWater: 24 })
   })
 
   it('edits the fiber goal in Settings, alongside the macros', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([]),
-      'GET /api/goals': STORED_GOALS,
-      'PUT /api/goals': { ...STORED_GOALS, fiber: 35 },
+      'GET /api/targets': STORED_GOALS,
+      'PUT /api/targets': { ...STORED_GOALS, fiber: 35 },
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Settings' }))
@@ -618,16 +618,16 @@ describe('App', () => {
     await user.clear(field)
     await user.type(field, '35')
     await user.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/goals')).toBe(true))
-    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/goals')!.body).toMatchObject({ fiber: 35 })
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/targets')).toBe(true))
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({ fiber: 35 })
   })
 
   it('edits the calorie buffer in Settings, with the goal it makes shown as you type', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([]),
-      'GET /api/goals': STORED_GOALS,
-      'PUT /api/goals': { ...STORED_GOALS, calorieBuffer: 150 },
+      'GET /api/targets': STORED_GOALS,
+      'PUT /api/targets': { ...STORED_GOALS, calorieBuffer: 150 },
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Settings' }))
@@ -638,16 +638,16 @@ describe('App', () => {
     await user.type(field, '150')
     expect(screen.getByText(/Every day: 1850 kcal/)).toHaveTextContent('Training days: 1990 kcal')
     await user.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/goals')).toBe(true))
-    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/goals')!.body).toMatchObject({ calorieBuffer: 150 })
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/targets')).toBe(true))
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({ calorieBuffer: 150 })
   })
 
   it('edits the default weekly plan, activity by activity, and the meditation goal from Settings', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([]),
-      'GET /api/goals': STORED_GOALS,
-      'PUT /api/goals': { ...STORED_GOALS, meditationMinutes: 15 },
+      'GET /api/targets': STORED_GOALS,
+      'PUT /api/targets': { ...STORED_GOALS, meditationMinutes: 15 },
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Settings' }))
@@ -664,8 +664,8 @@ describe('App', () => {
     await user.clear(meditation)
     await user.type(meditation, '15')
     await user.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/goals')).toBe(true))
-    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/goals')!.body).toMatchObject({
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/targets')).toBe(true))
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({
       meditationMinutes: 15, workoutPlan: { ...PLAN, yoga: 3 },
     })
   })
@@ -685,10 +685,10 @@ describe('App', () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([]),
-      'GET /api/goals': STORED_GOALS,
+      'GET /api/targets': STORED_GOALS,
       'GET /api/settings': { hasUsdaKey: false, researchModel: '' },
       'GET /api/lm-models': { models: [{ key: 'qwen/qwen3.8-27b', loaded: false }], error: null },
-      'PUT /api/goals': STORED_GOALS,
+      'PUT /api/targets': STORED_GOALS,
       'PUT /api/settings': {},
     })
     render(<App />)
@@ -778,9 +778,9 @@ describe('App', () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([]),
-      'GET /api/goals': STORED_GOALS,
+      'GET /api/targets': STORED_GOALS,
       'GET /api/settings': { hasUsdaKey: true, appIcon: 'ring', charts: ['calories', 'protein', 'fiber', 'water'] },
-      'PUT /api/goals': STORED_GOALS,
+      'PUT /api/targets': STORED_GOALS,
       'PUT /api/settings': { hasUsdaKey: true },
     })
     render(<App />)
@@ -799,9 +799,9 @@ describe('App', () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([]),
-      'GET /api/goals': STORED_GOALS,
+      'GET /api/targets': STORED_GOALS,
       'GET /api/settings': { hasUsdaKey: true, appIcon: 'ring' },
-      'PUT /api/goals': STORED_GOALS,
+      'PUT /api/targets': STORED_GOALS,
       'PUT /api/settings': { hasUsdaKey: true, appIcon: 'pillars' },
     })
     render(<App />)
@@ -818,9 +818,9 @@ describe('App', () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([]),
-      'GET /api/goals': STORED_GOALS,
+      'GET /api/targets': STORED_GOALS,
       'GET /api/settings': { hasUsdaKey: true },
-      'PUT /api/goals': STORED_GOALS,
+      'PUT /api/targets': STORED_GOALS,
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Settings' }))
@@ -841,8 +841,8 @@ describe('App', () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([]),
-      'GET /api/goals': STORED_GOALS,
-      'PUT /api/goals': { ...STORED_GOALS, alcoholWeekly: 4 },
+      'GET /api/targets': STORED_GOALS,
+      'PUT /api/targets': { ...STORED_GOALS, alcoholWeekly: 4 },
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Settings' }))
@@ -851,8 +851,8 @@ describe('App', () => {
     await user.clear(field)
     await user.type(field, '4')
     await user.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/goals')).toBe(true))
-    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/goals')!.body).toMatchObject({ alcoholWeekly: 4 })
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/targets')).toBe(true))
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({ alcoholWeekly: 4 })
   })
 
   it('ticks a day as a training day, and unticks it back to a rest day', async () => {

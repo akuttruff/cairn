@@ -60,8 +60,10 @@ export const api = {
       return data
     }),
   portions: (fdcId: string) => request<Serving[]>('GET', `/api/portions/${encodeURIComponent(fdcId)}`),
-  goals: () => request<Goals>('GET', '/api/goals'),
-  setGoals: (goals: Partial<Goals>) => request<Goals>('PUT', '/api/goals', goals),
+  // "targets", not "goals": privacy blockers (Firefox's, uBlock's lists) block URLs with "goals" in them,
+  // since analytics tools use the word. /api/goals still answers for anything else.
+  goals: () => request<Goals>('GET', '/api/targets'),
+  setGoals: (goals: Partial<Goals>) => request<Goals>('PUT', '/api/targets', goals),
   setDayType: (date: string, type: DayType) =>
     request<{ date: string; type: DayType }>('PUT', `/api/day-type/${encodeURIComponent(date)}`, { type }),
   addWater: (date: string, ounces: number) => request<WaterLog>('POST', '/api/water', { date, ounces }),

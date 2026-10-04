@@ -134,6 +134,14 @@ describe('search', () => {
   })
 })
 
+describe('goals address', () => {
+  it('answers at /api/targets, which content blockers leave alone, and still at /api/goals', async () => {
+    await call('PUT', '/api/targets', { fiber: 33 })
+    expect((await call('GET', '/api/targets')).body.fiber).toBe(33)
+    expect((await call('GET', '/api/goals')).body.fiber).toBe(33)
+  })
+})
+
 describe('body measurements', () => {
   it('takes readings from the phone as { samples }, a bare list, or one sample', async () => {
     const one = { type: 'Weight', value: 150.2, unit: 'lb', date: '2026-09-26T07:10:00-07:00' }
