@@ -1192,7 +1192,9 @@ describe('App', () => {
       expect(screen.getByRole('button', { name: `${TODAY}: 2100 kcal, goal missed` })).toBeInTheDocument() // a max can't be un-passed
       // Tomorrow, when it is in this week, is "still ahead" on all four charts (on a Saturday the week has no tomorrow).
       const tomorrowInWeek = TODAY !== addDays(start, 6)
-      expect(screen.queryAllByRole('button', { name: `${addDays(TODAY, 1)}: still ahead` })).toHaveLength(tomorrowInWeek ? 4 : 0)
+      // Counted on the charts' own columns: the workout and meditation boxes label their future days the same way.
+      const ahead = document.querySelectorAll(`.range-col.future[aria-label="${addDays(TODAY, 1)}: still ahead"]`)
+      expect(ahead).toHaveLength(tomorrowInWeek ? 4 : 0)
     })
 
     it('in a month, a tap shows that day in the chart headers and a second tap opens it', async () => {
