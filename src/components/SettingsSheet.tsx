@@ -33,9 +33,10 @@ const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
   { key: 'protein', label: 'Protein (g)' },
   { key: 'fat', label: 'Fat (g)' },
   { key: 'carbs', label: 'Carbs (g)' },
+  // With the macros, filling the two-by-two grid: a minimum to reach, the same on any day.
+  { key: 'fiber', label: 'Fiber (g)' },
   { key: 'trainingCarbs', label: 'Extra carbs on training days (g)', hint: 'Fast carbs before the workout; 35 g is about 140 kcal. Tick a day as a training day in Day view.' },
   { key: 'calorieBuffer', label: 'Calorie buffer (kcal)', hint: 'Added to the calorie goal every day, on top of what the macros add up to.' },
-  { key: 'fiber', label: 'Fiber (g)', hint: 'Same target on any day.' },
   { key: 'water', label: 'Water (oz)', hint: 'Defaults to 96oz -- 3 x 32oz bottles.' },
   { key: 'alcoholWeekly', label: 'Alcohol (drinks per week)', hint: 'A weekly cap, not a daily one -- shown against the running total for the week.' },
   { key: 'workoutsWeekly', label: 'Workouts (sessions per week)', hint: 'Counted Monday to Sunday. Logging a WOD or weightlifting session also ticks the day as a training day.' },
@@ -128,7 +129,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
           <div className="drawer-scroll" data-vaul-no-drag>
             {!drafts && <div className="hint">Loading…</div>}
             <div className="nutrient-fields">
-              {NUMBER_FIELDS.slice(0, 3).map(field)}
+              {NUMBER_FIELDS.slice(0, 4).map(field)}
             </div>
             {parsed && !invalid.includes('protein') && !invalid.includes('fat') && !invalid.includes('carbs') && (
               <div className="hint">
@@ -140,7 +141,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
                 )}
               </div>
             )}
-            {NUMBER_FIELDS.slice(3).map(field)}
+            {NUMBER_FIELDS.slice(4).map(field)}
 
             <h3 className="sheet-h">Food search</h3>
             <div className="field">

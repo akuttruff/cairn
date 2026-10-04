@@ -481,6 +481,25 @@ describe('App', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/meditation/m1')).toBe(true))
   })
 
+  it('edits the fiber goal in Settings, alongside the macros', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/goals': STORED_GOALS,
+      'PUT /api/goals': { ...STORED_GOALS, fiber: 35 },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    const field = await screen.findByLabelText('Fiber (g)')
+    expect(field).toHaveValue('30')
+    expect(field.closest('.nutrient-fields')).not.toBeNull() // in the macro grid, not further down
+    await user.clear(field)
+    await user.type(field, '35')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/goals')).toBe(true))
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/goals')!.body).toMatchObject({ fiber: 35 })
+  })
+
   it('edits the calorie buffer in Settings, with the goal it makes shown as you type', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
