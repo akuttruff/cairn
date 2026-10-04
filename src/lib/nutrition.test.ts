@@ -339,11 +339,11 @@ describe('dates', () => {
     expect(isDateString('../../etc')).toBe(false)
   })
 
-  it('finds the Monday starting the week of any day in it', () => {
-    expect(startOfWeek('2026-09-26')).toBe('2026-09-21') // a Saturday
-    expect(startOfWeek('2026-09-21')).toBe('2026-09-21') // already a Monday
-    expect(startOfWeek('2026-09-20')).toBe('2026-09-14') // a Sunday -- the *previous* Monday
-    expect(startOfWeek('2026-10-01')).toBe('2026-09-28') // crosses a month
+  it('finds the Sunday starting the week of any day in it', () => {
+    expect(startOfWeek('2026-09-26')).toBe('2026-09-20') // a Saturday: the last day of its week
+    expect(startOfWeek('2026-09-20')).toBe('2026-09-20') // already a Sunday
+    expect(startOfWeek('2026-09-21')).toBe('2026-09-20') // a Monday -- the Sunday just before
+    expect(startOfWeek('2026-10-01')).toBe('2026-09-27') // crosses a month
   })
 
   it('finds the first and last day of the month', () => {

@@ -127,11 +127,11 @@ export interface Goals {
   fiber: number
   /** Ounces per day. */
   water: number
-  /** Standard drinks per calendar week (Monday-start), not per day -- see DayView.alcohol. */
+  /** Standard drinks per calendar week (Sunday-start), not per day -- see DayView.alcohol. */
   alcoholWeekly: number
   /**
    * The default weekly plan: sessions of each kind per calendar week
-   * (Monday-start). A week can have its own plan instead -- see
+   * (Sunday-start). A week can have its own plan instead -- see
    * DayView.workouts.planIsCustom -- so one week can differ without
    * changing the rest.
    */
@@ -234,7 +234,7 @@ export interface DayView extends DayTotals {
     byKind: Record<AlcoholKind, number>
     /** What those drinks come to in calories -- reported beside the day, not included in totals.calories. See ALCOHOL_KCAL. */
     calories: number
-    /** Standard drinks logged in the calendar week (Monday-start) containing this day, today included. */
+    /** Standard drinks logged in the calendar week (Sunday-start) containing this day, today included. */
     weekTotal: number
     weekGoal: number
     /** The most recent log's id, for a one-tap undo. Null with nothing logged yet. */
@@ -245,7 +245,7 @@ export interface DayView extends DayTotals {
     sessions: WorkoutLog[]
     /** Minutes across them (sessions without a duration add nothing). */
     minutes: number
-    /** The Monday of this day's week: the plan below, and the counts, are that week's. */
+    /** The Sunday this day's week starts on: the plan below, and the counts, are that week's. */
     weekStart: string
     /** That week's plan: its own, if it has one, else the default from Settings. */
     plan: WorkoutPlan

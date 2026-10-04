@@ -25,7 +25,7 @@ interface WorkoutTrackerProps {
 
 /**
  * The day's sessions, and the week's count against the weekly goal
- * (Monday-start, today included) -- the week is the thing being aimed at,
+ * (Sunday-start, today included) -- the week is the thing being aimed at,
  * like the alcohol cap but the other way round. Minutes are optional:
  * tapping a kind logs a session, with the minutes if any are typed.
  */

@@ -151,9 +151,9 @@ function RangeChart({ series, days, today, onSelectDay }: RangeChartProps) {
 
 type BoxState = 'full' | 'half' | 'empty'
 
-/** Monday = 0 ... Sunday = 6, for lining a month up under weekday columns. */
-const weekdayIndex = (date: string): number => (new Date(`${date}T00:00:00`).getDay() + 6) % 7
-const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
+/** Sunday = 0 ... Saturday = 6, for lining a month up under weekday columns (weeks start on Sunday). */
+const weekdayIndex = (date: string): number => new Date(`${date}T00:00:00`).getDay()
+const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 
 interface DayBoxesProps {
   /** Also the CSS class that colours it. */
@@ -167,7 +167,7 @@ interface DayBoxesProps {
 }
 
 /**
- * One box per day, in Monday-first weekday columns -- a week is one row, a
+ * One box per day, in Sunday-first weekday columns -- a week is one row, a
  * month a little calendar. A box is filled for a day that did it, half
  * filled for a day partway there (one sit of two), and empty otherwise;
  * days still ahead are drawn faint, so an unfilled future isn't read as a

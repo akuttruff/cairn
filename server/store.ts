@@ -324,6 +324,11 @@ function migrateSchema(db: DatabaseSync): void {
     db.exec('CREATE TABLE IF NOT EXISTS workout_plans (week_start TEXT PRIMARY KEY, plan TEXT NOT NULL)')
     db.exec('PRAGMA user_version = 7')
   }
+  if (version < 8) {
+    // Weeks now start on Sunday: a week's own plan, stored by its Monday, moves to the day before.
+    db.exec("UPDATE workout_plans SET week_start = date(week_start, '-1 day') WHERE strftime('%w', week_start) = '1'")
+    db.exec('PRAGMA user_version = 8')
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1090,7 +1095,7 @@ export class Store {
     }
   }
 
-  /** This day's sessions, plus its calendar week (Monday-start): each kind's count against that week's plan. */
+  /** This day's sessions, plus its calendar week (Sunday-start): each kind's count against that week's plan. */
   private getWorkouts(date: string): DayView['workouts'] {
     const sessions = (this.stmts.selectWorkoutsByDate.all(date) as unknown as WorkoutLogRow[]).map(workoutFromRow)
     const weekStart = startOfWeek(date)
@@ -1112,9 +1117,9 @@ export class Store {
     return own ? { plan: own, custom: true } : { plan: this.getGoals().workoutPlan, custom: false }
   }
 
-  /** Give one week (by its Monday) its own plan; other weeks keep theirs, or the default. */
+  /** Give one week (by its Sunday) its own plan; other weeks keep theirs, or the default. */
   setWeekPlan(weekStart: string, plan: unknown): WorkoutPlan {
-    if (!isDateString(weekStart) || startOfWeek(weekStart) !== weekStart) throw new ValidationError('weekStart must be a Monday, YYYY-MM-DD')
+    if (!isDateString(weekStart) || startOfWeek(weekStart) !== weekStart) throw new ValidationError('weekStart must be a Sunday, YYYY-MM-DD')
     const clean = cleanPlan(plan)
     this.stmts.upsertWeekPlan.run(weekStart, JSON.stringify(clean))
     return clean
@@ -1181,7 +1186,7 @@ export class Store {
     return { ounces, goal, lastLogId: rows[0]?.id ?? null }
   }
 
-  /** This day's drinks, plus the calendar week's (Monday-start, today included) against its own goal. */
+  /** This day's drinks, plus the calendar week's (Sunday-start, today included) against its own goal. */
   private getAlcohol(date: string, weekGoal: number): DayView['alcohol'] {
     const rows = this.stmts.selectAlcoholByDate.all(date) as unknown as AlcoholLogRow[]
     const byKind = Object.fromEntries(ALCOHOL_KINDS.map((k) => [k, 0])) as Record<AlcoholKind, number>

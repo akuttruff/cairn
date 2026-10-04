@@ -282,7 +282,7 @@ describe('workouts and meditation', () => {
   })
 
   it("sets one week's own workout plan, and puts it back on the default", async () => {
-    const week = '2026-09-21' // a Monday
+    const week = '2026-09-20' // a Sunday
     const set = await call('PUT', `/api/workout-plan/${week}`, { plan: { yoga: 5 } })
     expect(set.status).toBe(200)
     let day = (await call('GET', `/api/day/${week}`)).body as unknown as DayView

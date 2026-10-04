@@ -65,7 +65,7 @@ export const api = {
   addWorkout: (w: { date: string; kind: WorkoutKind; minutes?: number | null; note?: string }) =>
     request<WorkoutLog>('POST', '/api/workouts', w),
   deleteWorkout: (id: string) => request<{ ok: true }>('DELETE', `/api/workouts/${encodeURIComponent(id)}`),
-  /** Give one week (by its Monday) its own plan, or put it back on the default. */
+  /** Give one week (by its Sunday) its own plan, or put it back on the default. */
   setWeekPlan: (weekStart: string, plan: WorkoutPlan) =>
     request<{ weekStart: string; plan: WorkoutPlan; custom: boolean }>('PUT', `/api/workout-plan/${encodeURIComponent(weekStart)}`, { plan }),
   clearWeekPlan: (weekStart: string) =>

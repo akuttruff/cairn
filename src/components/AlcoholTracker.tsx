@@ -19,7 +19,7 @@ interface AlcoholTrackerProps {
 
 /**
  * Today's drinks are just a record -- no daily goal or bar, same as before.
- * The week they fall in is held to one, though (Monday-start, today
+ * The week they fall in is held to one, though (Sunday-start, today
  * included): that's the actual thing being limited, not any one day.
  */
 export default function AlcoholTracker({ date, alcohol, onLogged }: AlcoholTrackerProps) {

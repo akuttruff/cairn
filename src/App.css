@@ -273,7 +273,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .range-point.meditation::after { background: var(--c-meditation); }
 .range-point.missed.meditation::after { border-color: var(--c-meditation); }
 
-/* Week/month: one box per day, Monday-first columns. A week is one row; a month, a small calendar. */
+/* Week/month: one box per day, Sunday-first columns. A week is one row; a month, a small calendar. */
 .day-boxes { --box: var(--c-workout); display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin: 4px 0 2px; }
 .day-boxes.meditation { --box: var(--c-meditation); }
 .day-boxes-weekday { font-family: var(--mono); font-size: 10px; color: var(--paper-dim); text-align: center; }

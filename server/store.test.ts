@@ -822,6 +822,30 @@ describe('meditation', () => {
     expect(() => store.setGoals({ workoutPlan: { jousting: 1 } as never })).toThrow(/unknown workout kind/)
   })
 
+  it('counts weeks Sunday to Saturday: a Saturday closes the week, the next day starts a fresh one', () => {
+    const sat = '2026-09-26'
+    const sun = '2026-09-27'
+    store.addWorkout({ date: '2026-09-20', kind: 'yoga' }) // the Sunday that opens Saturday's week
+    store.addWorkout({ date: sat, kind: 'yoga' })
+    store.addAlcohol(sat, 'wine')
+    expect(store.getDay(sat).workouts).toMatchObject({ weekStart: '2026-09-20', weekTotal: 2 })
+    expect(store.getDay(sat).alcohol.weekTotal).toBe(1)
+    expect(store.getDay(sun).workouts).toMatchObject({ weekStart: sun, weekTotal: 0 })
+    expect(store.getDay(sun).alcohol.weekTotal).toBe(0)
+  })
+
+  it('moves a week plan stored by its Monday (before weeks started on Sunday) to that Sunday', () => {
+    const db = openRaw()
+    try {
+      db.prepare('INSERT INTO workout_plans (week_start, plan) VALUES (?, ?)').run('2026-09-21', JSON.stringify({ yoga: 6 }))
+      db.exec('PRAGMA user_version = 7')
+    } finally {
+      db.close()
+    }
+    const upgraded = new Store({ dir })
+    expect(upgraded.getDay('2026-09-23').workouts).toMatchObject({ weekStart: '2026-09-20', planIsCustom: true, weekGoal: 6 })
+  })
+
   it("gives one week its own plan, leaving the default and every other week alone, and can put it back", () => {
     const week = startOfWeek(DAY)
     const nextWeek = addDays(week, 7)
@@ -839,7 +863,7 @@ describe('meditation', () => {
     store.clearWeekPlan(week)
     w = store.getDay(DAY).workouts
     expect(w).toMatchObject({ planIsCustom: false, weekGoal: 9 })
-    expect(() => store.setWeekPlan(addDays(week, 1), { yoga: 1 })).toThrow(/must be a Monday/)
+    expect(() => store.setWeekPlan(addDays(week, 1), { yoga: 1 })).toThrow(/must be a Sunday/)
   })
 
   it('upgrades a database from before workouts and meditation, keeping the goals already set', () => {
@@ -886,8 +910,9 @@ describe('ranges', () => {
       goalByKind: { wod: 1, weightlifting: 1, run: 0, cycling: 0, yoga: 2, pilates: 0 }, goal: 4,
     })
     // A whole week gets its plan exactly, its own plan if it has one.
-    store.setWeekPlan(D1, { yoga: 3, pilates: 2 })
-    expect(store.getRange(D1, addDays(D1, 6)).workouts.goalByKind).toEqual({ wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 3, pilates: 2 })
+    const sunday = startOfWeek(D1)
+    store.setWeekPlan(sunday, { yoga: 3, pilates: 2 })
+    expect(store.getRange(sunday, addDays(sunday, 6)).workouts.goalByKind).toEqual({ wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 3, pilates: 2 })
     expect(range.days.map((d) => d.workouts)).toEqual([2, 0, 1])
     // D2's two sits met the 50-minute goal, D3 didn't; D1 had none and is left out. D2-D3 is a two-day run.
     expect(range.meditation).toEqual({ total: 55, average: 18.3, days: 2, met: 1, of: 2, streak: 2 })

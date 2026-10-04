@@ -157,7 +157,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
             {NUMBER_FIELDS.slice(4, PLAN_START).map(field)}
 
             <h3 className="sheet-h">Default weekly workouts</h3>
-            <div className="hint">Sessions of each per week (Monday to Sunday). Any week can have its own from the Workouts card in Day view; this is what the rest get. Logging a WOD or lifting session also ticks the day as a training day.</div>
+            <div className="hint">Sessions of each per week (Sunday to Saturday). Any week can have its own from the Workouts card in Day view; this is what the rest get. Logging a WOD or lifting session also ticks the day as a training day.</div>
             <div className="nutrient-fields">{NUMBER_FIELDS.slice(PLAN_START).map(field)}</div>
 
             <h3 className="sheet-h">Food search</h3>

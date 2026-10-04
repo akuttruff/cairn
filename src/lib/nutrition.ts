@@ -322,12 +322,11 @@ export function addDays(date: string, days: number): string {
 export const isDateString = (s: string): boolean =>
   /^\d{4}-\d{2}-\d{2}$/.test(s) && addDays(s, 0) === s
 
-/** First day (Monday) of the calendar week containing `date`. */
+/** First day (Sunday) of the calendar week containing `date`. Weeks run Sunday to Saturday. */
 export function startOfWeek(date: string): string {
   const [y, m, d] = date.split('-').map(Number)
-  // getDay() is 0 = Sunday..6 = Saturday; shift so Monday is 0 and Sunday is 6.
-  const dow = (new Date(y!, m! - 1, d!).getDay() + 6) % 7
-  return addDays(date, -dow)
+  // getDay() is 0 = Sunday..6 = Saturday: exactly the days since the week began.
+  return addDays(date, -new Date(y!, m! - 1, d!).getDay())
 }
 
 /** First day of the calendar month containing `date`. */

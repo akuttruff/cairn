@@ -207,7 +207,7 @@ export function createApi(options: ApiOptions = {}) {
       return json(res, 200, { date, type: store.setDayType(date, body.type) })
     }
 
-    // One week's own workout plan (by its Monday); DELETE puts it back on the default.
+    // One week's own workout plan (by its Sunday); DELETE puts it back on the default.
     if ((m = /^\/api\/workout-plan\/([^/]+)$/.exec(p))) {
       const weekStart = decodeURIComponent(m[1]!)
       if (method === 'PUT') {
