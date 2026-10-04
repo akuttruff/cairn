@@ -30,11 +30,12 @@ export default function SettingsSheet({ open, session, onClose, onSaved }: Setti
 /** The number fields, as typed; each is parsed and checked on every render. */
 type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'calorieBuffer' | 'fiber' | 'water' | 'alcoholWeekly' | 'workoutsWeekly' | 'meditationMinutes'
 const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
-  { key: 'protein', label: 'Protein (g)' },
-  { key: 'fat', label: 'Fat (g)' },
-  { key: 'carbs', label: 'Carbs (g)' },
+  // Each says which way it points: a min to reach, or a max to stay under.
+  { key: 'protein', label: 'Protein (g, min)' },
+  { key: 'fat', label: 'Fat (g, max)' },
+  { key: 'carbs', label: 'Carbs (g, max)' },
   // With the macros, filling the two-by-two grid: a minimum to reach, the same on any day.
-  { key: 'fiber', label: 'Fiber (g)' },
+  { key: 'fiber', label: 'Fiber (g, min)' },
   { key: 'trainingCarbs', label: 'Extra carbs on training days (g)', hint: 'Fast carbs before the workout; 35 g is about 140 kcal. Tick a day as a training day in Day view.' },
   { key: 'calorieBuffer', label: 'Calorie buffer (kcal)', hint: 'Added to the calorie goal every day, on top of what the macros add up to.' },
   { key: 'water', label: 'Water (oz)', hint: 'Defaults to 96oz -- 3 x 32oz bottles.' },

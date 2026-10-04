@@ -1,4 +1,4 @@
-import { LABELS, OVER_IS_BAD, progress, rangeStatus } from '../lib/nutrition.ts'
+import { LABELS, OVER_IS_BAD, goalLabel, goalRangeFor, goalStatus, progress } from '../lib/nutrition.ts'
 import { fmt } from '../lib/format.ts'
 import type { DayTotals, DayType, MacroRange, NutrientKey, ResolvedGoals } from '../types.ts'
 
@@ -8,8 +8,8 @@ interface TotalsProps extends DayTotals {
   onSetDayType: (type: DayType) => void
 }
 
-type RangeMacroKey = 'protein' | 'fat' | 'carbs'
-const MACROS: RangeMacroKey[] = ['protein', 'fat', 'carbs']
+/** The grid under the calories: two caps, then two floors. */
+const MACROS: Exclude<NutrientKey, 'calories'>[] = ['carbs', 'fat', 'protein', 'fiber']
 
 /** Marks a total that leaves out entries whose source didn't report it. */
 function Partial({ count }: { count: number }) {
@@ -21,18 +21,16 @@ function Partial({ count }: { count: number }) {
   )
 }
 
-/** "125-130" when the range has spread, or just "125" when min and max match (fiber). */
-function rangeLabel(range: MacroRange): string {
-  return range.min === range.max ? `${range.min}` : `${range.min}–${range.max}`
-}
-
+/**
+ * The day against its goals. Each goal says which way it points -- "max"
+ * for the ones to stay under (calories, carbs, fat), "min" for the ones to
+ * reach (protein, fiber) -- and the line under each bar says where the day
+ * stands in those terms: so much left or over a max, so much to go to a
+ * min, or met.
+ */
 export default function Totals({ totals, missing, goals, dayType, onSetDayType }: TotalsProps) {
   const cal = totals.calories
-  const status = rangeStatus(cal, goals.calories)
-  const calLeftText =
-    status === 'under' ? `${Math.round(goals.calories.min - cal)} to go`
-    : status === 'over' ? `${Math.round(cal - goals.calories.max)} over`
-    : 'In range'
+  const calStatus = goalStatus('calories', cal, goals.calories)
 
   return (
     <section className="totals" aria-label="Daily totals">
@@ -55,36 +53,31 @@ export default function Totals({ totals, missing, goals, dayType, onSetDayType }
           <div className="cal-value">
             {fmt('calories', cal)}
             <Partial count={missing.calories} />
-            <span className="cal-goal"> / {rangeLabel(goals.calories)} kcal</span>
+            <span className="cal-goal"> / {goalLabel('calories', goals.calories)} kcal</span>
           </div>
-          <div className={`cal-left${status === 'over' ? ' over' : ''}`}>{calLeftText}</div>
+          <div className={`cal-left${calStatus.bad ? ' over' : ''}`}>{calStatus.text}</div>
         </div>
       </div>
       <Bar value={cal} range={goals.calories} kind="calories" />
 
       <div className="macro-grid">
-        {MACROS.map((key) => (
-          <div key={key} className={`macro ${key}`}>
-            <div className="macro-head">
-              <span className="macro-name">{LABELS[key]}</span>
-              <span className="macro-num">
-                {fmt(key, totals[key])}<Partial count={missing[key]} />
-                <span className="macro-goal">/{rangeLabel(goals[key])}g</span>
-              </span>
+        {MACROS.map((key) => {
+          const range = goalRangeFor(goals, key)
+          const status = goalStatus(key, totals[key], range, 'g')
+          return (
+            <div key={key} className={`macro ${key}`}>
+              <div className="macro-head">
+                <span className="macro-name">{LABELS[key]}</span>
+                <span className="macro-num">
+                  {fmt(key, totals[key])}<Partial count={missing[key]} />
+                  <span className="macro-goal"> / {goalLabel(key, range)}g</span>
+                </span>
+              </div>
+              <Bar value={totals[key]} range={range} kind={key} />
+              <div className={`macro-status${status.bad ? ' over' : status.met ? ' met' : ''}`}>{status.text}</div>
             </div>
-            <Bar value={totals[key]} range={goals[key]} kind={key} />
-          </div>
-        ))}
-        <div className="macro fiber">
-          <div className="macro-head">
-            <span className="macro-name">{LABELS.fiber}</span>
-            <span className="macro-num">
-              {fmt('fiber', totals.fiber)}<Partial count={missing.fiber} />
-              <span className="macro-goal">/{goals.fiber}g</span>
-            </span>
-          </div>
-          <Bar value={totals.fiber} range={{ min: 0, max: goals.fiber }} kind="fiber" />
-        </div>
+          )
+        })}
       </div>
     </section>
   )

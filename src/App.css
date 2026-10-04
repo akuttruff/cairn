@@ -184,6 +184,12 @@ button:disabled { opacity: 0.45; cursor: default; }
 .macro.fiber .macro-name { color: var(--c-fiber); }
 .macro-num { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .macro-goal { font-size: 12px; font-weight: 400; color: var(--paper-dim); margin-left: 2px; }
+/* Under each day bar: "15 g left" / "5 g over" for a max, "20 g to go" / "Goal met" for a min. */
+.macro-status { font-family: var(--mono); font-size: 11px; color: var(--paper-dim); margin-top: 4px; }
+.macro-status.met { color: var(--moss); }
+.macro-status.over { color: var(--rust); }
+/* "stay under" / "reach", beside a goal's name in the week and month views. */
+.goal-dir { font-family: var(--mono); font-size: 10px; font-weight: 400; color: var(--paper-dim); text-transform: uppercase; letter-spacing: 0.04em; margin-left: 4px; }
 /* ====== Water ====== */
 .water-card {
   background: var(--bg-raised);

@@ -84,7 +84,7 @@ describe('App', () => {
     render(<App />)
     expect(await screen.findByText('Oats')).toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Daily totals' })).getByText('190')).toBeInTheDocument()
-    expect(screen.getByText('1810 to go')).toBeInTheDocument()
+    expect(screen.getByText('1810 left')).toBeInTheDocument() // calories are a max: so much left, not "to go"
     expect(within(screen.getByRole('region', { name: 'Breakfast' })).getByText('Oats')).toBeInTheDocument()
     expect(screen.getByRole('progressbar', { name: 'Fiber' })).toHaveAttribute('aria-valuenow', '5')
   })
@@ -99,14 +99,27 @@ describe('App', () => {
     expect(await screen.findByTitle('1 item missing this value')).toBeInTheDocument()
   })
 
-  it('flags going over on carbs, but not on protein, fat or fiber, which are floors', async () => {
+  it('flags going over on carbs and fat, which are maxes, but not on protein or fiber, which are mins', async () => {
     stubApi({ [`GET /api/day/${TODAY}`]: day([], { totals: { calories: 1000, protein: 200, fat: 100, carbs: 250, fiber: 45 } }) })
     render(<App />)
     await screen.findByText('Today')
     expect(screen.getByRole('progressbar', { name: 'Carbs' })).toHaveClass('over')
-    expect(screen.getByRole('progressbar', { name: 'Fat' })).not.toHaveClass('over')
+    expect(screen.getByRole('progressbar', { name: 'Fat' })).toHaveClass('over')
     expect(screen.getByRole('progressbar', { name: 'Protein' })).not.toHaveClass('over')
     expect(screen.getByRole('progressbar', { name: 'Fiber' })).not.toHaveClass('over')
+    // Each goal says which way it points, and the line under it says where the day stands.
+    expect(screen.getByText('/ max 65g')).toBeInTheDocument()
+    expect(screen.getByText('35 g over')).toBeInTheDocument() // fat 100 against 65
+    expect(screen.getByText('/ min 150g')).toBeInTheDocument()
+    expect(screen.getAllByText('Goal met')).toHaveLength(2) // protein 200 >= 150, fiber 45 >= 30
+  })
+
+  it('counts down to a min that has not been reached yet', async () => {
+    stubApi({ [`GET /api/day/${TODAY}`]: day([], { totals: { calories: 500, protein: 90, fat: 20, carbs: 50, fiber: 12 } }) })
+    render(<App />)
+    expect(await screen.findByText('60 g to go')).toBeInTheDocument() // protein 90 of 150
+    expect(screen.getByText('18 g to go')).toBeInTheDocument() // fiber 12 of 30
+    expect(screen.getByText('45 g left')).toBeInTheDocument() // fat 20 of a 65 max
   })
 
   it('says how far over the calorie goal the day is', async () => {
@@ -490,7 +503,7 @@ describe('App', () => {
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Settings' }))
-    const field = await screen.findByLabelText('Fiber (g)')
+    const field = await screen.findByLabelText('Fiber (g, min)')
     expect(field).toHaveValue('30')
     expect(field.closest('.nutrient-fields')).not.toBeNull() // in the macro grid, not further down
     await user.clear(field)
@@ -579,8 +592,8 @@ describe('App', () => {
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Daily totals' })
     expect(within(card).getByText('190')).toBeInTheDocument() // food only
-    expect(within(card).getByText('/ 2000 kcal')).toBeInTheDocument() // the goal is untouched
-    expect(within(card).getByText('1810 to go')).toBeInTheDocument()
+    expect(within(card).getByText('/ max 2000 kcal')).toBeInTheDocument() // the goal is untouched
+    expect(within(card).getByText('1810 left')).toBeInTheDocument()
     expect(within(card).queryByText(/from drinks/)).not.toBeInTheDocument()
   })
 
@@ -656,7 +669,7 @@ describe('App', () => {
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Settings' }))
     expect(await screen.findByPlaceholderText('saved — type to replace')).toHaveValue('')
-    const protein = screen.getByLabelText('Protein (g)')
+    const protein = screen.getByLabelText('Protein (g, min)')
     await user.clear(protein)
     await user.type(protein, '128')
     // The calorie math follows along as you type: 128*4 + 60*9 + 160*4, and +35 g carbs on training days.

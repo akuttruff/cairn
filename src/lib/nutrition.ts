@@ -152,18 +152,39 @@ export function rangeStatus(total: number, range: MacroRange): RangeStatus {
 }
 
 /**
- * Going past the goal only counts against these -- they're caps, and coming
- * in under is a win. Extra protein, fat or fiber neither turns a bar red
- * nor costs a day its goal.
+ * Caps: the goal is to stay under them, and coming in under is a win.
+ * Going past turns the bar red and costs the day its goal.
  */
-export const OVER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['calories', 'carbs'])
+export const OVER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['calories', 'carbs', 'fat'])
+
+/** Floors: the goal is to reach them, and going over is fine. */
+export const UNDER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['protein', 'fiber'])
+
+/** Which way a nutrient's goal points, in words: "stay under" a cap, "reach" a floor. */
+export const goalDirection = (key: NutrientKey): string => (OVER_IS_BAD.has(key) ? 'stay under' : 'reach')
+
+/** The goal as it reads beside a total: "max 1800", "min 130". */
+export function goalLabel(key: NutrientKey, range: MacroRange): string {
+  const n = (v: number): string => String(Math.round(v * 10) / 10)
+  return OVER_IS_BAD.has(key) ? `max ${n(range.max)}` : `min ${n(range.min)}`
+}
 
 /**
- * Falling short of the goal counts against these -- they're floors. Fat is
- * one: with single-number goals it can't be a band, and too little fat is
- * the problem worth catching ("don't dip below 60 g").
+ * Where a day's total stands against its goal, in words that follow the
+ * goal's direction: a cap has some "left" or is "over"; a floor has some
+ * "to go" until it's "Goal met". `bad` only for a cap that's been passed.
  */
-export const UNDER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['protein', 'fiber', 'fat'])
+export function goalStatus(key: NutrientKey, total: number, range: MacroRange, unit = ''): { text: string; bad: boolean; met: boolean } {
+  const amount = (v: number): string => `${Math.round(v)}${unit ? ` ${unit}` : ''}`
+  if (OVER_IS_BAD.has(key)) {
+    return total > range.max
+      ? { text: `${amount(total - range.max)} over`, bad: true, met: false }
+      : { text: `${amount(range.max - total)} left`, bad: false, met: true }
+  }
+  return total >= range.min
+    ? { text: 'Goal met', bad: false, met: true }
+    : { text: `${amount(range.min - total)} to go`, bad: false, met: false }
+}
 
 /** A nutrient's target as a range, fiber included (a single number, so min = max). */
 export function goalRangeFor(goals: ResolvedGoals, key: NutrientKey): MacroRange {
@@ -172,9 +193,9 @@ export function goalRangeFor(goals: ResolvedGoals, key: NutrientKey): MacroRange
 
 /**
  * Whether a day's total hit its goal. The goals are caps and floors, not
- * targets to land on: calories and carbs are met at or under the goal
- * (coming in under is a win, not a miss); protein, fat and fiber at or over
- * it (going over is fine). Exactly on the line counts.
+ * targets to land on: calories, carbs and fat are met at or under the goal
+ * (coming in under is a win, not a miss); protein and fiber at or over it
+ * (going over is fine). Exactly on the line counts.
  */
 export function goalMet(total: number, range: MacroRange, kind: NutrientKey): boolean {
   if (OVER_IS_BAD.has(kind) && total > range.max) return false

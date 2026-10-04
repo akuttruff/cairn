@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addDays, addMonths, alcoholCalories, blendGoals, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalMet,
+  addDays, addMonths, alcoholCalories, blendGoals, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalDirection, goalLabel,
+  goalMet, goalStatus,
   impliedCalories,
   isDateString, localDate, macroCalories, meditationMet, progress, rangeStatus, resolveGoals, scale, scoreDays, scoreMeditation,
   scoreWater, startOfMonth, startOfWeek, streakThrough, sumDay, sumNutrients,
@@ -195,11 +196,23 @@ describe('goalMet', () => {
     expect(goalMet(237.1, { min: 220, max: 237 }, 'carbs')).toBe(false)
   })
 
-  it('treats fat as a floor too: at or over the goal is a hit, under is a miss', () => {
+  it('treats fat as a cap too: at or under the goal is a hit, over is a miss', () => {
     const r = { min: 60, max: 60 }
     expect(goalMet(60, r, 'fat')).toBe(true)
-    expect(goalMet(75, r, 'fat')).toBe(true)
-    expect(goalMet(59.9, r, 'fat')).toBe(false)
+    expect(goalMet(40, r, 'fat')).toBe(true)
+    expect(goalMet(60.1, r, 'fat')).toBe(false)
+  })
+
+  it('says which way each goal points, and where a day stands in those terms', () => {
+    const r = { min: 60, max: 60 }
+    expect(goalDirection('fat')).toBe('stay under')
+    expect(goalDirection('protein')).toBe('reach')
+    expect(goalLabel('calories', { min: 1800, max: 1800 })).toBe('max 1800')
+    expect(goalLabel('fiber', { min: 30, max: 30 })).toBe('min 30')
+    expect(goalStatus('fat', 45, r, 'g')).toEqual({ text: '15 g left', bad: false, met: true })
+    expect(goalStatus('fat', 72, r, 'g')).toEqual({ text: '12 g over', bad: true, met: false })
+    expect(goalStatus('protein', 110, { min: 130, max: 130 }, 'g')).toEqual({ text: '20 g to go', bad: false, met: false })
+    expect(goalStatus('protein', 150, { min: 130, max: 130 }, 'g')).toEqual({ text: 'Goal met', bad: false, met: true })
   })
 
   it('treats protein and fiber as floors: at or over the bottom is a hit, under is a miss', () => {

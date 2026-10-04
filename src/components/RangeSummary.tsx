@@ -1,5 +1,5 @@
 import { ALCOHOL_KINDS, NUTRIENTS, WORKOUT_KINDS } from '../types.ts'
-import { LABELS, UNITS, goalMet, goalRangeFor, localDate, meditationMet, progress, waterMet } from '../lib/nutrition.ts'
+import { LABELS, UNITS, goalDirection, goalMet, goalRangeFor, localDate, meditationMet, progress, waterMet } from '../lib/nutrition.ts'
 import { fmt } from '../lib/format.ts'
 import { WORKOUTS } from './WorkoutTracker.tsx'
 import { SIT_MINUTES } from './MeditationTracker.tsx'
@@ -16,6 +16,8 @@ interface Series {
   /** Also the CSS class that colours it. */
   key: NutrientKey | 'water' | 'meditation'
   label: string
+  /** Which way the goal points: "stay under" or "reach". */
+  direction: string
   unit: string
   value: (d: DaySummary) => number
   /** That day's own target. */
@@ -28,6 +30,7 @@ interface Series {
 const nutrientSeries = (key: NutrientKey): Series => ({
   key,
   label: LABELS[key],
+  direction: goalDirection(key),
   unit: UNITS[key],
   value: (d) => d.totals[key],
   goal: (d) => goalRangeFor(d.goals, key),
@@ -39,6 +42,7 @@ const nutrientSeries = (key: NutrientKey): Series => ({
 const WATER: Series = {
   key: 'water',
   label: 'Water',
+  direction: 'reach',
   unit: 'oz',
   value: (d) => d.water,
   goal: (d) => ({ min: d.goals.water, max: d.goals.water }),
@@ -50,6 +54,7 @@ const WATER: Series = {
 const MEDITATION: Series = {
   key: 'meditation',
   label: 'Meditation',
+  direction: 'reach',
   unit: 'min',
   value: (d) => d.meditationMinutes,
   goal: (d) => ({ min: d.goals.meditationMinutes, max: d.goals.meditationMinutes }),
@@ -101,6 +106,7 @@ function RangeChart({ series, days, today, onSelectDay }: RangeChartProps) {
       <div className="range-chart-head">
         <span className={`range-chart-dot ${series.key}`} aria-hidden="true" />
         <span className="range-chart-label">{series.label}</span>
+        <span className="goal-dir">{series.direction}</span>
       </div>
       <div className="range-chart-plot">
         <svg className="range-line-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
@@ -243,7 +249,7 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
           return (
             <div key={key} className={`macro ${key} score-row`}>
               <div className="macro-head">
-                <span className="macro-name">{LABELS[key]}</span>
+                <span className="macro-name">{LABELS[key]} <span className="goal-dir">{goalDirection(key)}</span></span>
                 <span className="macro-num">
                   {of ? `${met} of ${plural(of, 'day')}` : '—'}
                   <span className="macro-goal"> · avg {fmt(key, averages[key])} {UNITS[key]}</span>

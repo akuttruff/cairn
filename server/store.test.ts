@@ -908,8 +908,8 @@ describe('ranges', () => {
   })
 
   it('scores each logged day against its own goal, and says how the days were split', () => {
-    // A target a banana can meet: at least 1 g protein and 0 g fat, at most 30 g carbs (124 kcal).
-    store.setGoals({ protein: 1, fat: 0, carbs: 30, trainingCarbs: 10 })
+    // A target a banana can meet: at least 1 g protein; at most 1 g fat, 30 g carbs and (with the buffer) 233 kcal.
+    store.setGoals({ protein: 1, fat: 1, carbs: 30, trainingCarbs: 10 })
     store.addEntry(banana({ date: D1 })) // 118 g: 105 kcal, 1.3 g protein, 26.9 g carbs, 0.4 g fat, 3.1 g fiber
     store.setDayType(D3, 'training')
     const range = store.getRange(D1, D3)
