@@ -1190,9 +1190,9 @@ describe('App', () => {
       await user.click(await screen.findByRole('tab', { name: 'Week' }))
       expect(await screen.findByRole('button', { name: `${TODAY}: 90 g, in progress` })).toHaveClass('pending')
       expect(screen.getByRole('button', { name: `${TODAY}: 2100 kcal, goal missed` })).toBeInTheDocument() // a max can't be un-passed
-      if (TODAY !== addDays(start, 6)) {
-        expect(screen.getAllByRole('button', { name: `${addDays(TODAY, 1)}: still ahead` }).length).toBeGreaterThan(0)
-      }
+      // Tomorrow, when it is in this week, is "still ahead" on all four charts (on a Saturday the week has no tomorrow).
+      const tomorrowInWeek = TODAY !== addDays(start, 6)
+      expect(screen.queryAllByRole('button', { name: `${addDays(TODAY, 1)}: still ahead` })).toHaveLength(tomorrowInWeek ? 4 : 0)
     })
 
     it('in a month, a tap shows that day in the chart headers and a second tap opens it', async () => {
