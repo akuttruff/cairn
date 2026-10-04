@@ -45,6 +45,12 @@ export default function Header({ mode, onModeChange, label, isCurrent, onPrev, o
           <button type="button" className="icon-btn" aria-label={`Next ${mode}`} onClick={onNext}>
             <ChevronRight size={20} aria-hidden="true" />
           </button>
+          {/* Only once you've moved off the current day/week/month: there's nowhere to jump otherwise. */}
+          {!isCurrent && (
+            <button type="button" className="today-btn" onClick={onJumpToCurrent} aria-label={`Jump to the current ${mode}`}>
+              Today
+            </button>
+          )}
         </div>
         <button type="button" className="icon-btn" aria-label="Settings" onClick={onSettings}>
           <Settings size={19} aria-hidden="true" />

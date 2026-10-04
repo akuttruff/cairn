@@ -125,6 +125,21 @@ describe('App', () => {
     await waitFor(() => expect(calls.some((c) => c.url !== `/api/day/${TODAY}` && c.url.startsWith('/api/day/'))).toBe(true))
   })
 
+  it('offers a Today button once you have moved off today, and it brings you back', async () => {
+    const user = userEvent.setup()
+    stubApi({ 'GET /api/day/': day([]) })
+    render(<App />)
+    await screen.findByText('Today')
+    expect(screen.queryByRole('button', { name: 'Jump to the current day' })).not.toBeInTheDocument() // already there
+    await user.click(screen.getByRole('button', { name: 'Previous day' }))
+    await user.click(screen.getByRole('button', { name: 'Previous day' }))
+    const jump = screen.getByRole('button', { name: 'Jump to the current day' })
+    expect(jump).toHaveTextContent('Today')
+    await user.click(jump)
+    expect(screen.getByRole('button', { name: 'Today' })).toHaveClass('date-label')
+    expect(screen.queryByRole('button', { name: 'Jump to the current day' })).not.toBeInTheDocument()
+  })
+
   it('searches, picks a USDA food, and logs it in its household portion', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
