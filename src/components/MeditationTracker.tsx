@@ -16,6 +16,8 @@ interface MeditationTrackerProps {
 export default function MeditationTracker({ date, meditation, onLogged }: MeditationTrackerProps) {
   const pct = meditation.goal > 0 ? Math.max(0, Math.min(1, meditation.minutes / meditation.goal)) * 100 : 0
   const sits = meditation.sessions.length
+  // The goal is kept in minutes (Settings); every sit is SIT_MINUTES, so it reads as a count of sits.
+  const goalSits = Math.max(1, Math.round(meditation.goal / SIT_MINUTES))
 
   const add = async (): Promise<void> => {
     try {
@@ -42,8 +44,8 @@ export default function MeditationTracker({ date, meditation, onLogged }: Medita
       <div className="water-head">
         <span className="water-label">Meditation</span>
         <span className="water-num">
-          {meditation.minutes}
-          <span className="water-goal"> / {meditation.goal} min</span>
+          {sits}
+          <span className="water-goal"> / {goalSits} {goalSits === 1 ? 'sit' : 'sits'}</span>
         </span>
       </div>
       <div
@@ -56,7 +58,7 @@ export default function MeditationTracker({ date, meditation, onLogged }: Medita
       >
         <div className="bar-fill" style={{ width: `${pct}%` }} />
       </div>
-      {sits > 0 && <div className="water-bottles">{sits} {sits === 1 ? 'sit' : 'sits'} today</div>}
+      <div className="water-bottles">{meditation.minutes} of {meditation.goal} min</div>
       <div className="water-actions">
         <button type="button" className="water-add meditation-add" onClick={() => void add()}>
           <Leaf size={14} aria-hidden="true" />

@@ -286,7 +286,7 @@ describe('workouts and meditation', () => {
     expect(logged.status).toBe(201)
     const id = (logged.body as unknown as { id: string }).id
     let day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
-    expect(day.meditation).toMatchObject({ minutes: 10, goal: 25, lastLogId: id })
+    expect(day.meditation).toMatchObject({ minutes: 10, goal: 50, lastLogId: id })
     await call('DELETE', `/api/meditation/${id}`)
     day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
     expect(day.meditation.minutes).toBe(0)

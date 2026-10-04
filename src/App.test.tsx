@@ -449,14 +449,16 @@ describe('App', () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
-        meditation: { sessions: [{ id: 'm1', date: TODAY, minutes: 5, createdAt: 1 }], minutes: 5, goal: 10, lastLogId: 'm1' },
+        meditation: { sessions: [{ id: 'm1', date: TODAY, minutes: 25, createdAt: 1 }], minutes: 25, goal: 50, lastLogId: 'm1' },
       }),
       'POST /api/meditation': { id: 'm2', date: TODAY, minutes: 25, createdAt: 2 },
       'DELETE /api/meditation/m1': { ok: true },
     })
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Meditation' })
-    expect(within(card).getByRole('progressbar', { name: 'Meditation' })).toHaveAttribute('aria-valuenow', '5')
+    expect(within(card).getByRole('progressbar', { name: 'Meditation' })).toHaveAttribute('aria-valuenow', '25')
+    expect(within(card).getByText('/ 2 sits')).toBeInTheDocument() // two 25-minute sits make the 50-minute goal
+    expect(within(card).getByText('25 of 50 min')).toBeInTheDocument()
     await user.click(within(card).getByRole('button', { name: /\+ 25-min sit/ }))
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/meditation')).toBe(true))
     expect(calls.find((c) => c.url === '/api/meditation')!.body).toEqual({ date: TODAY, minutes: 25 })

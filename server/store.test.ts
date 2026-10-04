@@ -772,7 +772,7 @@ describe('workouts', () => {
 
 describe('meditation', () => {
   it('starts at zero, against the default goal', () => {
-    expect(store.getDay(DAY).meditation).toEqual({ sessions: [], minutes: 0, goal: 25, lastLogId: null })
+    expect(store.getDay(DAY).meditation).toEqual({ sessions: [], minutes: 0, goal: 50, lastLogId: null })
   })
 
   it('adds sits up toward the day goal, and undoes the latest', () => {
@@ -810,7 +810,7 @@ describe('meditation', () => {
       db.close()
     }
     const upgraded = new Store({ dir })
-    expect(upgraded.getGoals()).toMatchObject({ protein: 140, workoutsWeekly: 6, meditationMinutes: 25 })
+    expect(upgraded.getGoals()).toMatchObject({ protein: 140, workoutsWeekly: 6, meditationMinutes: 50 })
     upgraded.addMeditation({ date: DAY, minutes: 10 })
     expect(upgraded.getDay(DAY).meditation.minutes).toBe(10)
   })
@@ -826,14 +826,15 @@ describe('ranges', () => {
     store.addWorkout({ date: D1, kind: 'cycling' })
     store.addWorkout({ date: D3, kind: 'run', minutes: 25 })
     store.addMeditation({ date: D2, minutes: 25 })
+    store.addMeditation({ date: D2, minutes: 25 })
     store.addMeditation({ date: D3, minutes: 5 })
     const range = store.getRange(D1, D3)
     expect(range.workouts).toEqual({
       sessions: 3, days: 2, minutes: 65, byKind: { wod: 1, weightlifting: 0, run: 1, cycling: 1, yoga: 0, pilates: 0 },
     })
     expect(range.days.map((d) => d.workouts)).toEqual([2, 0, 1])
-    // D2 met the 25-minute goal, D3 didn't; D1 had none and is left out. D2-D3 is a two-day run.
-    expect(range.meditation).toEqual({ total: 30, average: 10, days: 2, met: 1, of: 2, streak: 2 })
+    // D2's two sits met the 50-minute goal, D3 didn't; D1 had none and is left out. D2-D3 is a two-day run.
+    expect(range.meditation).toEqual({ total: 55, average: 18.3, days: 2, met: 1, of: 2, streak: 2 })
   })
 
   it('has one entry per calendar day, even ones with nothing logged', () => {

@@ -38,7 +38,7 @@ const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
   { key: 'water', label: 'Water (oz)', hint: 'Defaults to 96oz -- 3 x 32oz bottles.' },
   { key: 'alcoholWeekly', label: 'Alcohol (drinks per week)', hint: 'A weekly cap, not a daily one -- shown against the running total for the week.' },
   { key: 'workoutsWeekly', label: 'Workouts (sessions per week)', hint: 'Counted Monday to Sunday. Logging a WOD or weightlifting session also ticks the day as a training day.' },
-  { key: 'meditationMinutes', label: 'Meditation (minutes per day)', hint: 'However many sits it takes to get there.' },
+  { key: 'meditationMinutes', label: 'Meditation (minutes per day)', hint: 'Sits are 25 minutes each, so 50 is two a day.' },
 ]
 
 /** Calories the macros add up to at 4/4/9 -- the same math as resolveGoals(), for a live preview. */
