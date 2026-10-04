@@ -134,6 +134,21 @@ describe('search', () => {
   })
 })
 
+describe('app icon', () => {
+  it('serves whichever icon Settings picked, as the tab icon and the home-screen PNG', async () => {
+    const svg = async (): Promise<string> => (await fetch(`${base}/icon.svg`)).text()
+    const ring = fs.readFileSync(path.resolve('public/icons/ring.svg'), 'utf8')
+    const dawn = fs.readFileSync(path.resolve('public/icons/dawn.svg'), 'utf8')
+    expect(await svg()).toBe(ring)
+    await call('PUT', '/api/settings', { appIcon: 'dawn' })
+    expect(await svg()).toBe(dawn)
+    const png = await fetch(`${base}/icon-180.png`)
+    expect(png.headers.get('content-type')).toBe('image/png')
+    expect(Buffer.from(await png.arrayBuffer())).toEqual(fs.readFileSync(path.resolve('public/icons/dawn-180.png')))
+    expect((await call('PUT', '/api/settings', { appIcon: 'unicorn' })).status).toBe(400)
+  })
+})
+
 describe('foods and goals', () => {
   it('returns saved and recent foods', async () => {
     await logBanana(136)

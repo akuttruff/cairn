@@ -3,8 +3,8 @@ import { Drawer } from 'vaul'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import { parseNum } from '../lib/format.ts'
-import { WORKOUT_KINDS } from '../types.ts'
-import type { Goals, LmModelOption, PublicSettings, WorkoutKind, WorkoutPlan } from '../types.ts'
+import { APP_ICONS, WORKOUT_KINDS } from '../types.ts'
+import type { AppIcon, Goals, LmModelOption, PublicSettings, WorkoutKind, WorkoutPlan } from '../types.ts'
 import { WORKOUTS } from './WorkoutTracker.tsx'
 
 interface SettingsSheetProps {
@@ -49,6 +49,18 @@ const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
 ]
 const PLAN_START = NUMBER_FIELDS.findIndex((f) => f.key.startsWith('plan:'))
 
+const ICON_LABELS: Record<AppIcon, string> = {
+  ring: 'Ring', stack: 'Stack', pillars: 'Four pillars', line: 'Line', dawn: 'Dawn', paper: 'Paper',
+}
+
+/** Point the page's icon links at the newly chosen icon (the server picks the file; the query defeats the cache). */
+function refreshIconLinks(): void {
+  const v = Date.now()
+  document.querySelectorAll<HTMLLinkElement>('link[rel="icon"], link[rel="apple-touch-icon"]').forEach((l) => {
+    l.href = `${l.href.split('?')[0]}?v=${v}`
+  })
+}
+
 /** Calories the macros add up to at 4/4/9 -- the same math as resolveGoals(), for a live preview. */
 const kcal = (protein: number, fat: number, carbs: number, buffer = 0): number => Math.round(protein * 4 + carbs * 4 + fat * 9 + buffer)
 
@@ -59,6 +71,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const [lmToken, setLmToken] = useState('')
   const [lmModel, setLmModel] = useState<string | null>(null)
   const [autoLookup, setAutoLookup] = useState<boolean | null>(null)
+  const [appIcon, setAppIcon] = useState<AppIcon | null>(null)
   const [settings, setSettings] = useState<PublicSettings | null>(null)
   const [models, setModels] = useState<LmModelOption[]>([])
   const [modelsError, setModelsError] = useState<string | null>(null)
@@ -109,7 +122,11 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       if (lmUrl != null && lmUrl.trim() !== settings?.lmStudioUrl) changes.lmStudioUrl = lmUrl.trim()
       if (lmModel != null && lmModel.trim() !== settings?.researchModel) changes.researchModel = lmModel.trim()
       if (autoLookup != null && autoLookup !== settings?.autoLookup) changes.autoLookup = autoLookup
+      const iconChanged = appIcon != null && appIcon !== settings?.appIcon
+      if (iconChanged) changes.appIcon = appIcon
       if (Object.keys(changes).length) await api.setSettings(changes)
+      // The tab icon follows at once; a home-screen icon only when the app is added again.
+      if (iconChanged) refreshIconLinks()
       toast.success('Saved')
       onSaved()
       onClose()
@@ -159,6 +176,31 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
             <h3 className="sheet-h">Default weekly workouts</h3>
             <div className="hint">Sessions of each per week (Sunday to Saturday). Any week can have its own from the Workouts card in Day view; this is what the rest get. Logging a WOD or lifting session also ticks the day as a training day.</div>
             <div className="nutrient-fields">{NUMBER_FIELDS.slice(PLAN_START).map(field)}</div>
+
+            <h3 className="sheet-h">App icon</h3>
+            <div className="icon-picker" role="radiogroup" aria-label="App icon">
+              {APP_ICONS.map((id) => {
+                const chosen = (appIcon ?? settings?.appIcon ?? 'ring') === id
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    role="radio"
+                    aria-checked={chosen}
+                    aria-label={ICON_LABELS[id]}
+                    className={`icon-choice${chosen ? ' chosen' : ''}`}
+                    onClick={() => setAppIcon(id)}
+                  >
+                    <img src={`/icons/${id}.svg`} alt="" width={56} height={56} />
+                    <span>{ICON_LABELS[id]}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div className="hint">
+              Changes the browser-tab icon right away. A home-screen icon is fixed when the app is added: remove it and
+              add it again (Share, then Add to Home Screen) to see a new one.
+            </div>
 
             <h3 className="sheet-h">Food search</h3>
             <div className="field">

@@ -3,7 +3,7 @@ import { RESEARCH_PLUGIN, ResearchJobs, chooseModel, extractJson, listLlms, norm
 import type { LookupStore } from './research.ts'
 import type { Settings } from '../src/types.ts'
 
-const SETTINGS: Settings = { usdaApiKey: '', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: 'sk-lm-T', researchModel: '', autoLookup: true }
+const SETTINGS: Settings = { usdaApiKey: '', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: 'sk-lm-T', researchModel: '', autoLookup: true, appIcon: 'ring' }
 
 const BOWL_REPLY = {
   found: true,

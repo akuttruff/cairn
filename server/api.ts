@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 import { Store, ValidationError } from './store.ts'
@@ -236,7 +238,28 @@ export function createApi(options: ApiOptions = {}) {
     return json(res, 404, { error: 'no such endpoint' })
   }
 
+  // The app icon: whichever one Settings picked, from the set in public/icons.
+  // Served ahead of the static files, so /icon.svg (the tab icon) and the
+  // home-screen PNGs follow the setting without a rebuild.
+  const iconDir = path.resolve(process.cwd(), 'public', 'icons')
+  const ICON_FILES: Record<string, { suffix: string; type: string }> = {
+    '/icon.svg': { suffix: '.svg', type: 'image/svg+xml' },
+    '/icon-180.png': { suffix: '-180.png', type: 'image/png' },
+    '/icon-192.png': { suffix: '-192.png', type: 'image/png' },
+    '/icon-512.png': { suffix: '-512.png', type: 'image/png' },
+  }
+  const serveIcon = (pathname: string, res: ServerResponse): boolean => {
+    const f = ICON_FILES[pathname]
+    if (!f) return false
+    const file = path.join(iconDir, `${store.getSettings().appIcon}${f.suffix}`)
+    if (!fs.existsSync(file)) return false
+    res.writeHead(200, { 'Content-Type': f.type, 'Cache-Control': 'no-cache' })
+    res.end(fs.readFileSync(file))
+    return true
+  }
+
   const middleware: Middleware = (req, res, next) => {
+    if (req.method === 'GET' && serveIcon((req.url || '').split('?')[0]!, res)) return undefined
     if (!(req.url || '').startsWith('/api/')) return next()
     if (!sameOrigin(req)) return json(res, 403, { error: 'cross-origin write refused' })
     route(req, res).catch((err: unknown) => {

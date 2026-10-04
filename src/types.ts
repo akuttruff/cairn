@@ -371,6 +371,14 @@ export interface MealPreset {
   createdAt: number
 }
 
+/**
+ * The app's icon, chosen in Settings. All of them stay in /icons; the one
+ * picked is what /icon.svg and the home-screen PNGs serve. A phone keeps
+ * the icon it saw when the app was added to its home screen.
+ */
+export const APP_ICONS = ['ring', 'stack', 'pillars', 'line', 'dawn', 'paper'] as const
+export type AppIcon = (typeof APP_ICONS)[number]
+
 export interface Settings {
   /** Free key from api.data.gov; the shared DEMO_KEY allows 30 searches an hour. */
   usdaApiKey: string
@@ -381,6 +389,7 @@ export interface Settings {
   researchModel: string
   /** Start an online lookup by itself once you stop typing. */
   autoLookup: boolean
+  appIcon: AppIcon
 }
 
 /** An LLM LM Studio has downloaded, and whether it's loaded right now. */
@@ -396,4 +405,5 @@ export interface PublicSettings {
   lmStudioUrl: string
   researchModel: string
   autoLookup: boolean
+  appIcon: AppIcon
 }

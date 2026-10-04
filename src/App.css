@@ -716,3 +716,13 @@ button:disabled { opacity: 0.45; cursor: default; }
 .found-online { margin: 6px 0 10px; }
 .found-online .hint svg { vertical-align: -1px; }
 .source-link { display: inline-block; font-size: 12px; color: var(--moss); margin-right: 12px; word-break: break-all; }
+
+/* Settings: the app icon, one tile per choice. */
+.icon-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 8px; }
+.icon-choice {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 4px; border-radius: 12px; border: 1.5px solid var(--line); background: transparent;
+  color: var(--paper-dim); font-size: 12px;
+}
+.icon-choice img { border-radius: 13px; display: block; }
+.icon-choice.chosen { border-color: var(--moss); color: var(--paper); }

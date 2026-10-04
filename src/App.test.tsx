@@ -710,6 +710,25 @@ describe('App', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/alcohol/a1')).toBe(true))
   })
 
+  it('picks the app icon in Settings and saves it with the rest', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/goals': STORED_GOALS,
+      'GET /api/settings': { hasUsdaKey: true, appIcon: 'ring' },
+      'PUT /api/goals': STORED_GOALS,
+      'PUT /api/settings': { hasUsdaKey: true, appIcon: 'pillars' },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    expect(await screen.findByRole('radio', { name: 'Ring' })).toHaveAttribute('aria-checked', 'true')
+    await user.click(screen.getByRole('radio', { name: 'Four pillars' }))
+    expect(screen.getByRole('radio', { name: 'Four pillars' })).toHaveAttribute('aria-checked', 'true')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/settings')).toBe(true))
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/settings')!.body).toEqual({ appIcon: 'pillars' })
+  })
+
   it('saves goals and never displays the stored USDA key', async () => {
     const user = userEvent.setup()
     const calls = stubApi({

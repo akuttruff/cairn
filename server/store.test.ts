@@ -243,6 +243,13 @@ describe('foods', () => {
 })
 
 describe('goals and settings', () => {
+  it('keeps the chosen app icon, Ring by default, and refuses one that does not exist', () => {
+    expect(store.getPublicSettings().appIcon).toBe('ring')
+    store.setSettings({ appIcon: 'dawn' })
+    expect(new Store({ dir }).getPublicSettings().appIcon).toBe('dawn')
+    expect(() => store.setSettings({ appIcon: 'unicorn' as never })).toThrow(/appIcon must be one of/)
+  })
+
   it('starts with sensible goals', () => {
     expect(store.getGoals().fiber).toBe(30)
   })
@@ -263,7 +270,7 @@ describe('goals and settings', () => {
   it('never exposes the USDA key', () => {
     store.setSettings({ usdaApiKey: 'SECRETKEY', lmStudioToken: 'sk-lm-SECRET' })
     const pub = store.getPublicSettings()
-    expect(pub).toEqual({ hasUsdaKey: true, hasLmStudioToken: true, lmStudioUrl: 'http://127.0.0.1:1234', researchModel: '', autoLookup: true })
+    expect(pub).toEqual({ hasUsdaKey: true, hasLmStudioToken: true, lmStudioUrl: 'http://127.0.0.1:1234', researchModel: '', autoLookup: true, appIcon: 'ring' })
     expect(JSON.stringify(pub)).not.toMatch(/SECRET/)
   })
 

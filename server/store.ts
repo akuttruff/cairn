@@ -3,9 +3,9 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import type { SQLInputValue, StatementSync } from 'node:sqlite'
-import { ALCOHOL_KINDS, MEALS, NUTRIENTS, WORKOUT_KINDS } from '../src/types.ts'
+import { ALCOHOL_KINDS, APP_ICONS, MEALS, NUTRIENTS, WORKOUT_KINDS } from '../src/types.ts'
 import type {
-  AlcoholKind, AlcoholLog, Amount, DaySummary, DayType, DayView, Entry, Food, FoodSource, Goals,
+  AlcoholKind, AlcoholLog, Amount, AppIcon, DaySummary, DayType, DayView, Entry, Food, FoodSource, Goals,
   Meal, MealPreset, MealPresetItem, MeditationLog, NewEntry, Nutrients, NutrientKey, PerServing, PublicSettings,
   RangeView, Serving, Settings, SourceLink, WaterLog, WorkoutKind, WorkoutLog, WorkoutPlan,
 } from '../src/types.ts'
@@ -210,7 +210,8 @@ CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY CHECK (id = 1),
   calorie_buffer REAL NOT NULL DEFAULT 100, workout_plan TEXT);
 CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK (id = 1),
   usda_api_key TEXT NOT NULL DEFAULT '', lm_studio_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:1234',
-  lm_studio_token TEXT NOT NULL DEFAULT '', research_model TEXT NOT NULL DEFAULT '', auto_lookup INTEGER NOT NULL DEFAULT 1);
+  lm_studio_token TEXT NOT NULL DEFAULT '', research_model TEXT NOT NULL DEFAULT '', auto_lookup INTEGER NOT NULL DEFAULT 1,
+  app_icon TEXT NOT NULL DEFAULT 'ring');
 
 -- No row for a date means a rest day (see getDayType): only the days you
 -- tick as training days get a row.
@@ -328,6 +329,12 @@ function migrateSchema(db: DatabaseSync): void {
     // Weeks now start on Sunday: a week's own plan, stored by its Monday, moves to the day before.
     db.exec("UPDATE workout_plans SET week_start = date(week_start, '-1 day') WHERE strftime('%w', week_start) = '1'")
     db.exec('PRAGMA user_version = 8')
+  }
+  if (version < 9) {
+    // The app icon, picked in Settings (see APP_ICONS).
+    const cols = db.prepare('PRAGMA table_info(settings)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'app_icon')) db.exec("ALTER TABLE settings ADD COLUMN app_icon TEXT NOT NULL DEFAULT 'ring'")
+    db.exec('PRAGMA user_version = 9')
   }
 }
 
@@ -565,11 +572,13 @@ const cleanNote = (input: unknown): string | undefined =>
   (typeof input === 'string' && input.trim() ? input.trim().slice(0, MAX_NAME) : undefined)
 interface SettingsRow {
   usda_api_key: string; lm_studio_url: string; lm_studio_token: string; research_model: string; auto_lookup: number
+  app_icon: string
 }
 function settingsFromRow(row: SettingsRow): Settings {
   return {
     usdaApiKey: row.usda_api_key, lmStudioUrl: row.lm_studio_url, lmStudioToken: row.lm_studio_token,
     researchModel: row.research_model, autoLookup: row.auto_lookup === 1,
+    appIcon: (APP_ICONS as readonly string[]).includes(row.app_icon) ? row.app_icon as AppIcon : 'ring',
   }
 }
 
@@ -617,6 +626,7 @@ function migrateFromJson(paths: ReturnType<typeof locate>): void {
     lmStudioToken: typeof rawSettings.lmStudioToken === 'string' ? rawSettings.lmStudioToken : '',
     researchModel: typeof rawSettings.researchModel === 'string' ? rawSettings.researchModel : '',
     autoLookup: typeof rawSettings.autoLookup === 'boolean' ? rawSettings.autoLookup : true,
+    appIcon: 'ring',
   }
 
   const tmp = `${paths.sqlite}.${process.pid}.tmp`
@@ -866,7 +876,7 @@ export class Store {
       ),
       selectSettings: this.db.prepare('SELECT * FROM settings WHERE id = 1'),
       updateSettings: this.db.prepare(
-        'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=? WHERE id=1',
+        'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=?, app_icon=? WHERE id=1',
       ),
       selectWaterByDate: this.db.prepare('SELECT * FROM water_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
       selectWaterBetween: this.db.prepare('SELECT * FROM water_logs WHERE date >= ? AND date <= ?'),
@@ -1645,6 +1655,7 @@ export class Store {
       lmStudioUrl: s.lmStudioUrl,
       researchModel: s.researchModel,
       autoLookup: s.autoLookup,
+      appIcon: s.appIcon,
     }
   }
 
@@ -1654,6 +1665,10 @@ export class Store {
     if (typeof input.lmStudioToken === 'string') next.lmStudioToken = input.lmStudioToken.trim().slice(0, 300)
     if (typeof input.researchModel === 'string') next.researchModel = input.researchModel.trim().slice(0, 200)
     if (typeof input.autoLookup === 'boolean') next.autoLookup = input.autoLookup
+    if (input.appIcon !== undefined) {
+      if (!(APP_ICONS as readonly string[]).includes(input.appIcon)) throw new ValidationError(`appIcon must be one of ${APP_ICONS.join(', ')}`)
+      next.appIcon = input.appIcon
+    }
     if (typeof input.lmStudioUrl === 'string') {
       const url = input.lmStudioUrl.trim().replace(/\/+$/, '')
       if (url) {
@@ -1665,7 +1680,7 @@ export class Store {
       }
       next.lmStudioUrl = url || 'http://127.0.0.1:1234'
     }
-    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0)
+    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon)
     return this.getPublicSettings()
   }
 }
