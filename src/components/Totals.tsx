@@ -8,8 +8,8 @@ interface TotalsProps extends DayTotals {
   onSetDayType: (type: DayType) => void
 }
 
-/** The grid under the calories: two caps, then two floors. */
-const MACROS: Exclude<NutrientKey, 'calories'>[] = ['carbs', 'fat', 'protein', 'fiber']
+/** The grid under the calories: the two to reach on top, then the two to stay under. */
+const MACROS: Exclude<NutrientKey, 'calories'>[] = ['protein', 'fiber', 'carbs', 'fat']
 
 /** Marks a total that leaves out entries whose source didn't report it. */
 function Partial({ count }: { count: number }) {

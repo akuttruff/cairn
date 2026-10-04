@@ -97,6 +97,14 @@ describe('App', () => {
     expect(screen.getByRole('progressbar', { name: 'Fiber' })).toHaveAttribute('aria-valuenow', '5')
   })
 
+  it('lists the goals to reach (protein, fiber) above the ones to stay under (carbs, fat)', async () => {
+    stubApi({ [`GET /api/day/${TODAY}`]: day([entry()]) })
+    render(<App />)
+    const card = await screen.findByRole('region', { name: 'Daily totals' })
+    const names = [...card.querySelectorAll('.macro-grid .macro-name')].map((el) => el.textContent)
+    expect(names).toEqual(['Protein', 'Fiber', 'Carbs', 'Fat'])
+  })
+
   it('marks a total as partial when an entry lacks that nutrient', async () => {
     stubApi({
       [`GET /api/day/${TODAY}`]: day([entry({ nutrients: { calories: 190, protein: 6.5, fat: 3.4, carbs: 33, fiber: null } })], {
