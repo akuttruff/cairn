@@ -263,6 +263,26 @@ export interface DayView extends DayTotals {
     goal: number
     lastLogId: string | null
   }
+  /** The latest body measurement of each kind as of this day (null: none yet), and its change since the reading before. */
+  body: Record<BodyMetric, BodyReading | null>
+}
+
+/**
+ * Body measurements, as Apple Health carries them from the scale (Withings
+ * syncs there; an iOS Shortcut posts them to /api/body). Stored in kg and
+ * percent; shown in lb.
+ */
+export const BODY_METRICS = ['weight', 'bodyFat', 'leanMass', 'bmi'] as const
+export type BodyMetric = (typeof BODY_METRICS)[number]
+
+export interface BodyReading {
+  /** kg for weight and lean mass, percent for body fat, plain for BMI. */
+  value: number
+  /** When it was measured (ms), and the local day that falls on. */
+  measuredAt: number
+  date: string
+  /** Since the previous reading of the same kind; null for the first. */
+  change: number | null
 }
 
 /** One calendar day's totals within a range view -- a bar in the week/month chart. */
@@ -334,6 +354,8 @@ export interface RangeView {
   }
   /** `met` of `of`: days with any meditation logged that reached the daily minutes -- like water. `streak`: consecutive days ending at the range's end (or today, if earlier) with any logged. */
   meditation: { total: number; average: number; days: number; met: number; of: number; streak: number }
+  /** Per kind: the first and last reading in the range, and the change between them; null with none in range. */
+  body: Record<BodyMetric, { first: number; last: number; change: number; count: number } | null>
 }
 
 /** What a client sends to log something. The server assigns id and time. */

@@ -134,6 +134,18 @@ describe('search', () => {
   })
 })
 
+describe('body measurements', () => {
+  it('takes readings from the phone as { samples }, a bare list, or one sample', async () => {
+    const one = { type: 'Weight', value: 150.2, unit: 'lb', date: '2026-09-26T07:10:00-07:00' }
+    expect((await call('POST', '/api/body', { samples: [one] })).body).toEqual({ added: 1, skipped: 0 })
+    expect((await call('POST', '/api/body', [one])).body).toEqual({ added: 0, skipped: 1 })
+    expect((await call('POST', '/api/body', { ...one, date: '2026-09-27T07:10:00-07:00' })).body).toEqual({ added: 1, skipped: 0 })
+    const day = (await call('GET', '/api/day/2026-09-27')).body as unknown as DayView
+    expect(day.body.weight!.date).toBe('2026-09-27')
+    expect((await call('POST', '/api/body', { samples: [{ type: 'Weight', value: 180 }] })).status).toBe(400) // no date
+  })
+})
+
 describe('app icon', () => {
   it('serves whichever icon Settings picked, as the tab icon and the home-screen PNG', async () => {
     const svg = async (): Promise<string> => (await fetch(`${base}/icon.svg`)).text()

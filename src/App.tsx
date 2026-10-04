@@ -8,6 +8,7 @@ import WaterTracker from './components/WaterTracker.tsx'
 import AlcoholTracker from './components/AlcoholTracker.tsx'
 import WorkoutTracker from './components/WorkoutTracker.tsx'
 import MeditationTracker from './components/MeditationTracker.tsx'
+import BodyCard from './components/BodyCard.tsx'
 import MealList from './components/MealList.tsx'
 import RangeSummary from './components/RangeSummary.tsx'
 import AddSheet from './components/AddSheet.tsx'
@@ -93,6 +94,7 @@ export default function App() {
                 <AlcoholTracker date={day.date} alcohol={view.alcohol} onLogged={refresh} />
                 <WorkoutTracker date={day.date} workouts={view.workouts} onLogged={refresh} />
                 <MeditationTracker date={day.date} meditation={view.meditation} onLogged={refresh} />
+                <BodyCard date={day.date} body={view.body} />
                 <MealList
                   entries={view.entries}
                   onOpen={(e) => { setEditing(e); open('entry') }}

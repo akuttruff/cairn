@@ -46,6 +46,7 @@ const day = (entries: Entry[], over: Partial<DayView> = {}): DayView => ({
   alcohol: { drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, weekTotal: 0, weekGoal: 7, calories: 0, lastLogId: null },
   workouts: WORKOUTS_DAY,
   meditation: { sessions: [], minutes: 0, goal: 10, lastLogId: null },
+  body: { weight: null, bodyFat: null, leanMass: null, bmi: null },
   ...over,
 })
 
@@ -60,6 +61,7 @@ const range = (over: Partial<RangeView> = {}, start = startOfWeek(TODAY)): Range
   water: { total: 0, average: 0, met: 0, of: 0 }, alcohol: { total: 0, average: 0, calories: 0, byKind: { beer: 0, wine: 0, liquor: 0 } },
   workouts: { sessions: 0, days: 0, minutes: 0, byKind: NO_KINDS, goalByKind: PLAN, goal: 9 },
   meditation: { total: 0, average: 0, days: 0, met: 0, of: 0, streak: 0 },
+  body: { weight: null, bodyFat: null, leanMass: null, bmi: null },
   days: Array.from({ length: 7 }, (_, i) => ({
     date: addDays(start, i), entryCount: 0, water: 0, alcohol: 0, ...DAY_ACTIVITY, dayType: 'training' as const, goals: GOALS, totals: ZERO, missing: ZERO,
   })),
@@ -103,6 +105,31 @@ describe('App', () => {
     const card = await screen.findByRole('region', { name: 'Daily totals' })
     const names = [...card.querySelectorAll('.macro-grid .macro-name')].map((el) => el.textContent)
     expect(names).toEqual(['Protein', 'Fiber', 'Carbs', 'Fat'])
+  })
+
+  it("shows the scale's latest readings in lb, with the change since the last one", async () => {
+    stubApi({
+      [`GET /api/day/${TODAY}`]: day([], {
+        body: {
+          weight: { value: 68.04, measuredAt: 1, date: TODAY, change: -0.45 },
+          bodyFat: { value: 25, measuredAt: 1, date: TODAY, change: null },
+          leanMass: null, bmi: null,
+        },
+      }),
+    })
+    render(<App />)
+    const card = await screen.findByRole('region', { name: 'Body' })
+    expect(within(card).getByText('150.0')).toBeInTheDocument() // 68.04 kg
+    expect(within(card).getByText('−1.0 · today')).toBeInTheDocument() // -0.45 kg is about 1 lb
+    expect(within(card).getByText('25.0')).toBeInTheDocument()
+    expect(within(card).queryByText('Lean mass')).not.toBeInTheDocument() // only kinds that have a reading
+  })
+
+  it('has no Body card until the first reading arrives', async () => {
+    stubApi({ [`GET /api/day/${TODAY}`]: day([]) })
+    render(<App />)
+    await screen.findByRole('region', { name: 'Water' })
+    expect(screen.queryByRole('region', { name: 'Body' })).not.toBeInTheDocument()
   })
 
   it('marks a total as partial when an entry lacks that nutrient', async () => {

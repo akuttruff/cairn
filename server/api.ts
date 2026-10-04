@@ -121,6 +121,12 @@ export function createApi(options: ApiOptions = {}) {
       store.deleteWorkout(decodeURIComponent(m[1]!))
       return json(res, 200, { ok: true })
     }
+    // Body measurements from the phone: { samples: [...] }, a bare list, or one sample.
+    if (p === '/api/body' && method === 'POST') {
+      const body = await readBody(req) as { samples?: unknown } | unknown[]
+      const samples = Array.isArray(body) ? body : (body as { samples?: unknown }).samples ?? body
+      return json(res, 200, store.addBodySamples(samples))
+    }
     if (p === '/api/meditation' && method === 'POST') {
       return json(res, 201, store.addMeditation(await readBody(req) as Record<string, unknown>))
     }

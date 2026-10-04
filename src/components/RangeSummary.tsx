@@ -4,6 +4,7 @@ import { LABELS, UNITS, goalDirection, goalMet, goalRangeFor, localDate, meditat
 import { fmt } from '../lib/format.ts'
 import { WORKOUTS } from './WorkoutTracker.tsx'
 import { SIT_MINUTES } from './MeditationTracker.tsx'
+import { BodyRangeCard } from './BodyCard.tsx'
 import type { ChartKey, DaySummary, MacroRange, NutrientKey, RangeView } from '../types.ts'
 
 interface RangeSummaryProps {
@@ -437,6 +438,8 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
           {meditation.streak > 1 && ` · ${meditation.streak}-day streak`}
         </div>
       </section>
+
+      <BodyRangeCard body={view.body} />
 
       {alcohol.total > 0 && (
         <section className="water-card" aria-label="Alcohol">

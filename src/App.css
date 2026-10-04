@@ -720,3 +720,10 @@ button:disabled { opacity: 0.45; cursor: default; }
 
 /* Settings: which charts to draw, two to a row. */
 .chart-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; margin: 6px 0 4px; }
+
+/* Body: the scale's latest readings, two to a row. */
+.body-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
+.body-stat { display: flex; flex-direction: column; gap: 2px; }
+.body-name { font-size: 13px; color: var(--paper-dim); }
+.body-value { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.body-note { font-family: var(--mono); font-size: 11px; color: var(--paper-dim); }

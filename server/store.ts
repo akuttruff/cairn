@@ -3,9 +3,9 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import type { SQLInputValue, StatementSync } from 'node:sqlite'
-import { ALCOHOL_KINDS, APP_ICONS, CHARTABLE, DEFAULT_CHARTS, MEALS, NUTRIENTS, WORKOUT_KINDS } from '../src/types.ts'
+import { ALCOHOL_KINDS, APP_ICONS, BODY_METRICS, CHARTABLE, DEFAULT_CHARTS, MEALS, NUTRIENTS, WORKOUT_KINDS } from '../src/types.ts'
 import type {
-  AlcoholKind, AlcoholLog, Amount, AppIcon, ChartKey, DaySummary, DayType, DayView, Entry, Food, FoodSource, Goals,
+  AlcoholKind, AlcoholLog, Amount, AppIcon, BodyMetric, ChartKey, DaySummary, DayType, DayView, Entry, Food, FoodSource, Goals,
   Meal, MealPreset, MealPresetItem, MeditationLog, NewEntry, Nutrients, NutrientKey, PerServing, PublicSettings,
   RangeView, Serving, Settings, SourceLink, WaterLog, WorkoutKind, WorkoutLog, WorkoutPlan,
 } from '../src/types.ts'
@@ -239,6 +239,13 @@ CREATE TABLE IF NOT EXISTS meditation_logs (
   id TEXT PRIMARY KEY, date TEXT NOT NULL, minutes REAL NOT NULL, note TEXT, created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_meditation_logs_date ON meditation_logs(date);
+
+-- Readings from the scale (via Apple Health). One per kind and moment, so re-sending the same week is harmless.
+CREATE TABLE IF NOT EXISTS body_measurements (
+  metric TEXT NOT NULL, measured_at INTEGER NOT NULL, date TEXT NOT NULL, value REAL NOT NULL, created_at INTEGER NOT NULL,
+  PRIMARY KEY (metric, measured_at)
+);
+CREATE INDEX IF NOT EXISTS idx_body_measurements_date ON body_measurements(date);
 
 CREATE TABLE IF NOT EXISTS lookup_cache (
   key TEXT PRIMARY KEY, at INTEGER NOT NULL, result TEXT NOT NULL
@@ -574,6 +581,41 @@ function cleanPlan(input: unknown): WorkoutPlan {
 const planTotal = (plan: WorkoutPlan): number => WORKOUT_KINDS.reduce((sum, k) => sum + plan[k], 0)
 const zeroByKind = (): Record<WorkoutKind, number> => Object.fromEntries(WORKOUT_KINDS.map((k) => [k, 0])) as Record<WorkoutKind, number>
 
+interface BodyRow { metric: string; measured_at: number; date: string; value: number }
+
+/** Apple Health's names for the types, and Cairn's own, to the metric they are. */
+const BODY_ALIASES: Record<string, BodyMetric> = {
+  weight: 'weight', 'body mass': 'weight', bodymass: 'weight',
+  bodyfat: 'bodyFat', 'body fat': 'bodyFat', 'body fat percentage': 'bodyFat', 'body fat %': 'bodyFat',
+  leanmass: 'leanMass', 'lean mass': 'leanMass', 'lean body mass': 'leanMass',
+  bmi: 'bmi', 'body mass index': 'bmi',
+}
+const LB_PER_KG = 2.20462262
+
+/** One reading from the phone, checked and put in Cairn's units (kg, percent). */
+function cleanBodySample(raw: unknown, i: number): { metric: BodyMetric; value: number; measuredAt: number } {
+  const s = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const label = `sample ${i + 1}`
+  const metric = BODY_ALIASES[String(s.type ?? s.metric ?? '').trim().toLowerCase()]
+  if (!metric) throw new ValidationError(`${label}: type must be one of Weight, Body Fat Percentage, Lean Body Mass, Body Mass Index`)
+  // Shortcuts may send numbers as text, sometimes with a unit or thousands separator attached.
+  let value = typeof s.value === 'number' ? s.value : Number.parseFloat(String(s.value ?? '').replace(/,/g, ''))
+  if (!Number.isFinite(value) || value <= 0) throw new ValidationError(`${label}: value must be a positive number`)
+  const unit = String(s.unit ?? '').trim().toLowerCase()
+  if (metric === 'weight' || metric === 'leanMass') {
+    if (/^(lb|lbs|pound|pounds)$/.test(unit)) value /= LB_PER_KG
+    else if (unit && !/^(kg|kgs|kilogram|kilograms)$/.test(unit)) throw new ValidationError(`${label}: unit must be lb or kg`)
+    if (value > 500) throw new ValidationError(`${label}: ${Math.round(value)} kg is not a plausible body weight`)
+  }
+  if (metric === 'bodyFat') {
+    if (value <= 1) value *= 100 // Apple Health keeps a fraction; a percent is also fine
+    if (value > 80) throw new ValidationError(`${label}: body fat must be a percent`)
+  }
+  const when = typeof s.date === 'number' ? s.date : Date.parse(String(s.date ?? ''))
+  if (!Number.isFinite(when)) throw new ValidationError(`${label}: date must be ISO 8601, like 2026-10-04T07:12:00-07:00`)
+  return { metric, value: Math.round(value * 100) / 100, measuredAt: when }
+}
+
 const cleanNote = (input: unknown): string | undefined =>
   (typeof input === 'string' && input.trim() ? input.trim().slice(0, MAX_NAME) : undefined)
 interface SettingsRow {
@@ -782,6 +824,9 @@ interface Stmts {
   selectMeditationBetween: StatementSync
   insertMeditation: StatementSync
   deleteMeditation: StatementSync
+  insertBody: StatementSync
+  selectBodyUpTo: StatementSync
+  selectBodyBetween: StatementSync
   selectLookup: StatementSync
   upsertLookup: StatementSync
   pruneLookups: StatementSync
@@ -917,6 +962,10 @@ export class Store {
       selectMeditationBetween: this.db.prepare('SELECT * FROM meditation_logs WHERE date >= ? AND date <= ?'),
       insertMeditation: this.db.prepare('INSERT INTO meditation_logs (id,date,minutes,note,created_at) VALUES (?,?,?,?,?)'),
       deleteMeditation: this.db.prepare('DELETE FROM meditation_logs WHERE id = ?'),
+      insertBody: this.db.prepare('INSERT OR IGNORE INTO body_measurements (metric, measured_at, date, value, created_at) VALUES (?,?,?,?,?)'),
+      // The two latest readings of a kind on or before a day: the current one, and the one it changed from.
+      selectBodyUpTo: this.db.prepare('SELECT * FROM body_measurements WHERE metric = ? AND date <= ? ORDER BY measured_at DESC LIMIT 2'),
+      selectBodyBetween: this.db.prepare('SELECT * FROM body_measurements WHERE date >= ? AND date <= ? ORDER BY measured_at'),
       selectLookup: this.db.prepare('SELECT at, result FROM lookup_cache WHERE key = ?'),
       upsertLookup: this.db.prepare(
         'INSERT INTO lookup_cache (key,at,result) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET at=excluded.at, result=excluded.result',
@@ -1024,7 +1073,8 @@ export class Store {
     const alcohol = this.getAlcohol(date, goals.alcoholWeekly)
     const workouts = this.getWorkouts(date)
     const meditation = this.getMeditation(date, goals.meditationMinutes)
-    return { date, entries, dayType, goals, water, alcohol, workouts, meditation, ...sumDay(entries) }
+    const body = this.getBody(date)
+    return { date, entries, dayType, goals, water, alcohol, workouts, meditation, body, ...sumDay(entries) }
   }
 
   /**
@@ -1138,7 +1188,62 @@ export class Store {
         ...scoreMeditation(basis, goals.meditationMinutes),
         streak: streakThrough(days, (d) => d.meditationMinutes > 0, through),
       },
+      body: this.getBodyBetween(start, end),
     }
+  }
+
+  // --- body measurements ------------------------------------------------------
+
+  /**
+   * Readings sent from the phone (an iOS Shortcut reading Apple Health).
+   * Accepts Apple Health's own type names or Cairn's, in lb or kg; a body
+   * fat fraction (0.21) or percent (21). A reading already stored -- same
+   * kind, same moment -- is skipped, so a Shortcut can send the whole last
+   * week every morning. Returns how many were new.
+   */
+  addBodySamples(input: unknown): { added: number; skipped: number } {
+    const list = Array.isArray(input) ? input : [input]
+    if (list.length > 2000) throw new ValidationError('at most 2000 samples at once')
+    let added = 0
+    let skipped = 0
+    const now = Date.now()
+    this.db.exec('BEGIN')
+    try {
+      for (const [i, raw] of list.entries()) {
+        const s = cleanBodySample(raw, i)
+        const result = this.stmts.insertBody.run(s.metric, s.measuredAt, localDate(new Date(s.measuredAt)), s.value, now)
+        if (result.changes) added++
+        else skipped++
+      }
+      this.db.exec('COMMIT')
+    } catch (err) {
+      this.db.exec('ROLLBACK')
+      throw err
+    }
+    return { added, skipped }
+  }
+
+  private getBody(date: string): DayView['body'] {
+    const out = {} as DayView['body']
+    for (const metric of BODY_METRICS) {
+      const [latest, before] = this.stmts.selectBodyUpTo.all(metric, date) as unknown as BodyRow[]
+      out[metric] = latest
+        ? { value: latest.value, measuredAt: latest.measured_at, date: latest.date, change: before ? round1(latest.value - before.value) : null }
+        : null
+    }
+    return out
+  }
+
+  private getBodyBetween(start: string, end: string): RangeView['body'] {
+    const rows = this.stmts.selectBodyBetween.all(start, end) as unknown as BodyRow[]
+    const out = {} as RangeView['body']
+    for (const metric of BODY_METRICS) {
+      const mine = rows.filter((r) => r.metric === metric)
+      const first = mine[0]
+      const last = mine[mine.length - 1]
+      out[metric] = first && last ? { first: first.value, last: last.value, change: round1(last.value - first.value), count: mine.length } : null
+    }
+    return out
   }
 
   /** This day's sessions, plus its calendar week (Sunday-start): each kind's count against that week's plan. */

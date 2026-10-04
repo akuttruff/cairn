@@ -910,6 +910,63 @@ describe('meditation', () => {
   })
 })
 
+describe('body measurements', () => {
+  const at = (date: string, hour = 7): string => `${date}T${String(hour).padStart(2, '0')}:00:00`
+
+  it('takes readings as Apple Health names them, in lb or kg, and keeps kg and percent', () => {
+    expect(store.addBodySamples([
+      { type: 'Weight', value: '150.0', unit: 'lb', date: at('2026-09-24') },
+      { type: 'Body Fat Percentage', value: 0.25, date: at('2026-09-24') }, // Apple Health's fraction
+      { type: 'Lean Body Mass', value: 51, unit: 'kg', date: at('2026-09-24') },
+      { type: 'Body Mass Index', value: 22.5, date: at('2026-09-24') },
+    ])).toEqual({ added: 4, skipped: 0 })
+    const body = store.getDay('2026-09-24').body
+    expect(body.weight!.value).toBeCloseTo(68.04, 1) // 150 lb
+    expect(body.bodyFat!.value).toBe(25)
+    expect(body.leanMass!.value).toBe(51)
+    expect(body.bmi).toMatchObject({ value: 22.5, date: '2026-09-24', change: null })
+  })
+
+  it('skips a reading it already has, so the same week can be sent every morning', () => {
+    const week = [{ type: 'Weight', value: 150, unit: 'lb', date: at('2026-09-24') }, { type: 'Weight', value: 149, unit: 'lb', date: at('2026-09-25') }]
+    expect(store.addBodySamples(week)).toEqual({ added: 2, skipped: 0 })
+    expect(store.addBodySamples(week)).toEqual({ added: 0, skipped: 2 })
+  })
+
+  it("shows each day the latest reading on or before it, with the change since the one before", () => {
+    store.addBodySamples([
+      { type: 'weight', value: 68, unit: 'kg', date: at('2026-09-20') },
+      { type: 'weight', value: 67.5, unit: 'kg', date: at('2026-09-23') },
+    ])
+    expect(store.getDay('2026-09-19').body.weight).toBeNull() // nothing yet
+    expect(store.getDay('2026-09-22').body.weight).toMatchObject({ value: 68, date: '2026-09-20', change: null })
+    expect(store.getDay('2026-09-26').body.weight).toMatchObject({ value: 67.5, date: '2026-09-23', change: -0.5 })
+  })
+
+  it('gives a range the first and last reading of each kind, and the change between', () => {
+    store.addBodySamples([
+      { type: 'weight', value: 68, unit: 'kg', date: at('2026-09-21') },
+      { type: 'weight', value: 67.6, unit: 'kg', date: at('2026-09-23') },
+      { type: 'weight', value: 67.2, unit: 'kg', date: at('2026-09-26') },
+    ])
+    const r = store.getRange('2026-09-21', '2026-09-27')
+    expect(r.body.weight).toEqual({ first: 68, last: 67.2, change: -0.8, count: 3 })
+    expect(r.body.bodyFat).toBeNull()
+  })
+
+  it('refuses what it cannot read, and saves none of a batch with a bad sample in it', () => {
+    expect(() => store.addBodySamples([{ type: 'Height', value: 170, date: at('2026-09-24') }])).toThrow(/type must be one of/)
+    expect(() => store.addBodySamples([{ type: 'Weight', value: 'heavy', date: at('2026-09-24') }])).toThrow(/positive number/)
+    expect(() => store.addBodySamples([{ type: 'Weight', value: 180, unit: 'stone', date: at('2026-09-24') }])).toThrow(/lb or kg/)
+    expect(() => store.addBodySamples([{ type: 'Weight', value: 150, unit: 'lb', date: 'Oct 4 at 7:12 AM' }])).toThrow(/ISO 8601/)
+    expect(() => store.addBodySamples([
+      { type: 'Weight', value: 150, unit: 'lb', date: at('2026-09-24') },
+      { type: 'Weight', value: -1, unit: 'lb', date: at('2026-09-25') },
+    ])).toThrow()
+    expect(store.getDay('2026-09-24').body.weight).toBeNull()
+  })
+})
+
 describe('ranges', () => {
   const D1 = '2026-09-21'
   const D2 = '2026-09-22'
