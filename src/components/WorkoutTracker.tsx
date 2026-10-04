@@ -12,9 +12,9 @@ export const WORKOUTS: Record<WorkoutKind, { label: string; Icon: LucideIcon }> 
   wod: { label: 'WOD', Icon: Flame },
   weightlifting: { label: 'Lifting', Icon: Dumbbell },
   run: { label: 'Run', Icon: Footprints },
-  walk: { label: 'Walk', Icon: PersonStanding },
+  cycling: { label: 'Cycling', Icon: Bike },
   yoga: { label: 'Yoga', Icon: Sparkles },
-  other: { label: 'Other', Icon: Bike },
+  pilates: { label: 'Pilates', Icon: PersonStanding },
 }
 
 interface WorkoutTrackerProps {
@@ -74,7 +74,7 @@ export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrac
       {workouts.sessions.length > 0 && (
         <ul className="session-list">
           {workouts.sessions.map((s) => {
-            const { label, Icon } = WORKOUTS[s.kind] ?? WORKOUTS.other
+            const { label, Icon } = WORKOUTS[s.kind] ?? { label: s.kind, Icon: Dumbbell }
             return (
               <li key={s.id} className="session-row">
                 <Icon size={14} aria-hidden="true" />

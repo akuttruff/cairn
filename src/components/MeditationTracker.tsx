@@ -3,8 +3,8 @@ import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import type { DayView } from '../types.ts'
 
-/** One tap per sit; most are one of these lengths. */
-const QUICK_MINUTES = [5, 10, 20]
+/** Every sit is this long, so logging one is a single tap. */
+export const SIT_MINUTES = 25
 
 interface MeditationTrackerProps {
   date: string
@@ -17,9 +17,9 @@ export default function MeditationTracker({ date, meditation, onLogged }: Medita
   const pct = meditation.goal > 0 ? Math.max(0, Math.min(1, meditation.minutes / meditation.goal)) * 100 : 0
   const sits = meditation.sessions.length
 
-  const add = async (minutes: number): Promise<void> => {
+  const add = async (): Promise<void> => {
     try {
-      await api.addMeditation({ date, minutes })
+      await api.addMeditation({ date, minutes: SIT_MINUTES })
       onLogged()
     } catch (err) {
       toast.error((err as Error).message)
@@ -58,12 +58,10 @@ export default function MeditationTracker({ date, meditation, onLogged }: Medita
       </div>
       {sits > 0 && <div className="water-bottles">{sits} {sits === 1 ? 'sit' : 'sits'} today</div>}
       <div className="water-actions">
-        {QUICK_MINUTES.map((m) => (
-          <button key={m} type="button" className="water-add meditation-add" onClick={() => void add(m)}>
-            <Leaf size={14} aria-hidden="true" />
-            + {m} min
-          </button>
-        ))}
+        <button type="button" className="water-add meditation-add" onClick={() => void add()}>
+          <Leaf size={14} aria-hidden="true" />
+          + {SIT_MINUTES}-min sit
+        </button>
         {meditation.lastLogId && (
           <button type="button" className="water-undo" onClick={() => void undo()}>
             <Undo2 size={14} aria-hidden="true" />

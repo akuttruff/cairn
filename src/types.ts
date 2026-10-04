@@ -179,7 +179,7 @@ export interface WaterLog {
   createdAt: number
 }
 
-export const WORKOUT_KINDS = ['wod', 'weightlifting', 'run', 'walk', 'yoga', 'other'] as const
+export const WORKOUT_KINDS = ['wod', 'weightlifting', 'run', 'cycling', 'yoga', 'pilates'] as const
 export type WorkoutKind = (typeof WORKOUT_KINDS)[number]
 
 /**

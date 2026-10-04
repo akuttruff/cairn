@@ -50,7 +50,7 @@ const range = (over: Partial<RangeView> = {}, start = startOfWeek(TODAY)): Range
   start, end: addDays(start, 6), goals: GOALS, dayTypes: { training: 7, rest: 0 }, scorecard: NO_SCORE, totalDays: 7, loggedDays: 0,
   totals: ZERO, averages: ZERO,
   water: { total: 0, average: 0, met: 0, of: 0 }, alcohol: { total: 0, average: 0, calories: 0, byKind: { beer: 0, wine: 0, liquor: 0 } },
-  workouts: { sessions: 0, days: 0, minutes: 0, byKind: { wod: 0, weightlifting: 0, run: 0, walk: 0, yoga: 0, other: 0 } },
+  workouts: { sessions: 0, days: 0, minutes: 0, byKind: { wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 0, pilates: 0 } },
   meditation: { total: 0, average: 0, days: 0, met: 0, of: 0, streak: 0 },
   days: Array.from({ length: 7 }, (_, i) => ({
     date: addDays(start, i), entryCount: 0, water: 0, alcohol: 0, ...DAY_ACTIVITY, dayType: 'training' as const, goals: GOALS, totals: ZERO, missing: ZERO,
@@ -433,14 +433,14 @@ describe('App', () => {
       [`GET /api/day/${TODAY}`]: day([], {
         workouts: { sessions: [{ id: 'w1', date: TODAY, kind: 'yoga', minutes: null, createdAt: 1 }], minutes: 0, weekTotal: 1, weekGoal: 4, lastLogId: 'w1' },
       }),
-      'POST /api/workouts': { id: 'w2', date: TODAY, kind: 'walk', minutes: null, createdAt: 2 },
+      'POST /api/workouts': { id: 'w2', date: TODAY, kind: 'cycling', minutes: null, createdAt: 2 },
       'DELETE /api/workouts/w1': { ok: true },
     })
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Workouts' })
-    await user.click(within(card).getByRole('button', { name: 'Walk' }))
+    await user.click(within(card).getByRole('button', { name: 'Cycling' }))
     await waitFor(() => expect(calls.some((c) => c.url === '/api/workouts')).toBe(true))
-    expect(calls.find((c) => c.url === '/api/workouts')!.body).toEqual({ date: TODAY, kind: 'walk', minutes: null })
+    expect(calls.find((c) => c.url === '/api/workouts')!.body).toEqual({ date: TODAY, kind: 'cycling', minutes: null })
     await user.click(within(card).getByRole('button', { name: 'Remove Yoga' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/workouts/w1')).toBe(true))
   })
@@ -451,15 +451,15 @@ describe('App', () => {
       [`GET /api/day/${TODAY}`]: day([], {
         meditation: { sessions: [{ id: 'm1', date: TODAY, minutes: 5, createdAt: 1 }], minutes: 5, goal: 10, lastLogId: 'm1' },
       }),
-      'POST /api/meditation': { id: 'm2', date: TODAY, minutes: 10, createdAt: 2 },
+      'POST /api/meditation': { id: 'm2', date: TODAY, minutes: 25, createdAt: 2 },
       'DELETE /api/meditation/m1': { ok: true },
     })
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Meditation' })
     expect(within(card).getByRole('progressbar', { name: 'Meditation' })).toHaveAttribute('aria-valuenow', '5')
-    await user.click(within(card).getByRole('button', { name: /\+ 10 min/ }))
+    await user.click(within(card).getByRole('button', { name: /\+ 25-min sit/ }))
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/meditation')).toBe(true))
-    expect(calls.find((c) => c.url === '/api/meditation')!.body).toEqual({ date: TODAY, minutes: 10 })
+    expect(calls.find((c) => c.url === '/api/meditation')!.body).toEqual({ date: TODAY, minutes: 25 })
     await user.click(within(card).getByRole('button', { name: 'Undo' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/meditation/m1')).toBe(true))
   })
@@ -1056,7 +1056,7 @@ describe('App', () => {
       stubApi({
         [`GET /api/day/${TODAY}`]: day([]),
         'GET /api/range': range({
-          workouts: { sessions: 3, days: 2, minutes: 85, byKind: { wod: 2, weightlifting: 0, run: 1, walk: 0, yoga: 0, other: 0 } },
+          workouts: { sessions: 3, days: 2, minutes: 85, byKind: { wod: 2, weightlifting: 0, run: 1, cycling: 0, yoga: 0, pilates: 0 } },
           meditation: { total: 25, average: 3.6, days: 2, met: 1, of: 2, streak: 2 },
           days: base.days.map((d, i) => ({ ...d, meditationMinutes: [0, 15, 10, 0, 0, 0, 0][i]! })),
         }),

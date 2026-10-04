@@ -17,8 +17,9 @@ export const DEFAULT_GOALS: Goals = {
   fiber: 30,
   water: 96,
   alcoholWeekly: 7,
-  workoutsWeekly: 4,
-  meditationMinutes: 10,
+  workoutsWeekly: 6,
+  /** One sit a day: the user's sessions are always 25 minutes (see MeditationTracker). */
+  meditationMinutes: 25,
 }
 
 /** The workout kinds that make a day a training day (the carb bump is for these). */

@@ -1041,7 +1041,7 @@ export class Store {
   /**
    * One workout session. A WOD or weightlifting session is what a training
    * day is, so logging one ticks the day as training -- the extra carbs
-   * apply without a second tap. Other kinds (a walk, yoga) leave the day
+   * apply without a second tap. Other kinds (a ride, yoga) leave the day
    * type alone, and the box in Day view can still be changed by hand.
    */
   addWorkout(input: { date?: unknown; kind?: unknown; minutes?: unknown; note?: unknown }): WorkoutLog {
