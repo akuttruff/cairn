@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ALCOHOL_KINDS, NUTRIENTS, WORKOUT_KINDS } from '../types.ts'
 import { LABELS, UNITS, goalDirection, goalMet, goalRangeFor, localDate, meditationMet, progress, waterMet } from '../lib/nutrition.ts'
 import { fmt } from '../lib/format.ts'
@@ -11,10 +12,10 @@ interface RangeSummaryProps {
   onSelectDay: (date: string) => void
 }
 
-/** One line on the daily charts: a nutrient, or water, read off each day the same way. */
+/** One daily chart: a nutrient, or water, read off each day the same way. */
 interface Series {
   /** Also the CSS class that colours it. */
-  key: NutrientKey | 'water' | 'meditation'
+  key: NutrientKey | 'water'
   label: string
   /** Which way the goal points: "stay under" or "reach". */
   direction: string
@@ -25,6 +26,8 @@ interface Series {
   logged: (d: DaySummary) => boolean
   met: (value: number, goal: MacroRange) => boolean
   format: (value: number) => string
+  /** The range's average, for the chart's header. */
+  average: (view: RangeView) => number
 }
 
 const nutrientSeries = (key: NutrientKey): Series => ({
@@ -37,6 +40,7 @@ const nutrientSeries = (key: NutrientKey): Series => ({
   logged: (d) => d.entryCount > 0,
   met: (value, goal) => goalMet(value, goal, key),
   format: (value) => fmt(key, value),
+  average: (view) => view.averages[key],
 })
 
 const WATER: Series = {
@@ -49,101 +53,168 @@ const WATER: Series = {
   logged: (d) => d.water > 0,
   met: (value, goal) => waterMet(value, goal.min),
   format: (value) => String(Math.round(value)),
-}
-
-const MEDITATION: Series = {
-  key: 'meditation',
-  label: 'Meditation',
-  direction: 'reach',
-  unit: 'min',
-  value: (d) => d.meditationMinutes,
-  goal: (d) => ({ min: d.goals.meditationMinutes, max: d.goals.meditationMinutes }),
-  logged: (d) => d.meditationMinutes > 0,
-  met: (value, goal) => meditationMet(value, goal.min),
-  format: (value) => String(Math.round(value)),
-}
-
-/** What the daily charts plot, in order. Workouts have a weekly goal, not a daily one, so they get a card below instead. */
-const CHARTED: Series[] = [nutrientSeries('calories'), nutrientSeries('protein'), nutrientSeries('fiber'), WATER, MEDITATION]
-
-interface RangeChartProps {
-  series: Series
-  days: DaySummary[]
-  today: string
-  onSelectDay: (date: string) => void
+  average: (view) => view.water.average,
 }
 
 /**
- * One series' daily trend as a line, with each day's own goal drawn as a
- * short mark at that day -- higher on training days, lower on rest days --
- * rather than one line for the whole range, which no single day was
- * actually aiming at. A day's dot is filled when it met its goal, hollow
- * when it didn't, and dim when nothing was logged.
- *
- * The label sits in its own row above the plot, in normal flow -- not
- * layered over it -- so it never collides with the line itself.
- *
- * The connecting line and goal marks are drawn in one SVG, scaled to fill
- * the plot area (viewBox 0-100 both axes; `preserveAspectRatio="none"` lets
- * it stretch to the real, non-square box). Circles don't stretch well under
- * that same scaling -- a 1-unit radius becomes a flat ellipse in a box far
- * wider than it is tall -- so the point markers are plain positioned HTML
- * buttons layered on top instead, sized in real pixels and never distorted.
- * Both are driven by the same x/y-percent math, so they always line up.
+ * What the daily charts plot, in order. Meditation and workouts are shown
+ * as day boxes further down instead (a sit or a session is done or not --
+ * there is no curve to read).
  */
-function RangeChart({ series, days, today, onSelectDay }: RangeChartProps) {
-  const goals = days.map((d) => series.goal(d))
-  const max = Math.max(...goals.map((r) => r.max), ...days.map((d) => series.value(d)), 1)
+const CHARTED: Series[] = [nutrientSeries('calories'), nutrientSeries('protein'), nutrientSeries('fiber'), WATER]
+
+/** Where a day stands against its goal. Today isn't over, so it is only a hit or a miss once that can't change. */
+type DayState = 'met' | 'missed' | 'pending' | 'unlogged' | 'future'
+const VERDICT: Record<DayState, string> = {
+  met: 'goal met', missed: 'goal missed', pending: 'in progress', unlogged: 'nothing logged', future: 'still ahead',
+}
+
+function dayState(series: Series, d: DaySummary, today: string): DayState {
+  if (d.date > today) return 'future'
+  if (!series.logged(d)) return 'unlogged'
+  const met = series.met(series.value(d), series.goal(d))
+  if (d.date === today) {
+    // A max already passed is a miss, a min already reached is a hit; anything else is still open.
+    if (series.direction === 'stay under') return met ? 'pending' : 'missed'
+    return met ? 'met' : 'pending'
+  }
+  return met ? 'met' : 'missed'
+}
+
+/** "Oct 3" */
+const shortDate = (date: string): string =>
+  new Date(`${date}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+
+interface RangeChartProps {
+  series: Series
+  view: RangeView
+  today: string
+  /** The day whose numbers the header is showing (Month view), if any. */
+  selected: string | null
+  /** A day was tapped. */
+  onPick: (date: string) => void
+}
+
+/**
+ * One series, a column per day.
+ *
+ * A week is BARS with the value printed on each: seven separate totals,
+ * each against its own day's goal. A month is a LINE, where the shape over
+ * time is the point; it breaks at days with nothing logged and stops at
+ * today, so a missing day never reads as a crash to zero, and a tap on a
+ * day puts its numbers in the header.
+ *
+ * Both draw the goal the same way: a line at each day's own target (higher
+ * on training days), and a faint band on the side of it that counts as
+ * good -- below a max, above a min -- so a bar or point inside the band is
+ * a hit at a glance. Hits take the series colour; misses are rust, like an
+ * over-the-max bar in Day view.
+ *
+ * The band, goal line and connecting line are one SVG stretched over the
+ * plot (viewBox 0-100, `preserveAspectRatio="none"`). Bars, dots and
+ * labels are HTML in a grid of day columns on top, so they keep their real
+ * pixel sizes; each column is the day's button. Both use the same slot
+ * math -- day i spans i/n to (i+1)/n -- so they line up.
+ */
+function RangeChart({ series, view, today, selected, onPick }: RangeChartProps) {
+  const { days } = view
   const n = days.length
-  const xPct = (i: number): number => (n > 1 ? (i / (n - 1)) * 100 : 50)
+  const bars = n <= 7
+  const under = series.direction === 'stay under'
+  const goalOf = (d: DaySummary): number => (under ? series.goal(d).max : series.goal(d).min)
+  // Headroom above the tallest thing, so a value label has somewhere to sit.
+  const max = Math.max(...days.map(goalOf), ...days.map((d) => series.value(d)), 1) * (bars ? 1.22 : 1.1)
+  const slot = 100 / n
   const yPct = (value: number): number => Math.min(100, Math.max(0, (value / max) * 100))
-  // A goal mark spans most of the gap to its neighbours, so it reads as "this day's".
-  const half = n > 1 ? (100 / (n - 1)) * 0.38 : 10
-  const linePoints = days.map((d, i) => `${xPct(i)},${100 - yPct(series.value(d))}`).join(' ')
+  const states = days.map((d) => dayState(series, d, today))
+  const drawn = (s: DayState): boolean => s === 'met' || s === 'missed' || s === 'pending'
+
+  // The line: one run per stretch of consecutive logged days.
+  const runs: string[] = []
+  if (!bars) {
+    let run: string[] = []
+    days.forEach((d, i) => {
+      if (drawn(states[i]!)) run.push(`${(i + 0.5) * slot},${100 - yPct(series.value(d))}`)
+      else if (run.length) { runs.push(run.join(' ')); run = [] }
+    })
+    if (run.length) runs.push(run.join(' '))
+  }
+
+  const picked = selected ? days.find((d) => d.date === selected) : undefined
+  const pickedState = picked ? states[days.indexOf(picked)]! : null
+  const average = series.average(view)
 
   return (
-    <div className="range-chart-wrap">
+    <div className={`range-chart-wrap ${series.key}`}>
       <div className="range-chart-head">
-        <span className={`range-chart-dot ${series.key}`} aria-hidden="true" />
+        <span className="range-chart-dot" aria-hidden="true" />
         <span className="range-chart-label">{series.label}</span>
         <span className="goal-dir">{series.direction}</span>
+        <span className="range-chart-readout" aria-live="polite">
+          {picked && pickedState
+            ? <>{shortDate(picked.date)} · {drawn(pickedState) || pickedState === 'unlogged' ? `${series.format(series.value(picked))} ${series.unit} · ` : ''}{VERDICT[pickedState]}</>
+            : average > 0 && <>avg {series.format(average)} {series.unit}</>}
+        </span>
       </div>
-      <div className="range-chart-plot">
+      <div className={`range-chart-plot${bars ? ' bars' : ''}`}>
         <svg className="range-line-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           {days.map((d, i) => {
-            const r = goals[i]!
-            const x1 = Math.max(0, xPct(i) - half)
-            const x2 = Math.min(100, xPct(i) + half)
+            const g = yPct(goalOf(d))
+            if (g <= 0) return null
             return (
               <g key={d.date}>
-                {r.max > 0 && <line className="range-goal-mark" x1={x1} y1={100 - yPct(r.max)} x2={x2} y2={100 - yPct(r.max)} />}
-                {r.min > 0 && r.min < r.max && (
-                  <line className="range-goal-mark" x1={x1} y1={100 - yPct(r.min)} x2={x2} y2={100 - yPct(r.min)} />
-                )}
+                {/* The good side of the goal: under a max, over a min. */}
+                <rect className="range-band" x={i * slot} width={slot} y={under ? 100 - g : 0} height={under ? g : 100 - g} />
+                <line className="range-goal-mark" x1={i * slot} x2={(i + 1) * slot} y1={100 - g} y2={100 - g} />
               </g>
             )
           })}
-          <polyline className={`range-line ${series.key}`} points={linePoints} vectorEffect="non-scaling-stroke" />
+          {/* A month: a faint rule where each week starts. */}
+          {!bars && days.map((d, i) => (i > 0 && weekdayIndex(d.date) === 0
+            ? <line key={d.date} className="range-week-rule" x1={i * slot} x2={i * slot} y1={0} y2={100} />
+            : null))}
+          {runs.map((points, i) => <polyline key={i} className="range-line" points={points} vectorEffect="non-scaling-stroke" />)}
         </svg>
-        <div className="range-points">
+        <div className="range-cols" style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }}>
           {days.map((d, i) => {
+            const state = states[i]!
             const value = series.value(d)
-            const logged = series.logged(d)
-            const state = !logged ? 'unlogged' : series.met(value, goals[i]!) ? 'met' : 'missed'
-            const verdict = !logged ? 'nothing logged' : state === 'met' ? 'goal met' : 'goal missed'
+            const y = yPct(value)
+            const label = state === 'future'
+              ? `${d.date}: ${VERDICT.future}`
+              : `${d.date}: ${series.format(value)} ${series.unit}, ${VERDICT[state]}`
             return (
               <button
                 key={d.date}
                 type="button"
-                className={`range-point ${series.key} ${state}${d.date === today ? ' today' : ''}`}
-                style={{ left: `${xPct(i)}%`, bottom: `${yPct(value)}%` }}
-                onClick={() => onSelectDay(d.date)}
-                aria-label={`${d.date}: ${series.format(value)} ${series.unit}, ${verdict}`}
-                title={`${series.format(value)} ${series.unit} · ${verdict}`}
-              />
+                className={`range-col ${state}${d.date === today ? ' today' : ''}${d.date === selected ? ' selected' : ''}`}
+                onClick={() => onPick(d.date)}
+                aria-label={label}
+                title={label}
+              >
+                {drawn(state) && (bars ? (
+                  <>
+                    <span className="range-bar" style={{ height: `${y}%` }} />
+                    {/* Whole numbers on the bar; the exact value is in the label and Day view. */}
+                    <span className="range-val" style={{ bottom: `calc(${y}% + 3px)` }}>{Math.round(value)}</span>
+                  </>
+                ) : (
+                  <span className="range-dot" style={{ bottom: `${y}%` }} />
+                ))}
+              </button>
             )
           })}
         </div>
+      </div>
+      {/* Which day is which, under every chart: weekday and date for a week; each week's Sunday for a month. */}
+      <div className="range-days" style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }} aria-hidden="true">
+        {days.map((d) => (
+          <span key={d.date} className={d.date === today ? 'today' : ''}>
+            {bars
+              ? <>{WEEKDAYS[weekdayIndex(d.date)]} <span className="range-day-num">{Number(d.date.slice(8, 10))}</span></>
+              : weekdayIndex(d.date) === 0 && Number(d.date.slice(8, 10))}
+          </span>
+        ))}
       </div>
     </div>
   )
@@ -202,7 +273,7 @@ function DayBoxes({ kind, days, today, state, describe, onSelectDay }: DayBoxesP
 
 /**
  * A week or month at a glance: calories, protein, fiber and water per day
- * against each day's own goal (tap a marker to open that day), then a
+ * against each day's own goal (bars for a week, a line for a month), then a
  * scorecard of how many logged days met each goal, then water and alcohol.
  * Averages are explained in RangeView's own doc comment -- macros average
  * over days actually logged, water and alcohol over every day in the range.
@@ -210,6 +281,17 @@ function DayBoxes({ kind, days, today, state, describe, onSelectDay }: DayBoxesP
 export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
   const { days, goals, dayTypes, scorecard, averages, loggedDays, totalDays, averagedDays, water, alcohol, workouts, meditation } = view
   const today = localDate()
+  const isWeek = days.length <= 7
+  // Month view: the day whose numbers the chart headers show. Kept with the
+  // range it was picked in, so stepping to another month starts with none.
+  const [picked, setPicked] = useState<{ range: string; date: string } | null>(null)
+  const selected = picked && picked.range === view.start ? picked.date : null
+  // A week prints every value, so a tap goes straight to the day. A month's
+  // first tap shows the day's numbers; a second tap on it opens the day.
+  const pick = (date: string): void => {
+    if (isWeek || selected === date) onSelectDay(date)
+    else setPicked({ range: view.start, date })
+  }
   const workoutState = (d: DaySummary): BoxState => (d.workouts > 0 ? 'full' : 'empty')
   // Both sits is a full box; one sit (anything short of the goal) is half.
   const meditationState = (d: DaySummary): BoxState =>
@@ -225,13 +307,9 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
   return (
     <section className="range-summary" aria-label="Range summary">
       {CHARTED.map((series) => (
-        <RangeChart key={series.key} series={series} days={days} today={today} onSelectDay={onSelectDay} />
+        <RangeChart key={series.key} series={series} view={view} today={today} selected={selected} onPick={pick} />
       ))}
-      <div className="range-axis">
-        {days.map((d) => (
-          <span key={d.date} className={d.date === today ? 'today' : ''}>{Number(d.date.slice(8, 10))}</span>
-        ))}
-      </div>
+      {!isWeek && <div className="range-hint">Tap a day for its numbers; tap it again to open that day.</div>}
       <div className="range-coverage">
         Logged {loggedDays} of {plural(totalDays, 'day')} · {dayTypes.training} training, {dayTypes.rest} rest
         {averagedDays < totalDays && <> · averages over {plural(averagedDays, 'finished day')}</>}

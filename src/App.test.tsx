@@ -1141,9 +1141,9 @@ describe('App', () => {
 
     it('charts calories, protein and fiber per day -- not whether a day was logged', async () => {
       const user = userEvent.setup()
-      const start = startOfWeek(TODAY)
+      const start = startOfWeek(addDays(TODAY, -7)) // last week: every day in it is finished
       stubApi({
-        [`GET /api/day/${TODAY}`]: day([]),
+        'GET /api/day/': day([]), // any day: the tap at the end opens last week's
         'GET /api/range': range({
           days: [
             {
@@ -1154,28 +1154,83 @@ describe('App', () => {
               date: addDays(start, i + 1), entryCount: 0, water: 0, alcohol: 0, ...DAY_ACTIVITY, dayType: 'training' as const, goals: GOALS, totals: ZERO, missing: ZERO,
             })),
           ],
-        }),
+        }, start),
       })
       render(<App />)
       await user.click(await screen.findByRole('tab', { name: 'Week' }))
-      // Each marker says whether that day met its own goal: 2100 kcal is over the 2000 cap,
+      // Each bar says whether that day met its own goal: 2100 kcal is over the 2000 cap,
       // 140 g falls short of 150 g, 28 g of 30 g; the unlogged days are marked as such.
-      expect(await screen.findByRole('button', { name: `${start}: 2100 kcal, goal missed` })).toBeInTheDocument()
+      const kcal = await screen.findByRole('button', { name: `${start}: 2100 kcal, goal missed` })
+      expect(kcal).toHaveClass('missed')
+      expect(within(kcal).getByText('2100')).toBeInTheDocument() // a week prints each value on its bar
       expect(screen.getByRole('button', { name: `${start}: 140 g, goal missed` })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: `${start}: 28 g, goal missed` })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: `${addDays(start, 1)}: 0 kcal, nothing logged` })).toBeInTheDocument()
+      // No bar for a day with nothing logged, rather than one at zero.
+      const empty = screen.getByRole('button', { name: `${addDays(start, 1)}: 0 kcal, nothing logged` })
+      expect(empty.querySelector('.range-bar')).toBeNull()
+      // Only calories, protein, fiber and water are charted; meditation has its day boxes instead.
+      expect(document.querySelectorAll('.range-chart-wrap')).toHaveLength(4)
+      // In a week a tap goes straight to that day.
+      await user.click(kcal)
+      expect(await screen.findByRole('tab', { name: 'Day', selected: true })).toBeInTheDocument()
     })
 
-    it('scores water by the days it was logged on, and charts it per day', async () => {
+    it("leaves today open rather than calling it a miss, and draws nothing for the days ahead", async () => {
       const user = userEvent.setup()
       const start = startOfWeek(TODAY)
       const base = range()
       stubApi({
         [`GET /api/day/${TODAY}`]: day([]),
         'GET /api/range': range({
+          // Today so far: 90 g protein of a 150 g minimum, 2100 kcal against a 2000 maximum.
+          days: base.days.map((d) => (d.date === TODAY ? { ...d, entryCount: 2, totals: { ...ZERO, calories: 2100, protein: 90 } } : d)),
+        }),
+      })
+      render(<App />)
+      await user.click(await screen.findByRole('tab', { name: 'Week' }))
+      expect(await screen.findByRole('button', { name: `${TODAY}: 90 g, in progress` })).toHaveClass('pending')
+      expect(screen.getByRole('button', { name: `${TODAY}: 2100 kcal, goal missed` })).toBeInTheDocument() // a max can't be un-passed
+      if (TODAY !== addDays(start, 6)) {
+        expect(screen.getAllByRole('button', { name: `${addDays(TODAY, 1)}: still ahead` }).length).toBeGreaterThan(0)
+      }
+    })
+
+    it('in a month, a tap shows that day in the chart headers and a second tap opens it', async () => {
+      const user = userEvent.setup()
+      const monthStart = `${addDays(TODAY, -40).slice(0, 8)}01` // a month that is over
+      const days = Array.from({ length: 28 }, (_, i) => ({
+        date: addDays(monthStart, i), entryCount: i === 2 ? 1 : 0, water: 0, alcohol: 0, ...DAY_ACTIVITY, dayType: 'rest' as const,
+        goals: GOALS, missing: ZERO, totals: i === 2 ? { ...ZERO, calories: 1900, protein: 160 } : ZERO,
+      }))
+      const calls = stubApi({
+        'GET /api/day/': day([]),
+        'GET /api/range': { ...range({ days, totalDays: 28, averagedDays: 28, averages: { ...ZERO, calories: 1900 } }), start: monthStart, end: addDays(monthStart, 27) },
+      })
+      render(<App />)
+      await user.click(await screen.findByRole('tab', { name: 'Month' }))
+      const third = addDays(monthStart, 2)
+      const point = await screen.findByRole('button', { name: `${third}: 1900 kcal, goal met` })
+      expect(point.querySelector('.range-dot')).not.toBeNull() // a month is points on a line, not bars
+      expect(screen.getByText('avg 1900 kcal')).toBeInTheDocument()
+      await user.click(point)
+      // Every chart's header now reads that day; nothing has navigated yet.
+      expect(screen.getByText(/· 1900 kcal · goal met$/)).toBeInTheDocument()
+      expect(screen.getByText(/· 160 g · goal met$/)).toBeInTheDocument()
+      expect(calls.some((c) => c.url === `/api/day/${third}`)).toBe(false)
+      await user.click(point)
+      await waitFor(() => expect(calls.some((c) => c.url === `/api/day/${third}`)).toBe(true))
+    })
+
+    it('scores water by the days it was logged on, and charts it per day', async () => {
+      const user = userEvent.setup()
+      const start = startOfWeek(addDays(TODAY, -7)) // last week: every day in it is finished
+      const base = range({}, start)
+      stubApi({
+        [`GET /api/day/${TODAY}`]: day([]),
+        'GET /api/range': range({
           water: { total: 224, average: 32, met: 2, of: 3 },
           days: base.days.map((d, i) => ({ ...d, water: [96, 96, 32, 0, 0, 0, 0][i]! })),
-        }),
+        }, start),
       })
       render(<App />)
       await user.click(await screen.findByRole('tab', { name: 'Week' }))

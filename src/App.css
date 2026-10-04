@@ -268,10 +268,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 .plan-actions .spacer { flex: 1; }
 .plan-save { padding: 8px 12px; border-radius: 10px; border: none; background: var(--c-workout); color: var(--bg); font-size: 13px; font-weight: 600; }
 .meditation-add { border-color: var(--c-meditation); color: var(--c-meditation); padding: 11px 6px; font-size: 13px; gap: 4px; white-space: nowrap; min-width: 0; }
-.range-chart-dot.meditation { background: var(--c-meditation); }
-.range-line.meditation { stroke: var(--c-meditation); }
-.range-point.meditation::after { background: var(--c-meditation); }
-.range-point.missed.meditation::after { border-color: var(--c-meditation); }
 
 /* Week/month: one box per day, Sunday-first columns. A week is one row; a month, a small calendar. */
 .day-boxes { --box: var(--c-workout); display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin: 4px 0 2px; }
@@ -314,62 +310,68 @@ button:disabled { opacity: 0.45; cursor: default; }
 /* ====== Week / month ====== */
 .range-summary { display: flex; flex-direction: column; }
 
+/* One chart per series; --series is its colour, used by everything inside. */
 .range-chart-wrap {
+  --series: var(--c-calories);
   background: var(--bg-raised);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 12px;
+  padding: 12px 12px 8px;
   margin-bottom: 10px;
 }
-.range-chart-head { display: flex; align-items: center; gap: 7px; margin-bottom: 14px; }
-.range-chart-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--c-calories); }
-.range-chart-dot.protein { background: var(--c-protein); }
-.range-chart-dot.fiber { background: var(--c-fiber); }
-.range-chart-dot.water { background: var(--c-water); }
+.range-chart-wrap.protein { --series: var(--c-protein); }
+.range-chart-wrap.fiber { --series: var(--c-fiber); }
+.range-chart-wrap.water { --series: var(--c-water); }
+.range-chart-head { display: flex; align-items: center; gap: 7px; margin-bottom: 10px; }
+.range-chart-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--series); }
 .range-chart-label { font-size: 12px; font-weight: 600; color: var(--paper-dim); text-transform: uppercase; letter-spacing: 0.05em; }
+/* Right of the title: the range's average, or the tapped day's numbers. */
+.range-chart-readout { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--paper); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
-/* The plot is now a plain box in normal flow below the head row, not
-   layered underneath it -- the two can no longer collide. */
-.range-chart-plot { position: relative; height: 56px; }
+.range-chart-plot { position: relative; height: 72px; }
+.range-chart-plot.bars { height: 104px; }
 .range-line-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-/* Each day's own goal: a short flat mark at that day, not one line for the whole range. */
-.range-goal-mark { stroke: var(--paper-dim); stroke-width: 2; opacity: 0.55; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-.range-line { fill: none; stroke: var(--c-calories); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
-.range-line.protein { stroke: var(--c-protein); }
-.range-line.fiber { stroke: var(--c-fiber); }
-.range-line.water { stroke: var(--c-water); }
+/* The good side of each day's goal (under a max, over a min), and the goal itself. */
+.range-band { fill: var(--series); opacity: 0.09; }
+.range-goal-mark { stroke: var(--series); stroke-width: 1.5; opacity: 0.7; vector-effect: non-scaling-stroke; }
+.range-week-rule { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.range-line { fill: none; stroke: var(--series); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 
-/* Point markers sit in a separate, plain-HTML layer -- see RangeChart's doc
-   comment for why they aren't drawn in the SVG with the line itself. */
-.range-points { position: absolute; inset: 0; }
-.range-point {
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  border: none;
-  background: none;
-  transform: translate(-50%, 50%);
+/* A column per day over the plot: the day's button, holding its bar or dot. */
+.range-cols { position: absolute; inset: 0; display: grid; }
+.range-col { position: relative; min-width: 0; padding: 0; border: none; background: none; }
+.range-col.selected { background: color-mix(in srgb, var(--paper) 9%, transparent); }
+.range-bar {
+  position: absolute; left: 22%; right: 22%; bottom: 0;
+  min-height: 2px; border-radius: 3px 3px 0 0; background: var(--series);
 }
-.range-point::after {
-  content: '';
-  position: absolute;
-  inset: 5px;
-  border-radius: 50%;
-  background: var(--c-calories);
-  /* A ring in the card's own background, so a marker never blurs into the
-     line running directly through it. */
-  box-shadow: 0 0 0 3px var(--bg-raised);
+.range-val {
+  position: absolute; left: -6px; right: -6px; text-align: center;
+  font-family: var(--mono); font-size: 10px; line-height: 1; color: var(--paper); font-variant-numeric: tabular-nums;
+  /* A halo in the card's colour, so a number sitting on the goal line stays readable. */
+  text-shadow: 0 0 3px var(--bg-raised), 0 0 3px var(--bg-raised), 0 0 2px var(--bg-raised);
 }
-.range-point.protein::after { background: var(--c-protein); }
-.range-point.fiber::after { background: var(--c-fiber); }
-.range-point.water::after { background: var(--c-water); }
-/* Met: filled. Missed: hollow, in the metric's colour. Nothing logged: faded. */
-.range-point.missed::after { inset: 4px; background: var(--bg-raised); border: 2px solid var(--c-calories); }
-.range-point.missed.protein::after { border-color: var(--c-protein); }
-.range-point.missed.fiber::after { border-color: var(--c-fiber); }
-.range-point.missed.water::after { border-color: var(--c-water); }
-.range-point.unlogged::after { opacity: 0.3; }
+.range-dot {
+  position: absolute; left: 50%; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--series); transform: translate(-50%, 50%);
+  /* A ring in the card's own background, so a dot never blurs into the line through it. */
+  box-shadow: 0 0 0 2px var(--bg-raised);
+}
+/* A miss is rust, as an over-the-max bar is in Day view; today, still open, is the series colour dimmed. */
+.range-col.missed .range-bar, .range-col.missed .range-dot { background: var(--rust); }
+.range-col.missed .range-val { color: var(--rust); }
+.range-col.pending .range-bar, .range-col.pending .range-dot { opacity: 0.5; }
+.range-col.today .range-dot { outline: 1.5px solid var(--paper); outline-offset: 2px; }
+
+/* Day labels under each chart, in the same columns as the plot. */
+.range-days {
+  display: grid; margin-top: 5px;
+  font-family: var(--mono); font-size: 10px; color: var(--paper-dim); text-align: center; white-space: nowrap;
+}
+.range-days span { min-width: 0; overflow: visible; }
+.range-days .today { color: var(--paper); font-weight: 700; }
+.range-day-num { opacity: 0.7; }
+.range-hint { font-size: 12px; color: var(--paper-dim); margin: -2px 0 10px; }
 
 /* --- goals met --- */
 .scorecard {
@@ -383,20 +385,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .scorecard-note { font-size: 11px; color: var(--paper-dim); text-align: right; }
 .score-row { margin-top: 12px; }
 .score-row .bar { height: 6px; }
-.range-point.today::after { inset: 4px; outline: 2px solid var(--paper); outline-offset: 1px; }
-.range-point:active::after { opacity: 0.7; }
 
-/* One shared day axis under the stacked charts, instead of repeating it three times. */
-.range-axis { display: flex; gap: 2px; padding: 0 12px; margin-bottom: 14px; }
-.range-axis span {
-  flex: 1 1 0;
-  min-width: 0;
-  text-align: center;
-  font-size: 9px;
-  color: var(--paper-dim);
-  font-variant-numeric: tabular-nums;
-}
-.range-axis span.today { color: var(--paper); font-weight: 700; }
 
 .range-coverage { font-size: 12px; color: var(--paper-dim); margin-bottom: 18px; }
 
