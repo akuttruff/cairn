@@ -240,12 +240,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 .session-name { color: var(--paper); }
 .session-min { color: var(--paper-dim); font-size: 13px; font-variant-numeric: tabular-nums; }
 .session-remove { margin-left: auto; background: none; border: none; color: var(--paper-dim); padding: 4px; display: flex; }
-.workout-minutes { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: 13px; color: var(--paper-dim); }
-.workout-minutes input {
-  width: 72px; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line);
-  background: var(--bg); color: var(--paper); font-size: 15px; text-align: right;
-}
-.workout-minutes input[aria-invalid="true"] { border-color: var(--rust); }
 /* Six kinds: a three-column grid keeps every button the same size, two rows on a phone. */
 .workout-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
 .workout-add { border-color: var(--c-workout); color: var(--c-workout); padding: 10px 6px; font-size: 13px; gap: 5px; }

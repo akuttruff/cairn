@@ -3,7 +3,6 @@ import { Bike, Dumbbell, Footprints, Flame, Minus, PersonStanding, Plus, Sparkle
 import type { LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
-import { parseNum } from '../lib/format.ts'
 import { TRAINING_KINDS } from '../lib/nutrition.ts'
 import { WORKOUT_KINDS } from '../types.ts'
 import type { DayView, WorkoutKind, WorkoutPlan } from '../types.ts'
@@ -26,19 +25,13 @@ interface WorkoutTrackerProps {
 /**
  * The day's sessions, and the week's count against the weekly goal
  * (Sunday-start, today included) -- the week is the thing being aimed at,
- * like the alcohol cap but the other way round. Minutes are optional:
- * tapping a kind logs a session, with the minutes if any are typed.
+ * like the alcohol cap but the other way round. Tapping a kind logs a
+ * session. Minutes aren't asked for; any logged before are still shown.
  */
 export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrackerProps) {
-  const [minutes, setMinutes] = useState('')
-  const parsedMinutes = minutes.trim() ? parseNum(minutes) : null
-  const badMinutes = minutes.trim() !== '' && (parsedMinutes == null || parsedMinutes <= 0)
-
   const add = async (kind: WorkoutKind): Promise<void> => {
-    if (badMinutes) return
     try {
-      await api.addWorkout({ date, kind, minutes: parsedMinutes })
-      setMinutes('')
+      await api.addWorkout({ date, kind, minutes: null })
       if (TRAINING_KINDS.has(kind)) toast(`${WORKOUTS[kind].label} logged -- marked as a training day`)
       onLogged()
     } catch (err) {
@@ -88,23 +81,11 @@ export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrac
 
       <WeekPlan workouts={workouts} onChanged={onLogged} />
 
-      <div className="workout-minutes">
-        <label htmlFor={`workout-minutes-${date}`}>Minutes (optional)</label>
-        <input
-          id={`workout-minutes-${date}`}
-          type="text"
-          inputMode="numeric"
-          placeholder="—"
-          value={minutes}
-          onChange={(e) => setMinutes(e.target.value)}
-          aria-invalid={badMinutes}
-        />
-      </div>
       <div className="workout-actions">
         {WORKOUT_KINDS.map((kind) => {
           const { label, Icon } = WORKOUTS[kind]
           return (
-            <button key={kind} type="button" className="water-add workout-add" onClick={() => void add(kind)} disabled={badMinutes}>
+            <button key={kind} type="button" className="water-add workout-add" onClick={() => void add(kind)}>
               <Icon size={15} aria-hidden="true" />
               {label}
             </button>

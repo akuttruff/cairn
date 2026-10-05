@@ -502,7 +502,7 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
   })
 
-  it("shows the day's workouts and the week's count, and logs one with optional minutes", async () => {
+  it("shows the day's workouts and the week's count, and logs one with a tap, no minutes asked", async () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
@@ -511,18 +511,18 @@ describe('App', () => {
           weekByKind: { ...NO_KINDS, run: 1, yoga: 1 }, weekTotal: 2, lastLogId: 'w1',
         },
       }),
-      'POST /api/workouts': { id: 'w2', date: TODAY, kind: 'wod', minutes: 45, createdAt: 2 },
+      'POST /api/workouts': { id: 'w2', date: TODAY, kind: 'wod', minutes: null, createdAt: 2 },
     })
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Workouts' })
     expect(within(card.querySelector('.session-list') as HTMLElement).getByText('Run')).toBeInTheDocument()
-    expect(within(card).getByText('30 min')).toBeInTheDocument()
+    expect(within(card).getByText('30 min')).toBeInTheDocument() // minutes logged before are still shown
     expect(within(card).getByRole('progressbar', { name: 'Workouts this week' })).toHaveAttribute('aria-valuenow', '2')
     expect(within(card).getByText('/ 9')).toBeInTheDocument()
-    await user.type(within(card).getByLabelText('Minutes (optional)'), '45')
+    expect(within(card).queryByLabelText(/minutes/i)).not.toBeInTheDocument()
     await user.click(within(card).getByRole('button', { name: 'WOD' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/workouts')).toBe(true))
-    expect(calls.find((c) => c.url === '/api/workouts')!.body).toEqual({ date: TODAY, kind: 'wod', minutes: 45 })
+    expect(calls.find((c) => c.url === '/api/workouts')!.body).toEqual({ date: TODAY, kind: 'wod', minutes: null })
   })
 
   it("shows this week's plan activity by activity, and adjusts it for this week only", async () => {
