@@ -24,17 +24,29 @@ export interface SearchResult {
 
 export class ApiError extends Error {}
 
+/** How long to wait before each further try of a read that got no reply. */
+const RETRY_WAITS_MS = [200, 500, 1200]
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  let res: Response
-  try {
-    res = await fetch(path, {
-      method,
-      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    })
-  } catch {
-    // No reply at all (a dropped connection, the server restarting): say which request, so a repeat can be traced.
-    throw new ApiError(`Couldn't reach Cairn (${method} ${path.split('?')[0]}). Check the connection and try again.`)
+  // A request that gets no reply at all is tried again, when trying again is
+  // safe (a read changes nothing). It happens for a moment while the server
+  // restarts, and in Firefox, whose Local Network Access check can fail the
+  // first request to a Tailscale address while it decides to allow it.
+  const waits = method === 'GET' ? RETRY_WAITS_MS : []
+  let res: Response | undefined
+  for (let attempt = 0; !res; attempt++) {
+    try {
+      res = await fetch(path, {
+        method,
+        headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      })
+    } catch {
+      const wait = waits[attempt]
+      // Out of tries: say which request, so a repeat can be traced.
+      if (wait === undefined) throw new ApiError(`Couldn't reach Cairn (${method} ${path.split('?')[0]}). Check the connection and try again.`)
+      await new Promise((r) => setTimeout(r, wait))
+    }
   }
   const data = await res.json().catch(() => ({})) as { error?: string }
   if (!res.ok) throw new ApiError(data.error || `Request failed (${res.status})`)

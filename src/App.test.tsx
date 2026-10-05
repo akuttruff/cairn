@@ -140,7 +140,23 @@ describe('App', () => {
       (url.startsWith('/api/targets') ? Promise.reject(new TypeError('NetworkError when attempting to fetch resource.')) : (ok as typeof fetch)(url, init))))
     render(<App />) // App has its own toaster
     await user.click(await screen.findByRole('button', { name: 'Settings' }))
-    expect(await screen.findByText(/Couldn.t reach Cairn \(GET \/api\/targets\)/)).toBeInTheDocument()
+    // Only after its retries have run out.
+    expect(await screen.findByText(/Couldn.t reach Cairn \(GET \/api\/targets\)/, {}, { timeout: 4000 })).toBeInTheDocument()
+  })
+
+  it('tries a read again when it gets no reply, so one dropped request is never seen', async () => {
+    const user = userEvent.setup()
+    stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/targets': STORED_GOALS })
+    const ok = globalThis.fetch
+    let dropped = 0
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/targets') && dropped < 2) { dropped++; return Promise.reject(new TypeError('NetworkError when attempting to fetch resource.')) }
+      return (ok as typeof fetch)(url, init)
+    }))
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    expect(await screen.findByLabelText('Protein (g, min)', {}, { timeout: 4000 })).toHaveValue('130')
+    expect(dropped).toBe(2) // two tries got no reply; the third loaded the goals above
   })
 
   it('marks a total as partial when an entry lacks that nutrient', async () => {
