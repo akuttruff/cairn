@@ -4,7 +4,10 @@ import type { DayTotals, DayType, MacroRange, NutrientKey, ResolvedGoals } from 
 
 interface TotalsProps extends DayTotals {
   goals: ResolvedGoals
-  /** Calories from the day's drinks. Not part of totals.calories: drawn on the bar as their own stretch. */
+  /**
+   * Roughly what the day's ticked drinks come to (see ALCOHOL_KCAL). The drinks are
+   * also logged as food, so this is a share of totals.calories, never added to it.
+   */
   drinkCalories?: number
   dayType: DayType
   onSetDayType: (type: DayType) => void
@@ -30,15 +33,17 @@ function Partial({ count }: { count: number }) {
  * stands in those terms: so much left or over a max, so much to go to a
  * min, or met.
  *
- * The day's drinks get their own stretch of the calorie bar, after the
- * food, and a line saying what they come to. The big number and the
- * "left / over" line stay food only, the same figure the week and month
- * are scored on.
+ * The day's drinks are logged twice over: ticked in the Alcohol card, and
+ * entered in the food log, which is where their calories come from. So the
+ * calorie bar adds nothing for them -- it colours the end of what is already
+ * filled, to show how much of the day's calories were drinks, with a line
+ * giving the figure. That figure is the per-drink estimate, so it's marked
+ * "about", and it can never be more than the day's total.
  */
 export default function Totals({ totals, missing, goals, dayType, onSetDayType, drinkCalories = 0 }: TotalsProps) {
   const cal = totals.calories
   const calStatus = goalStatus('calories', cal, goals.calories)
-  const drinks = Math.round(drinkCalories)
+  const drinks = Math.round(Math.min(Math.max(0, drinkCalories), Math.max(0, cal)))
 
   return (
     <section className="totals" aria-label="Daily totals">
@@ -66,11 +71,11 @@ export default function Totals({ totals, missing, goals, dayType, onSetDayType, 
           <div className={`cal-left${calStatus.bad ? ' over' : ''}`}>{calStatus.text}</div>
         </div>
       </div>
-      <Bar value={cal} range={goals.calories} kind="calories" extra={drinks} extraLabel="from drinks" />
+      <Bar value={cal} range={goals.calories} kind="calories" part={drinks} partLabel="from drinks" />
       {drinks > 0 && (
         <div className="cal-drinks">
           <span className="cal-drinks-key" aria-hidden="true" />
-          + {drinks} kcal from drinks · {Math.round(cal) + drinks} in all
+          about {drinks} kcal of this from drinks
         </div>
       )}
 
@@ -101,14 +106,16 @@ interface BarProps {
   value: number
   range: MacroRange
   kind: NutrientKey
-  /** A second amount drawn after the fill in its own colour (the day's drinks, on the calorie bar). It stops at the bar's end. */
-  extra?: number
-  extraLabel?: string
+  /** A share of `value` to pick out in its own colour, at the end of the fill (the day's drinks, on the calorie bar). Adds no length. */
+  part?: number
+  partLabel?: string
 }
 
-export function Bar({ value, range, kind, extra = 0, extraLabel }: BarProps) {
+export function Bar({ value, range, kind, part = 0, partLabel }: BarProps) {
   const pct = Math.round(progress(value, range.max) * 100)
-  const extraPct = extra > 0 ? Math.round(progress(value + extra, range.max) * 100) - pct : 0
+  // Where the rest of the value ends and the picked-out share begins.
+  const restPct = part > 0 ? Math.round(progress(value - part, range.max) * 100) : pct
+  const partPct = pct - restPct
   // A bottom-of-range tick only means something when there is a range.
   const minPct = range.min > 0 && range.min < range.max ? Math.round(progress(range.min, range.max) * 100) : 0
   const over = OVER_IS_BAD.has(kind) && value > range.max
@@ -120,10 +127,10 @@ export function Bar({ value, range, kind, extra = 0, extraLabel }: BarProps) {
       aria-valuemin={0}
       aria-valuemax={range.max}
       aria-valuenow={Math.round(value)}
-      aria-valuetext={extra > 0 ? `${Math.round(value)}, plus ${Math.round(extra)} ${extraLabel ?? 'more'}` : undefined}
+      aria-valuetext={part > 0 ? `${Math.round(value)}, about ${Math.round(part)} of it ${partLabel ?? ''}`.trim() : undefined}
     >
-      <div className={`bar-fill${extraPct > 0 ? ' joined' : ''}`} style={{ width: `${pct}%` }} />
-      {extraPct > 0 && <div className="bar-extra" data-testid="bar-extra" style={{ left: `${pct}%`, width: `${extraPct}%` }} />}
+      <div className="bar-fill" style={{ width: `${pct}%` }} />
+      {partPct > 0 && <div className="bar-part" data-testid="bar-part" style={{ left: `${restPct}%`, width: `${partPct}%` }} />}
       {minPct > 0 && <div className="bar-min-tick" style={{ left: `${minPct}%` }} />}
     </div>
   )
