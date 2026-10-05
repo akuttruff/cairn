@@ -223,6 +223,20 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Jump to the current day' })).not.toBeInTheDocument()
   })
 
+  it('opens the food search empty every time, with nothing for the browser to fill in', async () => {
+    const user = userEvent.setup()
+    stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/search': { usda: [banana], off: [], errors: [] } })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    const box = await screen.findByLabelText('Search foods')
+    expect(box).toHaveAttribute('autocomplete', 'off')
+    await user.type(box, 'banana')
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByLabelText('Search foods')).not.toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: 'Add food' }))
+    expect(await screen.findByLabelText('Search foods')).toHaveValue('')
+  })
+
   it('searches, picks a USDA food, and logs it in its household portion', async () => {
     const user = userEvent.setup()
     const calls = stubApi({

@@ -340,6 +340,9 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
           type="search"
           placeholder="Search foods, brands, or a barcode"
           aria-label="Search foods"
+          // Off: the box is focused as the sheet opens, and the browser would
+          // otherwise offer the last thing searched, as if it were still there.
+          autoComplete="off"
           autoCorrect="off"
           enterKeyHint="search"
           value={q}
