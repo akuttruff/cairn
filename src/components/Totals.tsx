@@ -5,10 +5,10 @@ import type { DayTotals, DayType, MacroRange, NutrientKey, ResolvedGoals } from 
 interface TotalsProps extends DayTotals {
   goals: ResolvedGoals
   /**
-   * Roughly what the day's ticked drinks come to (see ALCOHOL_KCAL). The drinks are
-   * also logged as food, so this is a share of totals.calories, never added to it.
+   * Calories from alcohol in the day's food log (see alcoholCaloriesLogged):
+   * a share of totals.calories, never added to it.
    */
-  drinkCalories?: number
+  alcoholCalories?: number
   dayType: DayType
   onSetDayType: (type: DayType) => void
 }
@@ -33,17 +33,16 @@ function Partial({ count }: { count: number }) {
  * stands in those terms: so much left or over a max, so much to go to a
  * min, or met.
  *
- * The day's drinks are logged twice over: ticked in the Alcohol card, and
- * entered in the food log, which is where their calories come from. So the
- * calorie bar adds nothing for them -- it colours the end of what is already
- * filled, to show how much of the day's calories were drinks, with a line
- * giving the figure. That figure is the per-drink estimate, so it's marked
- * "about", and it can never be more than the day's total.
+ * Alcohol is treated as a fourth macro: drinks are entered in the food log
+ * like anything else, and the calorie bar colours the end of what is
+ * already filled to show how much of the day's calories came from alcohol,
+ * with a line giving the figure. Nothing is added to the total. The Alcohol
+ * card's drink count is a separate tally and plays no part here.
  */
-export default function Totals({ totals, missing, goals, dayType, onSetDayType, drinkCalories = 0 }: TotalsProps) {
+export default function Totals({ totals, missing, goals, dayType, onSetDayType, alcoholCalories = 0 }: TotalsProps) {
   const cal = totals.calories
   const calStatus = goalStatus('calories', cal, goals.calories)
-  const drinks = Math.round(Math.min(Math.max(0, drinkCalories), Math.max(0, cal)))
+  const alcohol = Math.round(Math.min(Math.max(0, alcoholCalories), Math.max(0, cal)))
 
   return (
     <section className="totals" aria-label="Daily totals">
@@ -71,11 +70,11 @@ export default function Totals({ totals, missing, goals, dayType, onSetDayType, 
           <div className={`cal-left${calStatus.bad ? ' over' : ''}`}>{calStatus.text}</div>
         </div>
       </div>
-      <Bar value={cal} range={goals.calories} kind="calories" part={drinks} partLabel="from drinks" />
-      {drinks > 0 && (
+      <Bar value={cal} range={goals.calories} kind="calories" part={alcohol} partLabel="from alcohol" />
+      {alcohol > 0 && (
         <div className="cal-drinks">
           <span className="cal-drinks-key" aria-hidden="true" />
-          about {drinks} kcal of this from drinks
+          {alcohol} kcal from alcohol
         </div>
       )}
 
@@ -127,7 +126,7 @@ export function Bar({ value, range, kind, part = 0, partLabel }: BarProps) {
       aria-valuemin={0}
       aria-valuemax={range.max}
       aria-valuenow={Math.round(value)}
-      aria-valuetext={part > 0 ? `${Math.round(value)}, about ${Math.round(part)} of it ${partLabel ?? ''}`.trim() : undefined}
+      aria-valuetext={part > 0 ? `${Math.round(value)}, ${Math.round(part)} of it ${partLabel ?? ''}`.trim() : undefined}
     >
       <div className="bar-fill" style={{ width: `${pct}%` }} />
       {partPct > 0 && <div className="bar-part" data-testid="bar-part" style={{ left: `${restPct}%`, width: `${partPct}%` }} />}

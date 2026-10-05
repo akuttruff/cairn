@@ -715,27 +715,24 @@ describe('App', () => {
     expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/settings')!.body).toEqual({ researchModel: 'qwen/qwen3.8-27b' })
   })
 
-  it("picks the day's drinks out of the calorie bar without adding to it, since they are in the food log too", async () => {
+  it('shows how much of the logged calories came from alcohol, as part of the calorie bar', async () => {
+    const wine = entry({ id: 'w1', meal: 'dinner', name: 'Alcoholic beverage, wine, table, white', nutrients: { calories: 241, protein: 0.2, fat: 0, carbs: 7.6, fiber: 0 } })
     stubApi({
-      [`GET /api/day/${TODAY}`]: day([], {
-        totals: { calories: 1200, protein: 0, fat: 0, carbs: 0, fiber: 0 },
-        alcohol: { drinks: 2, byKind: { beer: 0, wine: 2, liquor: 0 }, calories: 250, weekTotal: 2, weekGoal: 7, lastLogId: 'a2' },
-      }),
+      [`GET /api/day/${TODAY}`]: day([entry(), wine], { totals: { calories: 1200, protein: 0, fat: 0, carbs: 0, fiber: 0 } }),
     })
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Daily totals' })
     expect(within(card).getByText('1200')).toBeInTheDocument() // the total is what was logged, nothing added
     expect(within(card).getByText('800 left')).toBeInTheDocument()
-    expect(within(card).getByText('about 250 kcal of this from drinks')).toBeInTheDocument()
-    expect(within(card).queryByText(/in all/)).not.toBeInTheDocument()
+    expect(within(card).getByText('210 kcal from alcohol')).toBeInTheDocument() // 241 less the wine's carbs and protein
     const bar = within(card).getByRole('progressbar', { name: 'Calories' })
     expect(bar).toHaveAttribute('aria-valuenow', '1200')
-    expect(bar).toHaveAttribute('aria-valuetext', '1200, about 250 of it from drinks')
-    // 1200 of 2000 fills 60%. The drinks are the last 250 of that: from 950 (48%) to the end of the fill.
-    expect(within(bar).getByTestId('bar-part')).toHaveStyle({ left: '48%', width: '12%' })
+    expect(bar).toHaveAttribute('aria-valuetext', '1200, 210 of it from alcohol')
+    // 1200 of 2000 fills 60%. The alcohol is the last 210 of that: from 990 (50%) to the end of the fill.
+    expect(within(bar).getByTestId('bar-part')).toHaveStyle({ left: '50%', width: '10%' })
   })
 
-  it('never shows more drink calories than the day has logged', async () => {
+  it('takes nothing from the Alcohol card: drinks ticked there add no calories anywhere', async () => {
     stubApi({
       [`GET /api/day/${TODAY}`]: day([entry()], {
         alcohol: { drinks: 2, byKind: { beer: 1, wine: 1, liquor: 0 }, calories: 275, weekTotal: 2, weekGoal: 7, lastLogId: 'a2' },
@@ -743,15 +740,9 @@ describe('App', () => {
     })
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Daily totals' })
-    expect(within(card).getByText('about 190 kcal of this from drinks')).toBeInTheDocument() // only 190 logged so far
-    expect(within(within(card).getByRole('progressbar', { name: 'Calories' })).getByTestId('bar-part')).toHaveStyle({ left: '0%', width: '10%' })
-  })
-
-  it('leaves the calorie bar alone on a day with no drinks', async () => {
-    stubApi({ [`GET /api/day/${TODAY}`]: day([entry()]) })
-    render(<App />)
-    const card = await screen.findByRole('region', { name: 'Daily totals' })
-    expect(within(card).queryByText(/from drinks/)).not.toBeInTheDocument()
+    expect(within(card).getByText('190')).toBeInTheDocument()
+    expect(within(card).getByText('1810 left')).toBeInTheDocument()
+    expect(within(card).queryByText(/from (alcohol|drinks)/)).not.toBeInTheDocument()
     expect(within(card).queryByTestId('bar-part')).not.toBeInTheDocument()
   })
 

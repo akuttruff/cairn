@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addDays, addMonths, alcoholCalories, blendGoals, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalDirection, goalLabel,
+  addDays, addMonths, alcoholCalories, alcoholCaloriesLogged, blendGoals, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalDirection, goalLabel,
   goalMet, goalStatus,
   impliedCalories,
   isDateString, localDate, macroCalories, meditationMet, progress, rangeStatus, resolveGoals, scale, scoreDays, scoreMeditation,
@@ -250,6 +250,41 @@ describe('scoreDays', () => {
     const days = [summary('rest', { protein: 135 }), summary('rest', {}, 0)]
     expect(scoreDays(days).protein).toEqual({ met: 1, of: 1 })
     expect(scoreDays([]).fiber).toEqual({ met: 0, of: 0 })
+  })
+})
+
+describe('alcoholCaloriesLogged', () => {
+  const food = (name: string, calories: number | null, protein: number | null, fat: number | null, carbs: number | null) =>
+    ({ name, nutrients: { calories, protein, fat, carbs, fiber: null } })
+
+  it("counts the part of a drink's calories that protein, fat and carbs don't explain", () => {
+    // Two glasses of white wine: 241 kcal, of which 0.2 g protein and 7.6 g carbs explain 31.2.
+    expect(alcoholCaloriesLogged([food('Alcoholic beverage, wine, table, white', 241, 0.2, 0, 7.6)])).toBe(209.8)
+    // Beer keeps its carbs as carbs: 153 kcal less 1.6 g protein and 12.6 g carbs.
+    expect(alcoholCaloriesLogged([food('Beer, regular', 153, 1.6, 0, 12.6)])).toBe(96.2)
+  })
+
+  it('counts a drink logged without macros in full, and one without calories not at all', () => {
+    expect(alcoholCaloriesLogged([food('Kentucky Straight Bourbon Whiskey', 251, null, null, null)])).toBe(251)
+    expect(alcoholCaloriesLogged([food('Red wine', null, 0, 0, 4)])).toBe(0)
+  })
+
+  it('adds up every drink in the day and ignores ordinary food', () => {
+    expect(alcoholCaloriesLogged([
+      food('Oats', 190, 6.5, 3.4, 33),
+      food('Alcoholic beverage, distilled, rum, 80 proof', 128, 0, 0, 0),
+      food('Pinot noir', 125, 0.1, 0, 3.8),
+    ])).toBe(237.4)
+    expect(alcoholCaloriesLogged([])).toBe(0)
+  })
+
+  it('adds nothing for a food that only mentions a drink, or one that only fails to add up', () => {
+    // Named for a drink, but its macros account for all of it (and then some).
+    expect(alcoholCaloriesLogged([food('Rum raisin ice cream', 250, 4, 14, 28)])).toBe(0)
+    expect(alcoholCaloriesLogged([food('Ginger ale', 124, 0, 0, 32)])).toBe(0)
+    expect(alcoholCaloriesLogged([food('Non-alcoholic beer', 60, 0.8, 0, 14.2)])).toBe(0)
+    // Calories the macros don't explain, but nothing says it's a drink: "gin" is not "ginger".
+    expect(alcoholCaloriesLogged([food('Ginger chews', 300, 0, 0, 20)])).toBe(0)
   })
 })
 

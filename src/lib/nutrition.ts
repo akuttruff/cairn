@@ -87,6 +87,47 @@ export function alcoholCalories(byKind: Record<AlcoholKind, number>): number {
   return ALCOHOL_KINDS.reduce((sum, kind) => sum + byKind[kind] * ALCOHOL_KCAL[kind], 0)
 }
 
+/**
+ * Words that mark a logged food as an alcoholic drink. Whole words only, so
+ * "gin" doesn't catch "ginger". A false match costs nothing -- see below.
+ */
+const ALCOHOL_WORDS = new RegExp(
+  '\\b(' + [
+    'alcoholic', 'wine', 'beer', 'ale', 'lager', 'ipa', 'stout', 'pilsner', 'cider', 'mead', 'sake', 'soju',
+    'champagne', 'prosecco', 'cava', 'pinot', 'cabernet', 'merlot', 'malbec', 'syrah', 'zinfandel', 'chardonnay',
+    'sauvignon', 'riesling', 'ros[eé]', 'vodka', 'gin', 'rum', 'whiske?y', 'bourbon', 'scotch', 'tequila', 'mezcal',
+    'brandy', 'cognac', 'liqueur', 'liquor', 'vermouth', 'aperol', 'cocktail', 'margarita', 'martini', 'negroni',
+    'mojito', 'spritz', 'hard seltzer',
+  ].join('|') + ')\\b',
+  'i',
+)
+
+/**
+ * Calories that came from alcohol in the food log -- alcohol as a fourth
+ * macro, at 7 kcal a gram. Nothing stores grams of alcohol, so it is worked
+ * out: for an entry named as an alcoholic drink, whatever part of its
+ * calories protein, fat and carbs don't account for. A glass of wine's
+ * handful of carbs stays carbs; the rest is the alcohol.
+ *
+ * Both tests are needed. The name alone would count rum-raisin ice cream;
+ * the leftover alone would count any food whose label doesn't add up. With
+ * both, a food that merely mentions a drink has next to nothing left over
+ * and adds nothing. A drink logged without macros counts in full.
+ *
+ * These calories are already inside the day's total: this says how much of
+ * it they are, and never adds to it. The Alcohol card's drink count plays
+ * no part.
+ */
+export function alcoholCaloriesLogged(entries: Pick<Entry, 'name' | 'nutrients'>[]): number {
+  let sum = 0
+  for (const { name, nutrients: n } of entries) {
+    if (n.calories == null || !ALCOHOL_WORDS.test(name)) continue
+    const fromMacros = (n.protein ?? 0) * 4 + (n.carbs ?? 0) * 4 + (n.fat ?? 0) * 9
+    sum += Math.max(0, n.calories - fromMacros)
+  }
+  return round1(sum)
+}
+
 /** Sum a day's entries, counting which ones were missing each nutrient. */
 export function sumDay(entries: Entry[]): DayTotals {
   const totals = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 }
