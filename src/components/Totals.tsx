@@ -4,6 +4,8 @@ import type { DayTotals, DayType, MacroRange, NutrientKey, ResolvedGoals } from 
 
 interface TotalsProps extends DayTotals {
   goals: ResolvedGoals
+  /** Calories from the day's drinks. Not part of totals.calories: drawn on the bar as their own stretch. */
+  drinkCalories?: number
   dayType: DayType
   onSetDayType: (type: DayType) => void
 }
@@ -27,10 +29,16 @@ function Partial({ count }: { count: number }) {
  * reach (protein, fiber) -- and the line under each bar says where the day
  * stands in those terms: so much left or over a max, so much to go to a
  * min, or met.
+ *
+ * The day's drinks get their own stretch of the calorie bar, after the
+ * food, and a line saying what they come to. The big number and the
+ * "left / over" line stay food only, the same figure the week and month
+ * are scored on.
  */
-export default function Totals({ totals, missing, goals, dayType, onSetDayType }: TotalsProps) {
+export default function Totals({ totals, missing, goals, dayType, onSetDayType, drinkCalories = 0 }: TotalsProps) {
   const cal = totals.calories
   const calStatus = goalStatus('calories', cal, goals.calories)
+  const drinks = Math.round(drinkCalories)
 
   return (
     <section className="totals" aria-label="Daily totals">
@@ -58,7 +66,13 @@ export default function Totals({ totals, missing, goals, dayType, onSetDayType }
           <div className={`cal-left${calStatus.bad ? ' over' : ''}`}>{calStatus.text}</div>
         </div>
       </div>
-      <Bar value={cal} range={goals.calories} kind="calories" />
+      <Bar value={cal} range={goals.calories} kind="calories" extra={drinks} extraLabel="from drinks" />
+      {drinks > 0 && (
+        <div className="cal-drinks">
+          <span className="cal-drinks-key" aria-hidden="true" />
+          + {drinks} kcal from drinks · {Math.round(cal) + drinks} in all
+        </div>
+      )}
 
       <div className="macro-grid">
         {MACROS.map((key) => {
@@ -83,8 +97,18 @@ export default function Totals({ totals, missing, goals, dayType, onSetDayType }
   )
 }
 
-export function Bar({ value, range, kind }: { value: number; range: MacroRange; kind: NutrientKey }) {
+interface BarProps {
+  value: number
+  range: MacroRange
+  kind: NutrientKey
+  /** A second amount drawn after the fill in its own colour (the day's drinks, on the calorie bar). It stops at the bar's end. */
+  extra?: number
+  extraLabel?: string
+}
+
+export function Bar({ value, range, kind, extra = 0, extraLabel }: BarProps) {
   const pct = Math.round(progress(value, range.max) * 100)
+  const extraPct = extra > 0 ? Math.round(progress(value + extra, range.max) * 100) - pct : 0
   // A bottom-of-range tick only means something when there is a range.
   const minPct = range.min > 0 && range.min < range.max ? Math.round(progress(range.min, range.max) * 100) : 0
   const over = OVER_IS_BAD.has(kind) && value > range.max
@@ -96,8 +120,10 @@ export function Bar({ value, range, kind }: { value: number; range: MacroRange; 
       aria-valuemin={0}
       aria-valuemax={range.max}
       aria-valuenow={Math.round(value)}
+      aria-valuetext={extra > 0 ? `${Math.round(value)}, plus ${Math.round(extra)} ${extraLabel ?? 'more'}` : undefined}
     >
-      <div className="bar-fill" style={{ width: `${pct}%` }} />
+      <div className={`bar-fill${extraPct > 0 ? ' joined' : ''}`} style={{ width: `${pct}%` }} />
+      {extraPct > 0 && <div className="bar-extra" data-testid="bar-extra" style={{ left: `${pct}%`, width: `${extraPct}%` }} />}
       {minPct > 0 && <div className="bar-min-tick" style={{ left: `${minPct}%` }} />}
     </div>
   )

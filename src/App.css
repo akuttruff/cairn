@@ -165,6 +165,11 @@ button:disabled { opacity: 0.45; cursor: default; }
 .bar.carbs .bar-fill { background: var(--c-carbs); }
 .bar.fiber .bar-fill { background: var(--c-fiber); }
 .bar.over .bar-fill { background: var(--rust); }
+/* The day's drinks on the calorie bar: their own stretch after the food, in the alcohol colour. */
+.bar-fill.joined { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.bar-extra { position: absolute; top: 0; bottom: 0; background: var(--c-alcohol); border-radius: 0 4px 4px 0; transition: left 0.35s ease, width 0.35s ease; }
+.cal-drinks { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-family: var(--mono); font-size: 12px; color: var(--paper-dim); }
+.cal-drinks-key { width: 8px; height: 8px; border-radius: 2px; background: var(--c-alcohol); flex: 0 0 auto; }
 .macro-grid .bar { height: 6px; }
 /* Marks the bottom of a goal's range (the top is the bar's own end) -- a
    thin line, not another color, so it reads as a marker, not a second fill. */
