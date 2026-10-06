@@ -30,7 +30,7 @@ export default function SettingsSheet({ open, session, onClose, onSaved }: Setti
 }
 
 /** The number fields, as typed; each is parsed and checked on every render. */
-type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'trainingWater' | 'calorieBuffer' | 'fiber' | 'water' | 'alcoholWeekly' | 'meditationMinutes'
+type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'trainingWater' | 'calorieBuffer' | 'fiber' | 'water' | 'alcoholWeekly' | 'meditationMinutes' | 'dogWalks' | 'walkMiles'
   | `plan:${WorkoutKind}`
 const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
   // Each says which way it points: a min to reach, or a max to stay under.
@@ -45,6 +45,8 @@ const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
   { key: 'trainingWater', label: 'Extra water on training days (oz)', hint: 'Added to the water goal on a WOD or weightlifting day; 32 is one more bottle.' },
   { key: 'alcoholWeekly', label: 'Alcohol (drinks per week)', hint: 'A weekly cap, not a daily one -- shown against the running total for the week.' },
   { key: 'meditationMinutes', label: 'Meditation (minutes per day)', hint: 'Sits are 25 minutes each, so 50 is two a day.' },
+  { key: 'dogWalks', label: 'Dog walks (per day)' },
+  { key: 'walkMiles', label: 'Dog walk length (miles)', hint: 'What one tap logs. Walks already logged keep their length.' },
   // The default weekly plan, one field per kind; drawn in a section of their own below.
   ...WORKOUT_KINDS.map((k) => ({ key: `plan:${k}` as const, label: `${WORKOUTS[k].label} (per week)` })),
 ]
@@ -90,6 +92,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
         protein: String(g.protein), fat: String(g.fat), carbs: String(g.carbs), trainingCarbs: String(g.trainingCarbs), trainingWater: String(g.trainingWater), calorieBuffer: String(g.calorieBuffer),
         fiber: String(g.fiber), water: String(g.water), alcoholWeekly: String(g.alcoholWeekly),
         meditationMinutes: String(g.meditationMinutes),
+        dogWalks: String(g.dogWalks), walkMiles: String(g.walkMiles),
         ...Object.fromEntries(WORKOUT_KINDS.map((k) => [`plan:${k}`, String(g.workoutPlan[k])])),
       } as Record<NumberField, string>)
     }).catch((err) => toast.error((err as Error).message))
@@ -107,6 +110,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   // A plan count is sessions: a whole number, at most two a day.
   const badValue = (key: NumberField, v: number | null): boolean =>
     v == null || v < 0 || (key.startsWith('plan:') && (!Number.isInteger(v) || v > 14))
+    || (key === 'dogWalks' && (!Number.isInteger(v) || v > 20)) || (key === 'walkMiles' && (v === 0 || v > 50))
   const invalid = parsed ? NUMBER_FIELDS.filter((f) => badValue(f.key, parsed[f.key])).map((f) => f.key) : []
   const formInvalid = !parsed || invalid.length > 0
   // The preview leaves the buffer out while it's being typed wrong, rather than hiding the whole line.
@@ -120,6 +124,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
         protein: parsed.protein!, fat: parsed.fat!, carbs: parsed.carbs!, trainingCarbs: parsed.trainingCarbs!, trainingWater: parsed.trainingWater!, calorieBuffer: parsed.calorieBuffer!,
         fiber: parsed.fiber!, water: parsed.water!, alcoholWeekly: parsed.alcoholWeekly!,
         meditationMinutes: parsed.meditationMinutes!,
+        dogWalks: parsed.dogWalks!, walkMiles: parsed.walkMiles!,
         workoutPlan: Object.fromEntries(WORKOUT_KINDS.map((k) => [k, parsed[`plan:${k}`]!])) as WorkoutPlan,
       }
       await api.setGoals(next)
@@ -157,7 +162,12 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       />
       {f.hint && <div className="hint">{f.hint}</div>}
       {invalid.includes(f.key) && (
-        <div className="hint bad">{f.key.startsWith('plan:') ? 'A whole number, 0 to 14.' : 'Needs a non-negative number.'}</div>
+        <div className="hint bad">
+          {f.key.startsWith('plan:') ? 'A whole number, 0 to 14.'
+            : f.key === 'dogWalks' ? 'A whole number, 0 to 20.'
+              : f.key === 'walkMiles' ? 'More than 0, up to 50 miles.'
+                : 'Needs a non-negative number.'}
+        </div>
       )}
     </div>
   )

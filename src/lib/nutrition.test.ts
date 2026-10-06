@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addDays, addMonths, alcoholCalories, alcoholCaloriesLogged, blendGoals, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalDirection, goalLabel,
+  addDays, addMonths, alcoholCalories, alcoholCaloriesLogged, dogWalksMet, scoreDogWalks, blendGoals, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalDirection, goalLabel,
   goalMet, goalStatus,
   impliedCalories,
   isDateString, localDate, macroCalories, meditationMet, progress, rangeStatus, resolveGoals, scale, scoreDays, scoreMeditation,
@@ -155,7 +155,7 @@ describe('rangeStatus', () => {
 })
 
 const GOALS: Goals = {
-  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, trainingWater: 32, calorieBuffer: 0, fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10,
+  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, trainingWater: 32, calorieBuffer: 0, fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1,
   workoutPlan: { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 },
 }
 
@@ -235,7 +235,7 @@ describe('scoreDays', () => {
   const rest = resolveGoals(GOALS, 'rest')
   const summary = (dayType: 'training' | 'rest', totals: Partial<Record<NutrientKey, number>>, entryCount = 1): DaySummary => ({
     date: '2026-09-22', entryCount, dayType, goals: dayType === 'training' ? training : rest, water: 0, alcohol: 0,
-    workouts: 0, workoutMinutes: 0, meditationMinutes: 0,
+    workouts: 0, workoutMinutes: 0, meditationMinutes: 0, dogWalks: 0, dogMiles: 0,
     totals: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0, ...totals },
     missing: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 },
   })
@@ -422,5 +422,18 @@ describe('mealForHour', () => {
     expect(mealForHour(19)).toBe('dinner')
     expect(mealForHour(23)).toBe('snack')
     expect(mealForHour(2)).toBe('snack')
+  })
+})
+
+describe('dog walks', () => {
+  it('counts a day done once it has every walk, extra ones included', () => {
+    expect(dogWalksMet(2, 2)).toBe(true)
+    expect(dogWalksMet(3, 2)).toBe(true)
+    expect(dogWalksMet(1, 2)).toBe(false)
+    expect(dogWalksMet(0, 0)).toBe(false)
+  })
+
+  it('scores only the days with any walk, like meditation', () => {
+    expect(scoreDogWalks([{ dogWalks: 2 }, { dogWalks: 1 }, { dogWalks: 0 }], 2)).toEqual({ met: 1, of: 2 })
   })
 })

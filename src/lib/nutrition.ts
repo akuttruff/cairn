@@ -24,6 +24,9 @@ export const DEFAULT_GOALS: Goals = {
   workoutPlan: { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 },
   /** Two 25-minute sits a day (see SIT_MINUTES in MeditationTracker). */
   meditationMinutes: 50,
+  // Two one-mile walks a day.
+  dogWalks: 2,
+  walkMiles: 1,
 }
 
 /** The workout kinds that make a day a training day (the carb bump is for these). */
@@ -292,6 +295,17 @@ export function scoreMeditation(days: Pick<DaySummary, 'meditationMinutes'>[], g
   return { met: logged.filter((d) => meditationMet(d.meditationMinutes, goal)).length, of: logged.length }
 }
 
+/** The dog's day is done once she's had the day's walks; an extra one is fine. */
+export function dogWalksMet(walks: number, goal: number): boolean {
+  return goal > 0 && walks >= goal
+}
+
+/** Days with every walk, of the days any walk was logged -- the same reasoning as scoreMeditation. */
+export function scoreDogWalks(days: Pick<DaySummary, 'dogWalks'>[], goal: number): { met: number; of: number } {
+  const logged = days.filter((d) => d.dogWalks > 0)
+  return { met: logged.filter((d) => dogWalksMet(d.dogWalks, goal)).length, of: logged.length }
+}
+
 /**
  * How many days in a row, counting back from `through` (the range's end,
  * or today if that comes first -- days still ahead can't break a streak),
@@ -324,6 +338,7 @@ export function resolveGoals(goals: Goals, dayType: DayType): ResolvedGoals {
     protein: exact(goals.protein), carbs: exact(carbs), fat: exact(goals.fat),
     fiber: goals.fiber, water: goals.water + (dayType === 'training' ? goals.trainingWater : 0), alcoholWeekly: goals.alcoholWeekly,
     meditationMinutes: goals.meditationMinutes,
+    dogWalks: goals.dogWalks, walkMiles: goals.walkMiles,
   }
 }
 
@@ -346,6 +361,7 @@ export function blendGoals(perDay: ResolvedGoals[]): ResolvedGoals {
     // These don't vary by day type (water does -- a training day adds a bottle -- so it's averaged too).
     fiber: first.fiber, water: round1(perDay.reduce((sum, g) => sum + g.water, 0) / perDay.length), alcoholWeekly: first.alcoholWeekly,
     meditationMinutes: first.meditationMinutes,
+    dogWalks: first.dogWalks, walkMiles: first.walkMiles,
   }
 }
 

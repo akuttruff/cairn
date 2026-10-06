@@ -6,12 +6,12 @@ import type { SQLInputValue, StatementSync } from 'node:sqlite'
 import { ALCOHOL_KINDS, APP_ICONS, BODY_METRICS, CHARTABLE, DEFAULT_CHARTS, MEALS, NUTRIENTS, WORKOUT_KINDS } from '../src/types.ts'
 import type {
   AlcoholKind, AlcoholLog, Amount, AppIcon, BodyMetric, ChartKey, DaySummary, DayType, DayView, Entry, Food, FoodSource, Goals,
-  Meal, MealPreset, MealPresetItem, MeditationLog, NewEntry, Nutrients, NutrientKey, PerServing, PublicSettings,
+  Meal, MealPreset, MealPresetItem, MeditationLog, DogWalkLog, NewEntry, Nutrients, NutrientKey, PerServing, PublicSettings,
   RangeView, Serving, Settings, SourceLink, WaterLog, WorkoutKind, WorkoutLog, WorkoutPlan,
 } from '../src/types.ts'
 import {
   addDays, alcoholCalories, blendGoals, DEFAULT_GOALS, daysBetween, isDateString, localDate, resolveGoals, round1, scale,
-  scoreDays, scoreMeditation, scoreWater, startOfWeek, streakThrough, sumDay, TRAINING_KINDS,
+  scoreDays, scoreDogWalks, scoreMeditation, scoreWater, startOfWeek, streakThrough, sumDay, TRAINING_KINDS,
 } from '../src/lib/nutrition.ts'
 import { DAY_TYPES } from '../src/types.ts'
 import { LOOKUP_MAX, LOOKUP_TTL_MS, normalizeQuery } from './research.ts'
@@ -207,7 +207,8 @@ CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY CHECK (id = 1),
   base_protein REAL NOT NULL, base_fat REAL NOT NULL, base_carbs REAL NOT NULL, training_carbs REAL NOT NULL,
   fiber REAL NOT NULL, water_ounces REAL NOT NULL DEFAULT 96, alcohol_weekly REAL NOT NULL DEFAULT 7,
   workouts_weekly REAL NOT NULL DEFAULT 4, meditation_minutes REAL NOT NULL DEFAULT 10,
-  calorie_buffer REAL NOT NULL DEFAULT 100, workout_plan TEXT, training_water REAL NOT NULL DEFAULT 32);
+  calorie_buffer REAL NOT NULL DEFAULT 100, workout_plan TEXT, training_water REAL NOT NULL DEFAULT 32,
+  dog_walks REAL NOT NULL DEFAULT 2, walk_miles REAL NOT NULL DEFAULT 1);
 CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK (id = 1),
   usda_api_key TEXT NOT NULL DEFAULT '', lm_studio_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:1234',
   lm_studio_token TEXT NOT NULL DEFAULT '', research_model TEXT NOT NULL DEFAULT '', auto_lookup INTEGER NOT NULL DEFAULT 1,
@@ -239,6 +240,11 @@ CREATE TABLE IF NOT EXISTS meditation_logs (
   id TEXT PRIMARY KEY, date TEXT NOT NULL, minutes REAL NOT NULL, note TEXT, created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_meditation_logs_date ON meditation_logs(date);
+
+CREATE TABLE IF NOT EXISTS dog_walk_logs (
+  id TEXT PRIMARY KEY, date TEXT NOT NULL, miles REAL NOT NULL, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dog_walk_logs_date ON dog_walk_logs(date);
 
 -- Readings from the scale (via Apple Health). One per kind and moment, so re-sending the same week is harmless.
 CREATE TABLE IF NOT EXISTS body_measurements (
@@ -356,6 +362,14 @@ function migrateSchema(db: DatabaseSync): void {
       db.exec(`ALTER TABLE goals ADD COLUMN training_water REAL NOT NULL DEFAULT ${DEFAULT_GOALS.trainingWater}`)
     }
     db.exec('PRAGMA user_version = 11')
+  }
+  if (version < 12) {
+    // Dog walks: how many a day, and how far one is. Their log table comes from the schema above.
+    const cols = db.prepare('PRAGMA table_info(goals)').all() as { name: string }[]
+    const has = (name: string): boolean => cols.some((c) => c.name === name)
+    if (!has('dog_walks')) db.exec(`ALTER TABLE goals ADD COLUMN dog_walks REAL NOT NULL DEFAULT ${DEFAULT_GOALS.dogWalks}`)
+    if (!has('walk_miles')) db.exec(`ALTER TABLE goals ADD COLUMN walk_miles REAL NOT NULL DEFAULT ${DEFAULT_GOALS.walkMiles}`)
+    db.exec('PRAGMA user_version = 12')
   }
 }
 
@@ -515,10 +529,11 @@ interface GoalsRow {
   base_protein: number; base_fat: number; base_carbs: number; training_carbs: number
   fiber: number; water_ounces: number; alcohol_weekly: number; meditation_minutes: number
   calorie_buffer: number; workout_plan: string | null; training_water: number
+  dog_walks: number; walk_miles: number
 }
 interface DayTypeRow { date: string; type: string }
 
-const GOALS_COLUMNS = 'base_protein,base_fat,base_carbs,training_carbs,fiber,water_ounces,alcohol_weekly,meditation_minutes,calorie_buffer,workout_plan,training_water'
+const GOALS_COLUMNS = 'base_protein,base_fat,base_carbs,training_carbs,fiber,water_ounces,alcohol_weekly,meditation_minutes,calorie_buffer,workout_plan,training_water,dog_walks,walk_miles'
 const GOALS_PLACEHOLDERS = GOALS_COLUMNS.split(',').map(() => '?').join(',')
 const GOALS_ASSIGNMENTS = GOALS_COLUMNS.split(',').map((c) => `${c}=?`).join(', ')
 
@@ -528,17 +543,20 @@ function goalsFromRow(row: GoalsRow): Goals {
     fiber: row.fiber, water: row.water_ounces, alcoholWeekly: row.alcohol_weekly,
     meditationMinutes: row.meditation_minutes, calorieBuffer: row.calorie_buffer,
     workoutPlan: parsePlan(row.workout_plan) ?? DEFAULT_GOALS.workoutPlan,
+    dogWalks: row.dog_walks, walkMiles: row.walk_miles,
   }
 }
 
 /** In GOALS_COLUMNS order. */
 function goalsParams(g: Goals): SQLInputValue[] {
-  return [g.protein, g.fat, g.carbs, g.trainingCarbs, g.fiber, g.water, g.alcoholWeekly, g.meditationMinutes, g.calorieBuffer, JSON.stringify(g.workoutPlan), g.trainingWater]
+  return [g.protein, g.fat, g.carbs, g.trainingCarbs, g.fiber, g.water, g.alcoholWeekly, g.meditationMinutes, g.calorieBuffer, JSON.stringify(g.workoutPlan), g.trainingWater, g.dogWalks, g.walkMiles]
 }
 interface AlcoholLogRow { id: string; date: string; kind: string; created_at: number }
 interface WaterLogRow { id: string; date: string; ounces: number; created_at: number }
 interface WorkoutLogRow { id: string; date: string; kind: string; minutes: number | null; note: string | null; created_at: number }
 interface MeditationLogRow { id: string; date: string; minutes: number; note: string | null; created_at: number }
+interface DogWalkLogRow { id: string; date: string; miles: number; created_at: number }
+const dogWalkFromRow = (r: DogWalkLogRow): DogWalkLog => ({ id: r.id, date: r.date, miles: r.miles, createdAt: r.created_at })
 
 const workoutFromRow = (r: WorkoutLogRow): WorkoutLog => ({
   id: r.id, date: r.date, kind: r.kind as WorkoutKind, minutes: r.minutes, createdAt: r.created_at,
@@ -832,6 +850,10 @@ interface Stmts {
   selectMeditationBetween: StatementSync
   insertMeditation: StatementSync
   deleteMeditation: StatementSync
+  selectDogWalksByDate: StatementSync
+  selectDogWalksBetween: StatementSync
+  insertDogWalk: StatementSync
+  deleteDogWalk: StatementSync
   insertBody: StatementSync
   selectBodyUpTo: StatementSync
   selectBodyBetween: StatementSync
@@ -970,6 +992,10 @@ export class Store {
       selectMeditationBetween: this.db.prepare('SELECT * FROM meditation_logs WHERE date >= ? AND date <= ?'),
       insertMeditation: this.db.prepare('INSERT INTO meditation_logs (id,date,minutes,note,created_at) VALUES (?,?,?,?,?)'),
       deleteMeditation: this.db.prepare('DELETE FROM meditation_logs WHERE id = ?'),
+      selectDogWalksByDate: this.db.prepare('SELECT * FROM dog_walk_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
+      selectDogWalksBetween: this.db.prepare('SELECT * FROM dog_walk_logs WHERE date >= ? AND date <= ?'),
+      insertDogWalk: this.db.prepare('INSERT INTO dog_walk_logs (id,date,miles,created_at) VALUES (?,?,?,?)'),
+      deleteDogWalk: this.db.prepare('DELETE FROM dog_walk_logs WHERE id = ?'),
       insertBody: this.db.prepare('INSERT OR IGNORE INTO body_measurements (metric, measured_at, date, value, created_at) VALUES (?,?,?,?,?)'),
       // The two latest readings of a kind on or before a day: the current one, and the one it changed from.
       selectBodyUpTo: this.db.prepare('SELECT * FROM body_measurements WHERE metric = ? AND date <= ? ORDER BY measured_at DESC LIMIT 2'),
@@ -1081,8 +1107,9 @@ export class Store {
     const alcohol = this.getAlcohol(date, goals.alcoholWeekly)
     const workouts = this.getWorkouts(date)
     const meditation = this.getMeditation(date, goals.meditationMinutes)
+    const dog = this.getDogWalks(date, goals.dogWalks, goals.walkMiles)
     const body = this.getBody(date)
-    return { date, entries, dayType, goals, water, alcohol, workouts, meditation, body, ...sumDay(entries) }
+    return { date, entries, dayType, goals, water, alcohol, workouts, meditation, dog, body, ...sumDay(entries) }
   }
 
   /**
@@ -1106,6 +1133,7 @@ export class Store {
     const workoutRows = this.stmts.selectWorkoutsBetween.all(start, end) as unknown as WorkoutLogRow[]
     const workoutsByDate = groupBy(workoutRows, 'date')
     const meditationByDate = groupBy(this.stmts.selectMeditationBetween.all(start, end) as unknown as MeditationLogRow[], 'date')
+    const dogByDate = groupBy(this.stmts.selectDogWalksBetween.all(start, end) as unknown as DogWalkLogRow[], 'date')
     const dayTypeByDate = new Map(
       (this.stmts.selectDayTypesBetween.all(start, end) as unknown as DayTypeRow[]).map((r) => [r.date, r.type]),
     )
@@ -1124,6 +1152,8 @@ export class Store {
         workouts: sessions.length,
         workoutMinutes: sessions.reduce((sum, r) => sum + (r.minutes ?? 0), 0),
         meditationMinutes: (meditationByDate.get(date) ?? []).reduce((sum, r) => sum + r.minutes, 0),
+        dogWalks: (dogByDate.get(date) ?? []).length,
+        dogMiles: round1((dogByDate.get(date) ?? []).reduce((sum, r) => sum + r.miles, 0)),
         ...sumDay(dayEntries),
       })
     }
@@ -1174,6 +1204,9 @@ export class Store {
     const lastDay = end < today ? end : today
     const todayStarted = days.some((d) => d.date === today && d.meditationMinutes > 0)
     const through = lastDay === today && !todayStarted ? addDays(today, -1) : lastDay
+    // The same rule for the dog's streak: a today with no walk yet doesn't break it.
+    const dogToday = days.some((d) => d.date === today && d.dogWalks > 0)
+    const dogThrough = lastDay === today && !dogToday ? addDays(today, -1) : lastDay
 
     return {
       start, end, days, goals: blendGoals(days.map((d) => d.goals)), dayTypes, scorecard: scoreDays(basis),
@@ -1195,6 +1228,13 @@ export class Store {
         days: days.filter((d) => d.meditationMinutes > 0).length,
         ...scoreMeditation(basis, goals.meditationMinutes),
         streak: streakThrough(days, (d) => d.meditationMinutes > 0, through),
+      },
+      dog: {
+        walks: days.reduce((sum, d) => sum + d.dogWalks, 0),
+        miles: round1(days.reduce((sum, d) => sum + d.dogMiles, 0)),
+        days: days.filter((d) => d.dogWalks > 0).length,
+        ...scoreDogWalks(basis, goals.dogWalks),
+        streak: streakThrough(days, (d) => d.dogWalks > 0, dogThrough),
       },
       body: this.getBodyBetween(start, end),
     }
@@ -1336,6 +1376,32 @@ export class Store {
 
   deleteMeditation(id: string): void {
     const result = this.stmts.deleteMeditation.run(id)
+    if (result.changes === 0) throw new ValidationError('no such log')
+  }
+
+  private getDogWalks(date: string, goal: number, walkMiles: number): DayView['dog'] {
+    const walks = (this.stmts.selectDogWalksByDate.all(date) as unknown as DogWalkLogRow[]).map(dogWalkFromRow)
+    return { walks, miles: round1(walks.reduce((sum, w) => sum + w.miles, 0)), goal, walkMiles, lastLogId: walks[0]?.id ?? null }
+  }
+
+  /** One walk with the dog: the usual length from Settings unless the request says otherwise. */
+  addDogWalk(input: { date?: unknown; miles?: unknown }): DogWalkLog {
+    const { date } = input
+    if (typeof date !== 'string' || !isDateString(date)) throw new ValidationError('date must be YYYY-MM-DD')
+    let miles = this.getGoals().walkMiles
+    if (input.miles != null && input.miles !== '') {
+      if (typeof input.miles !== 'number' || !Number.isFinite(input.miles) || input.miles <= 0 || input.miles > 50) {
+        throw new ValidationError('miles must be a positive number, at most 50')
+      }
+      miles = round1(input.miles)
+    }
+    const log: DogWalkLog = { id: randomUUID(), date, miles, createdAt: Date.now() }
+    this.stmts.insertDogWalk.run(log.id, log.date, log.miles, log.createdAt)
+    return log
+  }
+
+  deleteDogWalk(id: string): void {
+    const result = this.stmts.deleteDogWalk.run(id)
     if (result.changes === 0) throw new ValidationError('no such log')
   }
 
@@ -1756,6 +1822,8 @@ export class Store {
     if (input.alcoholWeekly !== undefined) next.alcoholWeekly = cleanGoalNumber(input.alcoholWeekly, 'alcoholWeekly', 1000)
     if (input.workoutPlan !== undefined) next.workoutPlan = cleanPlan(input.workoutPlan)
     if (input.meditationMinutes !== undefined) next.meditationMinutes = cleanGoalNumber(input.meditationMinutes, 'meditationMinutes', 1440)
+    if (input.dogWalks !== undefined) next.dogWalks = cleanGoalNumber(input.dogWalks, 'dogWalks', 20)
+    if (input.walkMiles !== undefined) next.walkMiles = cleanGoalNumber(input.walkMiles, 'walkMiles', 50)
     this.stmts.updateGoals.run(...goalsParams(next))
     return next
   }

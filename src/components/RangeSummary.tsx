@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { ALCOHOL_KINDS, DEFAULT_CHARTS, NUTRIENTS, WORKOUT_KINDS } from '../types.ts'
-import { LABELS, UNITS, goalDirection, goalMet, goalRangeFor, localDate, meditationMet, progress, waterMet } from '../lib/nutrition.ts'
+import { LABELS, UNITS, dogWalksMet, goalDirection, goalMet, goalRangeFor, localDate, meditationMet, progress, waterMet } from '../lib/nutrition.ts'
 import { fmt } from '../lib/format.ts'
 import { WORKOUTS } from './WorkoutTracker.tsx'
 import { SIT_MINUTES } from './MeditationTracker.tsx'
+import { milesLabel } from './DogWalkTracker.tsx'
 import { BodyRangeCard } from './BodyCard.tsx'
 import type { ChartKey, DaySummary, MacroRange, NutrientKey, RangeView } from '../types.ts'
 
@@ -232,7 +233,7 @@ const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 
 interface DayBoxesProps {
   /** Also the CSS class that colours it. */
-  kind: 'workout' | 'meditation'
+  kind: 'workout' | 'meditation' | 'dog'
   days: DaySummary[]
   today: string
   state: (d: DaySummary) => BoxState
@@ -283,7 +284,7 @@ function DayBoxes({ kind, days, today, state, describe, onSelectDay }: DayBoxesP
  * over days actually logged, water and alcohol over every day in the range.
  */
 export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
-  const { days, goals, dayTypes, scorecard, averages, loggedDays, totalDays, averagedDays, water, alcohol, workouts, meditation } = view
+  const { days, goals, dayTypes, scorecard, averages, loggedDays, totalDays, averagedDays, water, alcohol, workouts, meditation, dog } = view
   const today = localDate()
   const isWeek = days.length <= 7
   // Month view: the day whose numbers the chart headers show. Kept with the
@@ -441,6 +442,29 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
         <div className="water-bottles">
           {meditation.total} min total · {meditation.average} min avg/day
           {meditation.streak > 1 && ` · ${meditation.streak}-day streak`}
+        </div>
+      </section>
+
+      <section className="water-card" aria-label="Dog walks">
+        <div className="water-head">
+          <span className="water-label">Dog walks</span>
+          <span className="water-num">
+            {dog.of ? `${dog.met} of ${plural(dog.of, 'day')}` : '—'}
+            <span className="water-goal"> · {plural(goals.dogWalks, 'walk')} a day</span>
+          </span>
+        </div>
+        <DayBoxes
+          kind="dog"
+          days={days}
+          today={today}
+          // Every walk is a full box; some but not all of them, half.
+          state={(d) => (dogWalksMet(d.dogWalks, d.goals.dogWalks) ? 'full' : d.dogWalks > 0 ? 'half' : 'empty')}
+          describe={(d) => (d.dogWalks ? `${plural(d.dogWalks, 'walk')}, ${milesLabel(d.dogMiles)}` : 'no walks')}
+          onSelectDay={onSelectDay}
+        />
+        <div className="water-bottles">
+          {plural(dog.walks, 'walk')} · {milesLabel(dog.miles)}
+          {dog.streak > 1 && ` · ${dog.streak}-day streak`}
         </div>
       </section>
 

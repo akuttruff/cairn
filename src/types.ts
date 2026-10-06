@@ -140,6 +140,10 @@ export interface Goals {
   workoutPlan: WorkoutPlan
   /** Minutes of meditation per day. */
   meditationMinutes: number
+  /** Dog walks per day. */
+  dogWalks: number
+  /** Miles in one walk: what a tap logs. */
+  walkMiles: number
 }
 
 /**
@@ -159,6 +163,8 @@ export interface ResolvedGoals {
   water: number
   alcoholWeekly: number
   meditationMinutes: number
+  dogWalks: number
+  walkMiles: number
 }
 
 export interface DayTotals {
@@ -217,6 +223,14 @@ export interface MeditationLog {
   createdAt: number
 }
 
+/** One walk with the dog. Its miles are kept as logged, so changing the usual length later rewrites nothing. */
+export interface DogWalkLog {
+  id: string
+  date: string
+  miles: number
+  createdAt: number
+}
+
 export interface DayView extends DayTotals {
   date: string
   entries: Entry[]
@@ -265,6 +279,15 @@ export interface DayView extends DayTotals {
     goal: number
     lastLogId: string | null
   }
+  /** The day's walks with the dog, newest first, against the walks-per-day goal. */
+  dog: {
+    walks: DogWalkLog[]
+    miles: number
+    goal: number
+    /** Miles in one walk, from Settings: what the button logs. */
+    walkMiles: number
+    lastLogId: string | null
+  }
   /** The latest body measurement of each kind as of this day (null: none yet), and its change since the reading before. */
   body: Record<BodyMetric, BodyReading | null>
 }
@@ -301,6 +324,8 @@ export interface DaySummary extends DayTotals {
   workouts: number
   workoutMinutes: number
   meditationMinutes: number
+  dogWalks: number
+  dogMiles: number
 }
 
 /** Per nutrient, how many of the range's logged days met that day's own goal -- see goalMet() in lib/nutrition.ts. */
@@ -356,6 +381,8 @@ export interface RangeView {
   }
   /** `met` of `of`: days with any meditation logged that reached the daily minutes -- like water. `streak`: consecutive days ending at the range's end (or today, if earlier) with any logged. */
   meditation: { total: number; average: number; days: number; met: number; of: number; streak: number }
+  /** Walks and miles over the range; `met` of `of` and `streak` as for meditation. */
+  dog: { walks: number; miles: number; days: number; met: number; of: number; streak: number }
   /** Per kind: the first and last reading in the range, and the change between them; null with none in range. */
   body: Record<BodyMetric, { first: number; last: number; change: number; count: number } | null>
 }

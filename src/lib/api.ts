@@ -1,6 +1,6 @@
 import type {
   DayType, DayView, Entry, Food, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeView, Serving,
-  AlcoholKind, AlcoholLog, AppIcon, ChartKey, WaterLog, LmModelOption, MeditationLog, WorkoutKind, WorkoutLog, WorkoutPlan,
+  AlcoholKind, AlcoholLog, AppIcon, ChartKey, WaterLog, LmModelOption, MeditationLog, DogWalkLog, WorkoutKind, WorkoutLog, WorkoutPlan,
 } from '../types.ts'
 
 /** An online lookup in progress or finished; see server/research.ts. */
@@ -92,6 +92,8 @@ export const api = {
     request<{ weekStart: string; plan: WorkoutPlan; custom: boolean }>('DELETE', `/api/workout-plan/${encodeURIComponent(weekStart)}`),
   addMeditation: (m: { date: string; minutes: number; note?: string }) => request<MeditationLog>('POST', '/api/meditation', m),
   deleteMeditation: (id: string) => request<{ ok: true }>('DELETE', `/api/meditation/${encodeURIComponent(id)}`),
+  addDogWalk: (w: { date: string; miles?: number }) => request<DogWalkLog>('POST', '/api/dog-walks', w),
+  deleteDogWalk: (id: string) => request<{ ok: true }>('DELETE', `/api/dog-walks/${encodeURIComponent(id)}`),
   settings: () => request<PublicSettings>('GET', '/api/settings'),
   setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; autoLookup?: boolean; appIcon?: AppIcon; charts?: ChartKey[] }) =>
     request<PublicSettings>('PUT', '/api/settings', s),

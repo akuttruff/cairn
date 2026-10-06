@@ -19,6 +19,7 @@
   --c-alcohol: #B8626F;
   --c-workout: #6FC48F;
   --c-meditation: #9AA5F0;
+  --c-dog: #D49A6A;
   --radius: 12px;
   --mono: "SF Mono", ui-monospace, Menlo, monospace;
   font-size: 16px;
@@ -270,6 +271,10 @@ button:disabled { opacity: 0.45; cursor: default; }
 /* Week/month: one box per day, Sunday-first columns. A week is one row; a month, a small calendar. */
 .day-boxes { --box: var(--c-workout); display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin: 4px 0 2px; }
 .day-boxes.meditation { --box: var(--c-meditation); }
+.day-boxes.dog { --box: var(--c-dog); }
+.bar.dog .bar-fill { background: var(--c-dog); }
+.dog-add { border-color: var(--c-dog); color: var(--c-dog); padding: 11px 6px; font-size: 13px; gap: 4px; white-space: nowrap; min-width: 0; }
+.dog-label-icon { vertical-align: -2px; margin-right: 5px; color: var(--c-dog); }
 .day-boxes-weekday { font-family: var(--mono); font-size: 10px; color: var(--paper-dim); text-align: center; }
 .day-box {
   aspect-ratio: 1; max-height: 40px; width: 100%;

@@ -9,7 +9,7 @@ const TODAY = localDate()
 const RANGE = (n: number): { min: number; max: number } => ({ min: n, max: n })
 const GOALS = {
   calories: RANGE(2000), protein: RANGE(150), fat: RANGE(65), carbs: RANGE(200),
-  fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10,
+  fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1,
 }
 /** Lifting 2, yoga 4, pilates 1, WOD 2 a week -- 9 sessions. */
 const PLAN = { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 }
@@ -21,10 +21,10 @@ const WORKOUTS_DAY = {
 }
 /** What Settings edits and /api/goals returns -- separate shape from GOALS above (a resolved, per-day view). */
 const STORED_GOALS: Goals = {
-  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, trainingWater: 32, calorieBuffer: 100, fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10, workoutPlan: PLAN,
+  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, trainingWater: 32, calorieBuffer: 100, fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1, workoutPlan: PLAN,
 }
 /** A range day's workout and meditation fields, with nothing logged. */
-const DAY_ACTIVITY = { workouts: 0, workoutMinutes: 0, meditationMinutes: 0 }
+const DAY_ACTIVITY = { workouts: 0, workoutMinutes: 0, meditationMinutes: 0, dogWalks: 0, dogMiles: 0 }
 
 const banana: Food = {
   id: 'usda:173944', name: 'Bananas, raw', source: 'usda', sourceId: '173944',
@@ -46,6 +46,7 @@ const day = (entries: Entry[], over: Partial<DayView> = {}): DayView => ({
   alcohol: { drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, weekTotal: 0, weekGoal: 7, calories: 0, lastLogId: null },
   workouts: WORKOUTS_DAY,
   meditation: { sessions: [], minutes: 0, goal: 10, lastLogId: null },
+  dog: { walks: [], miles: 0, goal: 2, walkMiles: 1, lastLogId: null },
   body: { weight: null, bodyFat: null, leanMass: null, bmi: null },
   ...over,
 })
@@ -61,6 +62,7 @@ const range = (over: Partial<RangeView> = {}, start = startOfWeek(TODAY)): Range
   water: { total: 0, average: 0, met: 0, of: 0 }, alcohol: { total: 0, average: 0, calories: 0, byKind: { beer: 0, wine: 0, liquor: 0 } },
   workouts: { sessions: 0, days: 0, minutes: 0, byKind: NO_KINDS, goalByKind: PLAN, goal: 9 },
   meditation: { total: 0, average: 0, days: 0, met: 0, of: 0, streak: 0 },
+  dog: { walks: 0, miles: 0, days: 0, met: 0, of: 0, streak: 0 },
   body: { weight: null, bodyFat: null, leanMass: null, bmi: null },
   days: Array.from({ length: 7 }, (_, i) => ({
     date: addDays(start, i), entryCount: 0, water: 0, alcohol: 0, ...DAY_ACTIVITY, dayType: 'training' as const, goals: GOALS, totals: ZERO, missing: ZERO,
@@ -613,6 +615,61 @@ describe('App', () => {
     expect(calls.find((c) => c.url === '/api/meditation')!.body).toEqual({ date: TODAY, minutes: 25 })
     await user.click(within(card).getByRole('button', { name: 'Undo' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/meditation/m1')).toBe(true))
+  })
+
+  it("logs the dog's walks a tap at a time against two a day, and undoes the last", async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([], {
+        dog: { walks: [{ id: 'd1', date: TODAY, miles: 1, createdAt: 1 }], miles: 1, goal: 2, walkMiles: 1, lastLogId: 'd1' },
+      }),
+      'POST /api/dog-walks': { id: 'd2', date: TODAY, miles: 1, createdAt: 2 },
+      'DELETE /api/dog-walks/d1': { ok: true },
+    })
+    render(<App />)
+    const card = await screen.findByRole('region', { name: 'Dog walks' })
+    expect(within(card).getByRole('progressbar', { name: 'Dog walks' })).toHaveAttribute('aria-valuenow', '1')
+    expect(within(card).getByText('/ 2 walks')).toBeInTheDocument()
+    expect(within(card).getByText('1 mile today')).toBeInTheDocument()
+    await user.click(within(card).getByRole('button', { name: /\+ 1-mile walk/ }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/dog-walks')).toBe(true))
+    expect(calls.find((c) => c.url === '/api/dog-walks')!.body).toEqual({ date: TODAY })
+    await user.click(within(card).getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/dog-walks/d1')).toBe(true))
+  })
+
+  it('names the walk by its length from Settings', async () => {
+    stubApi({ [`GET /api/day/${TODAY}`]: day([], { dog: { walks: [], miles: 0, goal: 2, walkMiles: 1.5, lastLogId: null } }) })
+    render(<App />)
+    const card = await screen.findByRole('region', { name: 'Dog walks' })
+    expect(within(card).getByRole('button', { name: /\+ 1\.5-mile walk/ })).toBeInTheDocument()
+    expect(within(card).getByText('No walks yet today')).toBeInTheDocument()
+    expect(within(card).queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+  })
+
+  it('edits the dog walks per day and their length in Settings', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/targets': STORED_GOALS,
+      'PUT /api/targets': { ...STORED_GOALS, dogWalks: 3, walkMiles: 1.5 },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    const walks = await screen.findByLabelText('Dog walks (per day)')
+    expect(walks).toHaveValue('2')
+    expect(screen.getByLabelText('Dog walk length (miles)')).toHaveValue('1')
+    await user.clear(walks)
+    await user.type(walks, '2.5')
+    expect(screen.getByText('A whole number, 0 to 20.')).toBeInTheDocument()
+    await user.clear(walks)
+    await user.type(walks, '3')
+    const miles = screen.getByLabelText('Dog walk length (miles)')
+    await user.clear(miles)
+    await user.type(miles, '1.5')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/targets')).toBe(true))
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({ dogWalks: 3, walkMiles: 1.5 })
   })
 
   it('edits the extra water a training day asks for, in Settings', async () => {
@@ -1417,6 +1474,27 @@ describe('App', () => {
       // Tapping a box opens that day.
       await user.click(within(meditation).getByRole('button', { name: `${addDays(start, 2)}: 1 sit, 25 min` }))
       await waitFor(() => expect(calls.some((c) => c.url === `/api/day/${addDays(start, 2)}`)).toBe(true))
+    })
+
+    it("shows the dog's walks as day boxes: full for every walk, half for some, with the miles", async () => {
+      const user = userEvent.setup()
+      const start = startOfWeek(addDays(TODAY, -7))
+      const base = range({}, start)
+      stubApi({
+        'GET /api/day/': day([]),
+        'GET /api/range': range({
+          dog: { walks: 3, miles: 3, days: 2, met: 1, of: 2, streak: 0 },
+          days: base.days.map((d, i) => ({ ...d, dogWalks: [2, 1, 0, 0, 0, 0, 0][i]!, dogMiles: [2, 1, 0, 0, 0, 0, 0][i]! })),
+        }, start),
+      })
+      render(<App />)
+      await user.click(await screen.findByRole('tab', { name: 'Week' }))
+      const dog = await screen.findByRole('region', { name: 'Dog walks' })
+      expect(within(dog).getByText('1 of 2 days')).toBeInTheDocument()
+      expect(within(dog).getByRole('button', { name: `${start}: 2 walks, 2 miles` })).toHaveClass('full')
+      expect(within(dog).getByRole('button', { name: `${addDays(start, 1)}: 1 walk, 1 mile` })).toHaveClass('half')
+      expect(within(dog).getByRole('button', { name: `${addDays(start, 2)}: no walks` })).toHaveClass('empty')
+      expect(within(dog).getByText('3 walks · 3 miles')).toBeInTheDocument()
     })
 
     it('draws the days still ahead faintly, never as misses', async () => {

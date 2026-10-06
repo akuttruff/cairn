@@ -910,6 +910,54 @@ describe('meditation', () => {
   })
 })
 
+describe('dog walks', () => {
+  it('starts at none of two one-mile walks', () => {
+    expect(store.getDay(DAY).dog).toEqual({ walks: [], miles: 0, goal: 2, walkMiles: 1, lastLogId: null })
+  })
+
+  it('logs a walk at the usual length, undoes the last, and keeps each walk as long as it was', () => {
+    const first = store.addDogWalk({ date: DAY })
+    expect(first.miles).toBe(1)
+    store.setGoals({ walkMiles: 1.5 })
+    const second = store.addDogWalk({ date: DAY })
+    // The earlier walk keeps its mile; only new ones are the new length.
+    expect(store.getDay(DAY).dog).toMatchObject({ miles: 2.5, walkMiles: 1.5, lastLogId: second.id })
+    store.deleteDogWalk(second.id)
+    expect(store.getDay(DAY).dog).toMatchObject({ miles: 1, lastLogId: first.id })
+    expect(() => store.deleteDogWalk(second.id)).toThrow(/no such log/)
+  })
+
+  it('takes a different length for one walk, within reason', () => {
+    expect(store.addDogWalk({ date: DAY, miles: 2.25 }).miles).toBe(2.3)
+    expect(() => store.addDogWalk({ date: DAY, miles: 0 })).toThrow(/positive number/)
+    expect(() => store.addDogWalk({ date: 'today' })).toThrow(/YYYY-MM-DD/)
+  })
+
+  it('keeps the walks-per-day goal and the walk length in the goals', () => {
+    store.setGoals({ dogWalks: 3, walkMiles: 0.75 })
+    expect(store.getGoals()).toMatchObject({ dogWalks: 3, walkMiles: 0.75 })
+    expect(store.getDay(DAY).dog).toMatchObject({ goal: 3, walkMiles: 0.75 })
+    expect(() => store.setGoals({ dogWalks: 21 })).toThrow(ValidationError)
+  })
+
+  it('upgrades a database from before dog walks, keeping the goals already set', () => {
+    store.setGoals({ protein: 140 })
+    const db = openRaw()
+    try {
+      db.exec('ALTER TABLE goals DROP COLUMN dog_walks')
+      db.exec('ALTER TABLE goals DROP COLUMN walk_miles')
+      db.exec('DROP TABLE dog_walk_logs')
+      db.exec('PRAGMA user_version = 11')
+    } finally {
+      db.close()
+    }
+    const upgraded = new Store({ dir })
+    expect(upgraded.getGoals()).toMatchObject({ protein: 140, dogWalks: 2, walkMiles: 1 })
+    upgraded.addDogWalk({ date: DAY })
+    expect(upgraded.getDay(DAY).dog.walks).toHaveLength(1)
+  })
+})
+
 describe('training-day water', () => {
   it('asks for a bottle more water on a training day, and scores the week against each day', () => {
     expect(store.getGoals().trainingWater).toBe(32)
@@ -1007,6 +1055,17 @@ describe('ranges', () => {
     expect(range.days.map((d) => d.workouts)).toEqual([2, 0, 1])
     // D2's two sits met the 50-minute goal, D3 didn't; D1 had none and is left out. D2-D3 is a two-day run.
     expect(range.meditation).toEqual({ total: 55, average: 18.3, days: 2, met: 1, of: 2, streak: 2 })
+  })
+
+  it('counts walks and miles per day, scoring days with every walk, with a streak', () => {
+    store.addDogWalk({ date: D1 })
+    store.addDogWalk({ date: D2 })
+    store.addDogWalk({ date: D2, miles: 1.5 })
+    store.addDogWalk({ date: D3 })
+    const range = store.getRange(D1, D3)
+    expect(range.days.map((d) => [d.dogWalks, d.dogMiles])).toEqual([[1, 1], [2, 2.5], [1, 1]])
+    // Only D2 had both walks; all three days had one, in a row.
+    expect(range.dog).toEqual({ walks: 4, miles: 4.5, days: 3, met: 1, of: 3, streak: 3 })
   })
 
   it('has one entry per calendar day, even ones with nothing logged', () => {

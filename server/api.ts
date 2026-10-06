@@ -127,6 +127,13 @@ export function createApi(options: ApiOptions = {}) {
       const samples = Array.isArray(body) ? body : (body as { samples?: unknown }).samples ?? body
       return json(res, 200, store.addBodySamples(samples))
     }
+    if (p === '/api/dog-walks' && method === 'POST') {
+      return json(res, 201, store.addDogWalk(await readBody(req) as Record<string, unknown>))
+    }
+    if ((m = /^\/api\/dog-walks\/([^/]+)$/.exec(p)) && method === 'DELETE') {
+      store.deleteDogWalk(decodeURIComponent(m[1]!))
+      return json(res, 200, { ok: true })
+    }
     if (p === '/api/meditation' && method === 'POST') {
       return json(res, 201, store.addMeditation(await readBody(req) as Record<string, unknown>))
     }
