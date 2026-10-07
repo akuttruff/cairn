@@ -519,16 +519,18 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
   })
 
-  it("shows the day's workouts and the week's count, and logs one with a tap, no minutes asked", async () => {
+  it("shows the week's sessions as day chips on each activity's row, and logs one with its +", async () => {
     const user = userEvent.setup()
+    const twoAgo = addDays(TODAY, -2)
+    const chip = (date: string) => ['Su', 'M', 'Tu', 'W', 'Th', 'F', 'Sa'][new Date(`${date}T00:00:00`).getDay()]
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
         workouts: {
           ...WORKOUTS_DAY, sessions: [{ id: 'w1', date: TODAY, kind: 'run', minutes: 30, createdAt: 1 }], minutes: 30,
-          weekByKind: { ...NO_KINDS, run: 1, yoga: 1 }, weekTotal: 2, lastLogId: 'w1',
+          weekByKind: { ...NO_KINDS, run: 1, weightlifting: 1 }, weekTotal: 2, lastLogId: 'w1',
           weekSessions: [
             { id: 'w1', date: TODAY, kind: 'run', minutes: 30, createdAt: 3 },
-            { id: 'w0', date: addDays(TODAY, -2), kind: 'weightlifting', minutes: null, createdAt: 1 },
+            { id: 'w0', date: twoAgo, kind: 'weightlifting', minutes: null, createdAt: 1 },
           ],
         },
       }),
@@ -536,17 +538,14 @@ describe('App', () => {
     })
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Workouts' })
-    // The whole week's sessions, latest first, each with the day it counts for -- not just this day's.
-    const list = within(card).getByRole('list', { name: "This week's sessions" })
-    expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
-      'Run30 minToday', `Lifting${dayLabel(addDays(TODAY, -2))}`,
-    ])
-    expect(within(list).getByRole('button', { name: 'Remove Lifting' })).toBeInTheDocument()
-    expect(within(card).getByText('30 min')).toBeInTheDocument() // minutes logged before are still shown
     expect(within(card).getByRole('progressbar', { name: 'Workouts this week' })).toHaveAttribute('aria-valuenow', '2')
     expect(within(card).getByText('/ 9')).toBeInTheDocument()
+    // Each session is a chip on its activity's row, named for the day it counts for -- today's ringed.
+    const lifting = within(card).getByRole('button', { name: `Lifting, ${dayLabel(twoAgo)}` })
+    expect(lifting).toHaveTextContent(chip(twoAgo)!)
+    expect(within(card).getByRole('button', { name: 'Run, Today' })).toHaveClass('today')
     expect(within(card).queryByLabelText(/minutes/i)).not.toBeInTheDocument()
-    await user.click(within(card).getByRole('button', { name: 'WOD' }))
+    await user.click(within(card).getByRole('button', { name: 'Log WOD' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/workouts')).toBe(true))
     expect(calls.find((c) => c.url === '/api/workouts')!.body).toEqual({ date: TODAY, kind: 'wod', minutes: null })
   })
@@ -560,9 +559,10 @@ describe('App', () => {
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Workouts' })
     const rows = within(within(card).getByRole('list', { name: 'This week by activity' })).getAllByRole('listitem')
-    // Planned kinds, plus a run that wasn't in the plan; cycling (0 and none done) is left out.
-    expect(rows.map((r) => r.textContent)).toEqual(['WOD2 / 2', 'Lifting0 / 2', 'Run1 / 0', 'Yoga2 / 4', 'Pilates0 / 1'])
+    // Every activity has a row, to log from: planned ones count against the plan, the rest just count.
+    expect(rows.map((r) => r.textContent)).toEqual(['WOD2 / 2', 'Lifting0 / 2', 'Run1', 'Cycling', 'Yoga2 / 4', 'Pilates0 / 1'])
     expect(rows[0]).toHaveClass('met')
+    expect(rows[3]).toHaveClass('unplanned')
     await user.click(within(card).getByRole('button', { name: 'Adjust this week' }))
     await user.click(within(card).getByRole('button', { name: 'Fewer Yoga' }))
     await user.click(within(card).getByRole('button', { name: 'More Cycling' }))
@@ -588,7 +588,7 @@ describe('App', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === `/api/workout-plan/${startOfWeek(TODAY)}`)).toBe(true))
   })
 
-  it('logs a workout without minutes, and removes one', async () => {
+  it('logs a workout from its row, and removes one after asking', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
@@ -602,10 +602,17 @@ describe('App', () => {
     })
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Workouts' })
-    await user.click(within(card).getByRole('button', { name: 'Cycling' }))
+    await user.click(within(card).getByRole('button', { name: 'Log Cycling' }))
     await waitFor(() => expect(calls.some((c) => c.url === '/api/workouts')).toBe(true))
     expect(calls.find((c) => c.url === '/api/workouts')!.body).toEqual({ date: TODAY, kind: 'cycling', minutes: null })
-    await user.click(within(card).getByRole('button', { name: 'Remove Yoga' }))
+    // Tapping a chip asks first; Keep closes it, Remove removes it.
+    await user.click(within(card).getByRole('button', { name: 'Yoga, Today' }))
+    const confirm = within(card).getByRole('group', { name: 'Remove Yoga?' })
+    await user.click(within(confirm).getByRole('button', { name: 'Keep' }))
+    expect(within(card).queryByRole('group', { name: 'Remove Yoga?' })).not.toBeInTheDocument()
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+    await user.click(within(card).getByRole('button', { name: 'Yoga, Today' }))
+    await user.click(within(card).getByRole('button', { name: 'Remove' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/workouts/w1')).toBe(true))
   })
 

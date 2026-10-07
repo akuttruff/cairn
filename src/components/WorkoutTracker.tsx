@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { Bike, Dumbbell, Footprints, Flame, Minus, PersonStanding, Plus, Sparkles, X } from 'lucide-react'
+import { Bike, Dumbbell, Footprints, Flame, Minus, Pencil, PersonStanding, Plus, Sparkles } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
-import { TRAINING_KINDS } from '../lib/nutrition.ts'
+import { TRAINING_KINDS, localDate } from '../lib/nutrition.ts'
 import { dayLabel } from '../lib/format.ts'
 import { WORKOUT_KINDS } from '../types.ts'
-import type { DayView, WorkoutKind, WorkoutPlan } from '../types.ts'
+import type { DayView, WorkoutKind, WorkoutLog, WorkoutPlan } from '../types.ts'
 
 export const WORKOUTS: Record<WorkoutKind, { label: string; Icon: LucideIcon }> = {
   wod: { label: 'WOD', Icon: Flame },
@@ -23,13 +23,26 @@ interface WorkoutTrackerProps {
   onLogged: () => void
 }
 
+/** The weekday a session counts for, short enough for a chip: "M", "Tu", "Su". */
+const WEEKDAY = ['Su', 'M', 'Tu', 'W', 'Th', 'F', 'Sa']
+const weekday = (date: string): string => WEEKDAY[new Date(`${date}T00:00:00`).getDay()]!
+
 /**
- * The day's sessions, and the week's count against the weekly goal
- * (Sunday-start, today included) -- the week is the thing being aimed at,
- * like the alcohol cap but the other way round. Tapping a kind logs a
- * session. Minutes aren't asked for; any logged before are still shown.
+ * The week's workouts in one table, a row per activity. Each row carries the
+ * sessions done as day chips (tap one to remove it), an empty pip for each
+ * still planned, the count against the plan, and a + that logs one for the
+ * day being viewed. The pencil adjusts this week's plan only; the default
+ * stays in Settings for every other week.
  */
 export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrackerProps) {
+  const { plan, weekByKind, weekTotal, weekGoal, planIsCustom, weekStart, weekSessions } = workouts
+  const [draft, setDraft] = useState<WorkoutPlan | null>(null)
+  const [busy, setBusy] = useState(false)
+  /** The chip tapped: shown with Remove / Keep under its row. */
+  const [confirming, setConfirming] = useState<WorkoutLog | null>(null)
+  const pct = weekGoal > 0 ? Math.min(100, Math.round((weekTotal / weekGoal) * 100)) : 0
+  const today = localDate()
+
   const add = async (kind: WorkoutKind): Promise<void> => {
     try {
       await api.addWorkout({ date, kind, minutes: null })
@@ -43,75 +56,12 @@ export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrac
   const remove = async (id: string): Promise<void> => {
     try {
       await api.deleteWorkout(id)
+      setConfirming(null)
       onLogged()
     } catch (err) {
       toast.error((err as Error).message)
     }
   }
-
-  return (
-    <section className="water-card workout-card" aria-label="Workouts">
-      <div className="water-head">
-        <span className="water-label">Workouts</span>
-        <span className="water-num">
-          {workouts.sessions.length}
-          <span className="water-goal">
-            {' '}{workouts.sessions.length === 1 ? 'session' : 'sessions'}
-            {workouts.minutes > 0 && ` · ${workouts.minutes} min`}
-          </span>
-        </span>
-      </div>
-
-      {workouts.weekSessions.length > 0 && (
-        // The week's sessions, not just this day's, each with its day, so any can be checked or removed.
-        <ul className="session-list" aria-label="This week's sessions">
-          {workouts.weekSessions.map((s) => {
-            const { label, Icon } = WORKOUTS[s.kind] ?? { label: s.kind, Icon: Dumbbell }
-            return (
-              <li key={s.id} className="session-row">
-                <Icon size={14} aria-hidden="true" />
-                <span className="session-name">{label}</span>
-                {s.minutes != null && <span className="session-min">{s.minutes} min</span>}
-                {/* Which day it counts for, so a session is never mistaken for one logged today. */}
-                <span className="session-day">{dayLabel(s.date)}</span>
-                <button type="button" className="session-remove" aria-label={`Remove ${label}`} onClick={() => void remove(s.id)}>
-                  <X size={14} aria-hidden="true" />
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
-
-      <WeekPlan workouts={workouts} onChanged={onLogged} />
-
-      <div className="workout-actions">
-        {WORKOUT_KINDS.map((kind) => {
-          const { label, Icon } = WORKOUTS[kind]
-          return (
-            <button key={kind} type="button" className="water-add workout-add" onClick={() => void add(kind)}>
-              <Icon size={15} aria-hidden="true" />
-              {label}
-            </button>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
-
-/**
- * The week this day falls in, kind by kind: each planned activity's count
- * against its goal ("Yoga 2 / 4"), plus anything done that wasn't planned,
- * and the total. "Adjust this week" changes the plan for this week only;
- * the default stays in Settings for every other week.
- */
-function WeekPlan({ workouts, onChanged }: { workouts: DayView['workouts']; onChanged: () => void }) {
-  const [draft, setDraft] = useState<WorkoutPlan | null>(null)
-  const [busy, setBusy] = useState(false)
-  const { plan, weekByKind, weekTotal, weekGoal, planIsCustom, weekStart } = workouts
-  const shown = WORKOUT_KINDS.filter((k) => plan[k] > 0 || weekByKind[k] > 0)
-  const pct = weekGoal > 0 ? Math.min(100, Math.round((weekTotal / weekGoal) * 100)) : 0
 
   const save = async (next: WorkoutPlan | null): Promise<void> => {
     setBusy(true)
@@ -119,7 +69,7 @@ function WeekPlan({ workouts, onChanged }: { workouts: DayView['workouts']; onCh
       if (next) await api.setWeekPlan(weekStart, next)
       else await api.clearWeekPlan(weekStart)
       setDraft(null)
-      onChanged()
+      onLogged()
     } catch (err) {
       toast.error((err as Error).message)
     } finally {
@@ -130,14 +80,21 @@ function WeekPlan({ workouts, onChanged }: { workouts: DayView['workouts']; onCh
     setDraft((d) => d && { ...d, [k]: Math.max(0, Math.min(14, d[k] + by)) })
 
   return (
-    <div className="alcohol-week week-plan">
+    <section className="water-card workout-card" aria-label="Workouts">
       <div className="water-head">
         <span className="water-label">
-          This week{planIsCustom && <span className="plan-tag">own plan</span>}
+          Workouts · this week{planIsCustom && <span className="plan-tag">own plan</span>}
         </span>
-        <span className="water-num">
-          {weekTotal}
-          <span className="water-goal"> / {weekGoal}</span>
+        <span className="wk-head-right">
+          <span className="water-num">
+            {weekTotal}
+            <span className="water-goal"> / {weekGoal}</span>
+          </span>
+          {!draft && (
+            <button type="button" className="wk-edit" aria-label="Adjust this week" title="Adjust this week's plan" onClick={() => setDraft({ ...plan })}>
+              <Pencil size={14} aria-hidden="true" />
+            </button>
+          )}
         </span>
       </div>
       <div
@@ -152,31 +109,53 @@ function WeekPlan({ workouts, onChanged }: { workouts: DayView['workouts']; onCh
       </div>
 
       {!draft && (
-        <>
-          <ul className="plan-list" aria-label="This week by activity">
-            {shown.map((k) => {
-              const { label, Icon } = WORKOUTS[k]
-              const done = weekByKind[k]
-              const goal = plan[k]
-              return (
-                <li key={k} className={`plan-row${goal > 0 && done >= goal ? ' met' : ''}`}>
-                  <Icon size={14} aria-hidden="true" />
-                  <span className="plan-name">{label}</span>
-                  {/* One pip per planned session, filled as they're done. */}
-                  <span className="plan-pips" aria-hidden="true">
-                    {Array.from({ length: Math.max(goal, done) }, (_, i) => (
-                      <span key={i} className={`pip${i < done ? ' done' : ''}${i >= goal ? ' extra' : ''}`} />
+        <ul className="wk-list" aria-label="This week by activity">
+          {WORKOUT_KINDS.map((k) => {
+            const { label, Icon } = WORKOUTS[k]
+            const goal = plan[k]
+            const done = weekByKind[k]
+            // Oldest first, so the chips read through the week left to right.
+            const sessions = weekSessions.filter((s) => s.kind === k).reverse()
+            const open = confirming && confirming.kind === k ? confirming : null
+            return (
+              <li key={k} className={`wk-item${goal === 0 && done === 0 ? ' unplanned' : ''}${goal > 0 && done >= goal ? ' met' : ''}`}>
+                <div className="wk-row">
+                  <Icon size={15} aria-hidden="true" className="wk-icon" />
+                  <span className="wk-name">{label}</span>
+                  <span className="wk-marks">
+                    {sessions.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        className={`day-chip${s.date === today ? ' today' : ''}${open?.id === s.id ? ' open' : ''}`}
+                        aria-label={`${label}, ${dayLabel(s.date)}`}
+                        title={`${label}, ${dayLabel(s.date)} -- tap to remove`}
+                        onClick={() => setConfirming(open?.id === s.id ? null : s)}
+                      >
+                        {weekday(s.date)}
+                      </button>
                     ))}
+                    {/* One empty pip for each planned session still to do. */}
+                    {Array.from({ length: Math.max(0, goal - done) }, (_, i) => <span key={i} className="pip" aria-hidden="true" />)}
                   </span>
-                  <span className="plan-count">{done} / {goal}</span>
-                </li>
-              )
-            })}
-          </ul>
-          <button type="button" className="link-btn accent" onClick={() => setDraft({ ...plan })}>
-            Adjust this week
-          </button>
-        </>
+                  <span className="plan-count">{goal > 0 ? `${done} / ${goal}` : done || ''}</span>
+                  <button type="button" className="wk-add" aria-label={`Log ${label}`} title={`Log ${label} for ${dayLabel(date)}`} onClick={() => void add(k)}>
+                    <Plus size={16} aria-hidden="true" />
+                  </button>
+                </div>
+                {open && (
+                  <div className="wk-confirm" role="group" aria-label={`Remove ${label}?`}>
+                    <span>
+                      {label}, {dayLabel(open.date)}{open.minutes != null && ` · ${open.minutes} min`}
+                    </span>
+                    <button type="button" className="link-btn accent" onClick={() => setConfirming(null)}>Keep</button>
+                    <button type="button" className="wk-remove" onClick={() => void remove(open.id)}>Remove</button>
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
       )}
 
       {draft && (
@@ -203,6 +182,6 @@ function WeekPlan({ workouts, onChanged }: { workouts: DayView['workouts']; onCh
           </div>
         </div>
       )}
-    </div>
+    </section>
   )
 }
