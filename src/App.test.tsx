@@ -519,10 +519,9 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
   })
 
-  it("shows the week's sessions as day chips on each activity's row, and logs one with its +", async () => {
+  it("shows the week's sessions as filled dots on each activity's row, each telling its day, and logs one with its +", async () => {
     const user = userEvent.setup()
     const twoAgo = addDays(TODAY, -2)
-    const chip = (date: string) => ['Su', 'M', 'Tu', 'W', 'Th', 'F', 'Sa'][new Date(`${date}T00:00:00`).getDay()]
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
         workouts: {
@@ -540,9 +539,9 @@ describe('App', () => {
     const card = await screen.findByRole('region', { name: 'Workouts' })
     expect(within(card).getByRole('progressbar', { name: 'Workouts this week' })).toHaveAttribute('aria-valuenow', '2')
     expect(within(card).getByText('/ 9')).toBeInTheDocument()
-    // Each session is a chip on its activity's row, named for the day it counts for -- today's ringed.
-    const lifting = within(card).getByRole('button', { name: `Lifting, ${dayLabel(twoAgo)}` })
-    expect(lifting).toHaveTextContent(chip(twoAgo)!)
+    // Each session is a filled dot on its activity's row, named for the day it counts for -- today's marked.
+    await user.click(within(card).getByRole('button', { name: `Lifting, ${dayLabel(twoAgo)}` }))
+    expect(within(card).getByRole('group', { name: 'Remove Lifting?' })).toHaveTextContent(`Lifting, ${dayLabel(twoAgo)}`)
     expect(within(card).getByRole('button', { name: 'Run, Today' })).toHaveClass('today')
     expect(within(card).queryByLabelText(/minutes/i)).not.toBeInTheDocument()
     await user.click(within(card).getByRole('button', { name: 'Log WOD' }))
@@ -605,7 +604,7 @@ describe('App', () => {
     await user.click(within(card).getByRole('button', { name: 'Log Cycling' }))
     await waitFor(() => expect(calls.some((c) => c.url === '/api/workouts')).toBe(true))
     expect(calls.find((c) => c.url === '/api/workouts')!.body).toEqual({ date: TODAY, kind: 'cycling', minutes: null })
-    // Tapping a chip asks first; Keep closes it, Remove removes it.
+    // Tapping a dot asks first, naming the day; Keep closes it, Remove removes it.
     await user.click(within(card).getByRole('button', { name: 'Yoga, Today' }))
     const confirm = within(card).getByRole('group', { name: 'Remove Yoga?' })
     await user.click(within(confirm).getByRole('button', { name: 'Keep' }))

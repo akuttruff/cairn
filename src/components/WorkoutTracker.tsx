@@ -23,13 +23,9 @@ interface WorkoutTrackerProps {
   onLogged: () => void
 }
 
-/** The weekday a session counts for, short enough for a chip: "M", "Tu", "Su". */
-const WEEKDAY = ['Su', 'M', 'Tu', 'W', 'Th', 'F', 'Sa']
-const weekday = (date: string): string => WEEKDAY[new Date(`${date}T00:00:00`).getDay()]!
-
 /**
  * The week's workouts in one table, a row per activity. Each row carries the
- * sessions done as day chips (tap one to remove it), an empty pip for each
+ * sessions done as filled dots (tap one to see its day, and remove it), an empty pip for each
  * still planned, the count against the plan, and a + that logs one for the
  * day being viewed. The pencil adjusts this week's plan only; the default
  * stays in Settings for every other week.
@@ -38,7 +34,7 @@ export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrac
   const { plan, weekByKind, weekTotal, weekGoal, planIsCustom, weekStart, weekSessions } = workouts
   const [draft, setDraft] = useState<WorkoutPlan | null>(null)
   const [busy, setBusy] = useState(false)
-  /** The chip tapped: shown with Remove / Keep under its row. */
+  /** The dot tapped: its day, with Remove / Keep, under its row. */
   const [confirming, setConfirming] = useState<WorkoutLog | null>(null)
   const pct = weekGoal > 0 ? Math.min(100, Math.round((weekTotal / weekGoal) * 100)) : 0
   const today = localDate()
@@ -114,7 +110,7 @@ export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrac
             const { label, Icon } = WORKOUTS[k]
             const goal = plan[k]
             const done = weekByKind[k]
-            // Oldest first, so the chips read through the week left to right.
+            // Oldest first, so the dots read through the week left to right.
             const sessions = weekSessions.filter((s) => s.kind === k).reverse()
             const open = confirming && confirming.kind === k ? confirming : null
             return (
@@ -127,15 +123,15 @@ export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrac
                       <button
                         key={s.id}
                         type="button"
-                        className={`day-chip${s.date === today ? ' today' : ''}${open?.id === s.id ? ' open' : ''}`}
+                        className={`pip-btn${s.date === today ? ' today' : ''}${open?.id === s.id ? ' open' : ''}`}
                         aria-label={`${label}, ${dayLabel(s.date)}`}
                         title={`${label}, ${dayLabel(s.date)} -- tap to remove`}
                         onClick={() => setConfirming(open?.id === s.id ? null : s)}
                       >
-                        {weekday(s.date)}
+                        <span className="pip done" aria-hidden="true" />
                       </button>
                     ))}
-                    {/* One empty pip for each planned session still to do. */}
+                    {/* One empty pip for each planned session still to do. Done ones are filled, and say their day when tapped. */}
                     {Array.from({ length: Math.max(0, goal - done) }, (_, i) => <span key={i} className="pip" aria-hidden="true" />)}
                   </span>
                   <span className="plan-count">{goal > 0 ? `${done} / ${goal}` : done || ''}</span>

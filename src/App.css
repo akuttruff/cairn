@@ -236,21 +236,20 @@ button:disabled { opacity: 0.45; cursor: default; }
 /* ====== Workouts and meditation ====== */
 .bar.workout .bar-fill { background: var(--c-workout); }
 .bar.meditation .bar-fill { background: var(--c-meditation); }
-/* The week's workouts: one row per activity -- day chips for what's done, pips for what's left, a + to log. */
+/* The week's workouts: one row per activity -- filled dots for what's done, empty ones for what's left, a + to log. */
 .wk-head-right { display: flex; align-items: center; gap: 6px; }
 .wk-edit { display: grid; place-items: center; width: 30px; height: 30px; margin-right: -6px; border: none; border-radius: 50%; background: none; color: var(--paper-dim); }
 .wk-list { list-style: none; margin: 8px 0 0; padding: 0; }
 .wk-row { display: flex; align-items: center; gap: 8px; min-height: 38px; font-size: 14px; }
 .wk-icon { color: var(--c-workout); flex: 0 0 auto; }
 .wk-name { color: var(--paper); min-width: 62px; }
-.wk-marks { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; flex: 1; min-width: 0; }
-.day-chip {
-  min-width: 26px; height: 22px; padding: 0 5px; border-radius: 6px; border: none;
-  background: var(--c-workout); color: var(--bg); font-family: var(--mono); font-size: 11px; font-weight: 700; line-height: 22px;
-}
-/* Today's own sessions, ringed, so they stand out from the rest of the week. */
-.day-chip.today { box-shadow: 0 0 0 1.5px var(--bg-raised, #23261F), 0 0 0 3px var(--c-workout); }
-.day-chip.open { background: var(--paper); }
+.wk-marks { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; flex: 1; min-width: 0; }
+/* A done session: the same dot as a planned one, filled. The button around it is a fair-sized target for a finger. */
+.pip-btn { display: grid; place-items: center; width: 22px; height: 26px; margin: 0 -5px; padding: 0; border: none; background: none; }
+.pip-btn .pip { width: 11px; height: 11px; }
+/* Today's: a faint halo, so today reads apart from the rest of the week without shouting. */
+.pip-btn.today .pip { box-shadow: 0 0 0 2.5px rgba(111, 196, 143, 0.28); }
+.pip-btn.open .pip { background: var(--paper); border-color: var(--paper); }
 .wk-add {
   flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px; margin-right: -4px;
   border-radius: 50%; border: 1px solid var(--line); background: none; color: var(--c-workout);
