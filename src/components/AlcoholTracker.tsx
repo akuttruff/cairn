@@ -43,9 +43,12 @@ export default function AlcoholTracker({ date, alcohol, onLogged }: AlcoholTrack
     }
   }
 
-  const breakdown = ALCOHOL_KINDS.filter((k) => alcohol.byKind[k] > 0)
-    .map((k) => `${alcohol.byKind[k]} ${KINDS[k].label.toLowerCase()}`)
+  const kinds = (counts: Record<AlcoholKind, number>): string => ALCOHOL_KINDS.filter((k) => counts[k] > 0)
+    .map((k) => `${counts[k]} ${KINDS[k].label.toLowerCase()}`)
     .join(' · ')
+  const breakdown = kinds(alcohol.byKind)
+  // The week's drinks by kind too: a count alone hid that Sunday's were wine.
+  const weekBreakdown = kinds(alcohol.weekByKind)
 
   const weekPct = alcohol.weekGoal > 0 ? Math.min(100, Math.round((alcohol.weekTotal / alcohol.weekGoal) * 100)) : 0
   const weekLeft = alcohol.weekGoal - alcohol.weekTotal
@@ -91,6 +94,7 @@ export default function AlcoholTracker({ date, alcohol, onLogged }: AlcoholTrack
         <div className={`cal-left${weekOver ? ' over' : ''}`}>
           {weekOver ? `${-weekLeft} over this week` : `${weekLeft} left this week`}
         </div>
+        {weekBreakdown && <div className="water-bottles" data-testid="week-kinds">{weekBreakdown}</div>}
       </div>
 
       <div className="water-actions">

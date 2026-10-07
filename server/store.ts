@@ -1420,8 +1420,11 @@ export class Store {
     for (const r of rows) if (r.kind in byKind) byKind[r.kind as AlcoholKind]++
     const weekStart = startOfWeek(date)
     const weekEnd = addDays(weekStart, 6)
-    const weekTotal = (this.stmts.selectAlcoholBetween.all(weekStart, weekEnd) as unknown as AlcoholLogRow[]).length
-    return { drinks: rows.length, byKind, calories: alcoholCalories(byKind), weekTotal, weekGoal, lastLogId: rows[0]?.id ?? null }
+    const weekRows = this.stmts.selectAlcoholBetween.all(weekStart, weekEnd) as unknown as AlcoholLogRow[]
+    return {
+      drinks: rows.length, byKind, calories: alcoholCalories(byKind),
+      weekTotal: weekRows.length, weekByKind: countByKind(weekRows), weekGoal, lastLogId: rows[0]?.id ?? null,
+    }
   }
 
   /** One standard drink for one day. Just a record -- there is no goal to hit. */

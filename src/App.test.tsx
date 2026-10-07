@@ -44,7 +44,7 @@ const day = (entries: Entry[], over: Partial<DayView> = {}): DayView => ({
   totals: { calories: 190, protein: 6.5, fat: 3.4, carbs: 33, fiber: 5 },
   missing: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 },
   water: { ounces: 0, goal: 96, lastLogId: null },
-  alcohol: { drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, weekTotal: 0, weekGoal: 7, calories: 0, lastLogId: null },
+  alcohol: { drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, weekTotal: 0, weekByKind: { beer: 0, wine: 0, liquor: 0 }, weekGoal: 7, calories: 0, lastLogId: null },
   workouts: WORKOUTS_DAY,
   meditation: { sessions: [], minutes: 0, goal: 10, lastLogId: null },
   dog: { walks: [], miles: 0, goal: 2, walkMiles: 1, lastLogId: null },
@@ -825,7 +825,7 @@ describe('App', () => {
   it('takes nothing from the Alcohol card: drinks ticked there add no calories anywhere', async () => {
     stubApi({
       [`GET /api/day/${TODAY}`]: day([entry()], {
-        alcohol: { drinks: 2, byKind: { beer: 1, wine: 1, liquor: 0 }, calories: 275, weekTotal: 2, weekGoal: 7, lastLogId: 'a2' },
+        alcohol: { drinks: 2, byKind: { beer: 1, wine: 1, liquor: 0 }, calories: 275, weekByKind: { beer: 1, wine: 1, liquor: 0 }, weekTotal: 2, weekGoal: 7, lastLogId: 'a2' },
       }),
     })
     render(<App />)
@@ -840,7 +840,7 @@ describe('App', () => {
     stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
         // weekTotal deliberately differs from drinks, so the two counts can't be confused for each other.
-        alcohol: { drinks: 3, byKind: { beer: 1, wine: 2, liquor: 0 }, weekTotal: 6, weekGoal: 7, calories: 0, lastLogId: 'a3' },
+        alcohol: { drinks: 3, byKind: { beer: 1, wine: 2, liquor: 0 }, weekByKind: { beer: 1, wine: 2, liquor: 3 }, weekTotal: 6, weekGoal: 7, calories: 0, lastLogId: 'a3' },
       }),
     })
     render(<App />)
@@ -852,7 +852,7 @@ describe('App', () => {
   it('holds the running week total to its own goal, separate from any one day', async () => {
     stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
-        alcohol: { drinks: 1, byKind: { beer: 0, wine: 1, liquor: 0 }, weekTotal: 5, weekGoal: 7, calories: 0, lastLogId: 'a1' },
+        alcohol: { drinks: 1, byKind: { beer: 0, wine: 1, liquor: 0 }, weekByKind: { beer: 0, wine: 1, liquor: 0 }, weekTotal: 5, weekGoal: 7, calories: 0, lastLogId: 'a1' },
       }),
     })
     render(<App />)
@@ -863,10 +863,22 @@ describe('App', () => {
     expect(within(card).getByText('2 left this week')).toBeInTheDocument()
   })
 
+  it("lists the week's drinks by kind, so Sunday's wine still shows on Tuesday", async () => {
+    stubApi({
+      [`GET /api/day/${TODAY}`]: day([], {
+        alcohol: { drinks: 1, byKind: { beer: 0, wine: 0, liquor: 1 }, weekTotal: 3, weekByKind: { beer: 0, wine: 2, liquor: 1 }, weekGoal: 7, calories: 100, lastLogId: 'a1' },
+      }),
+    })
+    render(<App />)
+    const card = await screen.findByRole('region', { name: 'Alcohol' })
+    expect(within(card).getByText('1 liquor')).toBeInTheDocument() // today
+    expect(within(card).getByTestId('week-kinds')).toHaveTextContent('2 wine · 1 liquor') // the week
+  })
+
   it('says how far over the weekly cap it is, once past it', async () => {
     stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
-        alcohol: { drinks: 2, byKind: { beer: 0, wine: 0, liquor: 2 }, weekTotal: 9, weekGoal: 7, calories: 0, lastLogId: 'a9' },
+        alcohol: { drinks: 2, byKind: { beer: 0, wine: 0, liquor: 2 }, weekByKind: { beer: 0, wine: 0, liquor: 2 }, weekTotal: 9, weekGoal: 7, calories: 0, lastLogId: 'a9' },
       }),
     })
     render(<App />)
@@ -887,7 +899,7 @@ describe('App', () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
-        alcohol: { drinks: 1, byKind: { beer: 1, wine: 0, liquor: 0 }, weekTotal: 1, weekGoal: 7, calories: 0, lastLogId: 'a1' },
+        alcohol: { drinks: 1, byKind: { beer: 1, wine: 0, liquor: 0 }, weekByKind: { beer: 1, wine: 0, liquor: 0 }, weekTotal: 1, weekGoal: 7, calories: 0, lastLogId: 'a1' },
       }),
       'DELETE /api/alcohol/a1': { ok: true },
     })

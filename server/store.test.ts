@@ -613,7 +613,7 @@ describe('online lookup cache', () => {
 describe('alcohol', () => {
   it('starts at zero', () => {
     expect(store.getDay(DAY).alcohol).toEqual({
-      drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, calories: 0, weekTotal: 0, weekGoal: 7, lastLogId: null,
+      drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, calories: 0, weekTotal: 0, weekByKind: { beer: 0, wine: 0, liquor: 0 }, weekGoal: 7, lastLogId: null,
     })
   })
 
@@ -622,7 +622,7 @@ describe('alcohol', () => {
     store.addAlcohol(DAY, 'wine')
     const last = store.addAlcohol(DAY, 'beer')
     expect(store.getDay(DAY).alcohol).toEqual({
-      drinks: 3, byKind: { beer: 1, wine: 2, liquor: 0 }, calories: 400, weekTotal: 3, weekGoal: 7, lastLogId: last.id,
+      drinks: 3, byKind: { beer: 1, wine: 2, liquor: 0 }, calories: 400, weekTotal: 3, weekByKind: { beer: 1, wine: 2, liquor: 0 }, weekGoal: 7, lastLogId: last.id,
     })
   })
 
@@ -657,6 +657,16 @@ describe('alcohol', () => {
 
     it('refuses a nonsense goal', () => {
       expect(() => store.setGoals({ alcoholWeekly: -1 })).toThrow(ValidationError)
+    })
+
+    it("counts the week's drinks by kind, not just in total", () => {
+      const weekStart = startOfWeek(DAY)
+      store.addAlcohol(weekStart, 'wine')
+      store.addAlcohol(weekStart, 'wine')
+      store.addAlcohol(addDays(weekStart, 2), 'liquor')
+      store.addAlcohol(addDays(weekStart, 7), 'beer') // next week: not counted
+      const a = store.getDay(addDays(weekStart, 2)).alcohol
+      expect(a).toMatchObject({ weekTotal: 3, weekByKind: { beer: 0, wine: 2, liquor: 1 } })
     })
 
     it("totals the calendar week (Monday-start) a day falls in, not just that day", () => {

@@ -252,6 +252,8 @@ export interface DayView extends DayTotals {
     calories: number
     /** Standard drinks logged in the calendar week (Sunday-start) containing this day, today included. */
     weekTotal: number
+    /** Those, by kind: what the week's drinks were, not just how many. */
+    weekByKind: Record<AlcoholKind, number>
     weekGoal: number
     /** The most recent log's id, for a one-tap undo. Null with nothing logged yet. */
     lastLogId: string | null
