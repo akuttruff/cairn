@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { dayLabel } from './lib/format.ts'
 import App from './App.tsx'
 import { addDays, localDate, startOfWeek } from './lib/nutrition.ts'
+import { DEFAULT_WORKOUT_KINDS } from './types.ts'
 import type { DayView, Entry, Food, Goals, RangeView } from './types.ts'
 
 const TODAY = localDate()
@@ -17,7 +18,7 @@ const PLAN = { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1
 const NO_KINDS = { wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 0, pilates: 0 }
 /** A day's workouts: nothing today, nothing yet this week, on the default plan. */
 const WORKOUTS_DAY = {
-  sessions: [], minutes: 0, weekStart: startOfWeek(TODAY), plan: PLAN, planIsCustom: false, weekByKind: NO_KINDS,
+  sessions: [], minutes: 0, weekStart: startOfWeek(TODAY), kinds: DEFAULT_WORKOUT_KINDS, plan: PLAN, planIsCustom: false, weekByKind: NO_KINDS,
   weekTotal: 0, weekGoal: 9, lastLogId: null, weekSessions: [],
 }
 /** What Settings edits and /api/goals returns -- separate shape from GOALS above (a resolved, per-day view). */
@@ -61,7 +62,7 @@ const range = (over: Partial<RangeView> = {}, start = startOfWeek(TODAY)): Range
   start, end: addDays(start, 6), goals: GOALS, dayTypes: { training: 7, rest: 0 }, scorecard: NO_SCORE, charts: ['calories', 'protein', 'fiber', 'water'], totalDays: 7, loggedDays: 0, averagedDays: 7,
   totals: ZERO, averages: ZERO,
   water: { total: 0, average: 0, met: 0, of: 0 }, alcohol: { total: 0, average: 0, calories: 0, byKind: { beer: 0, wine: 0, liquor: 0 } },
-  workouts: { sessions: 0, days: 0, minutes: 0, byKind: NO_KINDS, goalByKind: PLAN, goal: 9 },
+  workouts: { sessions: 0, days: 0, minutes: 0, kinds: DEFAULT_WORKOUT_KINDS, byKind: NO_KINDS, goalByKind: PLAN, goal: 9 },
   meditation: { total: 0, average: 0, days: 0, met: 0, of: 0, streak: 0 },
   dog: { walks: 0, miles: 0, days: 0, met: 0, of: 0, streak: 0 },
   body: { weight: null, bodyFat: null, leanMass: null, bmi: null },
@@ -746,6 +747,68 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/targets')).toBe(true))
     expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({ calorieBuffer: 150 })
+  })
+
+  it('sets up the workout activities in Settings: rename one, add one as a training day, remove one', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/targets': STORED_GOALS,
+      'GET /api/settings': { hasUsdaKey: false, appIcon: 'ring', charts: ['calories'], workoutKinds: DEFAULT_WORKOUT_KINDS },
+      'PUT /api/settings': { hasUsdaKey: false },
+      'PUT /api/targets': STORED_GOALS,
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    const list = await screen.findByRole('list', { name: 'Workout activities' })
+    expect(within(list).getAllByRole('listitem')).toHaveLength(6)
+    const wodName = within(list).getByRole('textbox', { name: 'Name of activity 1' })
+    expect(wodName).toHaveValue('WOD')
+    await user.clear(wodName)
+    await user.type(wodName, 'CrossFit')
+    await user.click(within(list).getByRole('button', { name: 'Remove Run' }))
+    await user.click(screen.getByRole('button', { name: 'Add activity' }))
+    const rows = within(list).getAllByRole('listitem')
+    expect(rows).toHaveLength(6)
+    const added = rows[5]!
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled() // no name yet
+    await user.type(within(added).getByRole('textbox', { name: 'Name of activity 6' }), 'Rock climbing')
+    await user.selectOptions(within(added).getByRole('combobox', { name: 'Icon for Rock climbing' }), 'mountain')
+    await user.click(within(added).getByRole('checkbox', { name: 'Training day' }))
+    const count = within(added).getByRole('textbox', { name: 'Rock climbing (per week)' })
+    await user.clear(count)
+    await user.type(count, '2')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/targets')).toBe(true))
+    const settingsPut = calls.findIndex((c) => c.method === 'PUT' && c.url === '/api/settings')
+    const targetsPut = calls.findIndex((c) => c.method === 'PUT' && c.url === '/api/targets')
+    expect(settingsPut).toBeGreaterThan(-1)
+    expect(settingsPut).toBeLessThan(targetsPut) // the activities first, so the plan is checked against them
+    const kinds = (calls[settingsPut]!.body as { workoutKinds: { id: string; label: string; icon: string; training: boolean }[] }).workoutKinds
+    expect(kinds.map((k) => k.id)).toEqual(['wod', 'weightlifting', 'cycling', 'yoga', 'pilates', 'rock-climbing'])
+    expect(kinds[0]).toEqual({ id: 'wod', label: 'CrossFit', icon: 'flame', training: true })
+    expect(kinds[5]).toEqual({ id: 'rock-climbing', label: 'Rock climbing', icon: 'mountain', training: true })
+    expect((calls[targetsPut]!.body as Goals).workoutPlan).toEqual({ wod: 2, weightlifting: 2, cycling: 0, yoga: 4, pilates: 1, 'rock-climbing': 2 })
+  })
+
+  it('still shows a session logged under an activity since removed from Settings, with nothing to log', async () => {
+    const kinds = DEFAULT_WORKOUT_KINDS.filter((k) => k.id !== 'run')
+    stubApi({
+      [`GET /api/day/${TODAY}`]: day([], {
+        workouts: {
+          ...WORKOUTS_DAY, kinds, plan: { ...PLAN }, weekByKind: { wod: 0, weightlifting: 0, cycling: 0, yoga: 0, pilates: 0 },
+          sessions: [{ id: 'w1', date: TODAY, kind: 'run', minutes: null, createdAt: 1 }],
+          weekSessions: [{ id: 'w1', date: TODAY, kind: 'run', minutes: null, createdAt: 1 }], weekTotal: 1,
+        },
+      }),
+    })
+    render(<App />)
+    const card = await screen.findByRole('region', { name: 'Workouts' })
+    const rows = within(within(card).getByRole('list', { name: 'This week by activity' })).getAllByRole('listitem')
+    expect(rows.map((r) => r.textContent)).toEqual(['WOD0 / 2', 'Lifting0 / 2', 'Cycling', 'Yoga0 / 4', 'Pilates0 / 1', 'run1'])
+    expect(rows[5]).toHaveClass('unplanned')
+    expect(within(card).queryByRole('button', { name: 'Log run' })).not.toBeInTheDocument()
+    expect(within(card).getByRole('button', { name: 'run, Today' })).toBeInTheDocument()
   })
 
   it('edits the default weekly plan, activity by activity, and the meditation goal from Settings', async () => {
@@ -1476,7 +1539,7 @@ describe('App', () => {
         'GET /api/day/': day([]),
         'GET /api/range': range({
           goals,
-          workouts: { sessions: 3, days: 2, minutes: 85, byKind: { ...NO_KINDS, wod: 2, run: 1 }, goalByKind: PLAN, goal: 9 },
+          workouts: { sessions: 3, days: 2, minutes: 85, kinds: DEFAULT_WORKOUT_KINDS, byKind: { ...NO_KINDS, wod: 2, run: 1 }, goalByKind: PLAN, goal: 9 },
           meditation: { total: 75, average: 10.7, days: 2, met: 1, of: 2, streak: 0 },
           days: base.days.map((d, i) => ({
             ...d, goals, workouts: [2, 0, 1, 0, 0, 0, 0][i]!, meditationMinutes: [0, 50, 25, 0, 0, 0, 0][i]!,

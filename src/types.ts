@@ -193,10 +193,43 @@ export interface WaterLog {
   createdAt: number
 }
 
-export const WORKOUT_KINDS = ['wod', 'weightlifting', 'run', 'cycling', 'yoga', 'pilates'] as const
-export type WorkoutKind = (typeof WORKOUT_KINDS)[number]
+/** The icons an activity can carry, by name (see lib/workoutIcons.ts for the drawings). */
+export const WORKOUT_ICONS = [
+  'flame', 'dumbbell', 'footprints', 'bike', 'sparkles', 'person-standing', 'waves', 'mountain', 'heart-pulse',
+  'activity', 'zap', 'target', 'timer', 'trophy', 'medal', 'swords', 'music', 'snowflake', 'sun', 'sailboat',
+  'tent', 'volleyball',
+] as const
+export type WorkoutIcon = (typeof WORKOUT_ICONS)[number]
 
-/** Sessions of each kind to aim for in a week; 0 for a kind that isn't in the plan. */
+/**
+ * One kind of workout, as set up in Settings. `id` is what sessions and
+ * plans are stored under and never changes once logs carry it; `label` and
+ * `icon` are how it shows. `training`: logging one ticks the day as a
+ * training day (the extra carbs and water apply).
+ */
+export interface WorkoutKindDef {
+  id: string
+  label: string
+  icon: WorkoutIcon
+  training: boolean
+}
+
+/** The activities Cairn starts with; Settings can change, add to or remove them. */
+export const DEFAULT_WORKOUT_KINDS: WorkoutKindDef[] = [
+  { id: 'wod', label: 'WOD', icon: 'flame', training: true },
+  { id: 'weightlifting', label: 'Lifting', icon: 'dumbbell', training: true },
+  { id: 'run', label: 'Run', icon: 'footprints', training: false },
+  { id: 'cycling', label: 'Cycling', icon: 'bike', training: false },
+  { id: 'yoga', label: 'Yoga', icon: 'sparkles', training: false },
+  { id: 'pilates', label: 'Pilates', icon: 'person-standing', training: false },
+]
+/** The ids of those, for anything that needs a kind without the settings in hand. */
+export const WORKOUT_KINDS: readonly string[] = DEFAULT_WORKOUT_KINDS.map((k) => k.id)
+
+/** A workout kind's id -- one of the kinds in Settings (or one that was, on an old log). */
+export type WorkoutKind = string
+
+/** Sessions of each kind to aim for in a week, by kind id; 0 for a kind that isn't in the plan. */
 export type WorkoutPlan = Record<WorkoutKind, number>
 
 /**
@@ -265,6 +298,8 @@ export interface DayView extends DayTotals {
     minutes: number
     /** The Sunday this day's week starts on: the plan below, and the counts, are that week's. */
     weekStart: string
+    /** The activities as set up in Settings, in order: what the card offers and how each is labelled. */
+    kinds: WorkoutKindDef[]
     /** That week's plan: its own, if it has one, else the default from Settings. */
     plan: WorkoutPlan
     planIsCustom: boolean
@@ -379,6 +414,8 @@ export interface RangeView {
    */
   workouts: {
     sessions: number; days: number; minutes: number
+    /** The activities as set up in Settings, in order. */
+    kinds: WorkoutKindDef[]
     byKind: Record<WorkoutKind, number>
     goalByKind: Record<WorkoutKind, number>
     goal: number
@@ -454,6 +491,8 @@ export interface Settings {
   appIcon: AppIcon
   /** The daily charts to show in Week and Month, of CHARTABLE. */
   charts: ChartKey[]
+  /** The workout activities, in the order the cards show them. */
+  workoutKinds: WorkoutKindDef[]
 }
 
 /** An LLM LM Studio has downloaded, and whether it's loaded right now. */
@@ -472,4 +511,6 @@ export interface PublicSettings {
   appIcon: AppIcon
   /** The daily charts to show in Week and Month, of CHARTABLE. */
   charts: ChartKey[]
+  /** The workout activities, in the order the cards show them. */
+  workoutKinds: WorkoutKindDef[]
 }

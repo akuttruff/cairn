@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { ALCOHOL_KINDS, DEFAULT_CHARTS, NUTRIENTS, WORKOUT_KINDS } from '../types.ts'
+import { ALCOHOL_KINDS, DEFAULT_CHARTS, NUTRIENTS } from '../types.ts'
 import { LABELS, UNITS, dogWalksMet, goalDirection, goalMet, goalRangeFor, localDate, meditationMet, progress, waterMet } from '../lib/nutrition.ts'
 import { fmt } from '../lib/format.ts'
-import { WORKOUTS } from './WorkoutTracker.tsx'
+import { kindView } from '../lib/workoutIcons.ts'
 import { SIT_MINUTES } from './MeditationTracker.tsx'
 import { milesLabel } from './DogWalkTracker.tsx'
 import { BodyRangeCard } from './BodyCard.tsx'
@@ -312,7 +312,7 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
     ? `${Math.round(Math.min(...waterGoals))}–${Math.round(Math.max(...waterGoals))}`
     : String(Math.round(days[0]?.goals.water ?? goals.water))
   // Every kind that was planned or done in the range, in the usual order.
-  const workoutKinds = WORKOUT_KINDS.filter((k) => workouts.goalByKind[k] > 0 || workouts.byKind[k] > 0)
+  const workoutKinds = workouts.kinds.map((k) => k.id).filter((k) => workouts.goalByKind[k] > 0 || workouts.byKind[k] > 0)
 
   return (
     <section className="range-summary" aria-label="Range summary">
@@ -406,7 +406,7 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
             const goal = workouts.goalByKind[k]
             return (
               <li key={k} className={`plan-row${goal > 0 && done >= goal ? ' met' : ''}`}>
-                <span className="plan-name">{WORKOUTS[k].label}</span>
+                <span className="plan-name">{kindView(workouts.kinds, k).label}</span>
                 <span className="plan-pips" aria-hidden="true">
                   {Array.from({ length: Math.max(goal, done) }, (_, i) => (
                     <span key={i} className={`pip${i < done ? ' done' : ''}${i >= goal ? ' extra' : ''}`} />

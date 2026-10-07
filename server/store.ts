@@ -3,15 +3,15 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import type { SQLInputValue, StatementSync } from 'node:sqlite'
-import { ALCOHOL_KINDS, APP_ICONS, BODY_METRICS, CHARTABLE, DEFAULT_CHARTS, MEALS, NUTRIENTS, WORKOUT_KINDS } from '../src/types.ts'
+import { ALCOHOL_KINDS, APP_ICONS, BODY_METRICS, CHARTABLE, DEFAULT_CHARTS, DEFAULT_WORKOUT_KINDS, MEALS, NUTRIENTS, WORKOUT_ICONS } from '../src/types.ts'
 import type {
   AlcoholKind, AlcoholLog, Amount, AppIcon, BodyMetric, ChartKey, DaySummary, DayType, DayView, Entry, Food, FoodSource, Goals,
   Meal, MealPreset, MealPresetItem, MeditationLog, DogWalkLog, NewEntry, Nutrients, NutrientKey, PerServing, PublicSettings,
-  RangeView, Serving, Settings, SourceLink, WaterLog, WorkoutKind, WorkoutLog, WorkoutPlan,
+  RangeView, Serving, Settings, SourceLink, WaterLog, WorkoutKind, WorkoutKindDef, WorkoutLog, WorkoutPlan,
 } from '../src/types.ts'
 import {
   addDays, alcoholCalories, blendGoals, DEFAULT_GOALS, daysBetween, isDateString, localDate, resolveGoals, round1, scale,
-  scoreDays, scoreDogWalks, scoreMeditation, scoreWater, startOfWeek, streakThrough, sumDay, TRAINING_KINDS,
+  scoreDays, scoreDogWalks, scoreMeditation, scoreWater, startOfWeek, streakThrough, sumDay, isTrainingKind,
 } from '../src/lib/nutrition.ts'
 import { DAY_TYPES } from '../src/types.ts'
 import { LOOKUP_MAX, LOOKUP_TTL_MS, normalizeQuery } from './research.ts'
@@ -212,7 +212,7 @@ CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY CHECK (id = 1),
 CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK (id = 1),
   usda_api_key TEXT NOT NULL DEFAULT '', lm_studio_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:1234',
   lm_studio_token TEXT NOT NULL DEFAULT '', research_model TEXT NOT NULL DEFAULT '', auto_lookup INTEGER NOT NULL DEFAULT 1,
-  app_icon TEXT NOT NULL DEFAULT 'ring', charts TEXT);
+  app_icon TEXT NOT NULL DEFAULT 'ring', charts TEXT, workout_kinds TEXT);
 
 -- No row for a date means a rest day (see getDayType): only the days you
 -- tick as training days get a row.
@@ -370,6 +370,12 @@ function migrateSchema(db: DatabaseSync): void {
     if (!has('dog_walks')) db.exec(`ALTER TABLE goals ADD COLUMN dog_walks REAL NOT NULL DEFAULT ${DEFAULT_GOALS.dogWalks}`)
     if (!has('walk_miles')) db.exec(`ALTER TABLE goals ADD COLUMN walk_miles REAL NOT NULL DEFAULT ${DEFAULT_GOALS.walkMiles}`)
     db.exec('PRAGMA user_version = 12')
+  }
+  if (version < 13) {
+    // The workout activities, set up in Settings; null means the built-in six.
+    const cols = db.prepare('PRAGMA table_info(settings)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'workout_kinds')) db.exec('ALTER TABLE settings ADD COLUMN workout_kinds TEXT')
+    db.exec('PRAGMA user_version = 13')
   }
 }
 
@@ -537,12 +543,13 @@ const GOALS_COLUMNS = 'base_protein,base_fat,base_carbs,training_carbs,fiber,wat
 const GOALS_PLACEHOLDERS = GOALS_COLUMNS.split(',').map(() => '?').join(',')
 const GOALS_ASSIGNMENTS = GOALS_COLUMNS.split(',').map((c) => `${c}=?`).join(', ')
 
-function goalsFromRow(row: GoalsRow): Goals {
+function goalsFromRow(row: GoalsRow, kinds: string[]): Goals {
   return {
     protein: row.base_protein, fat: row.base_fat, carbs: row.base_carbs, trainingCarbs: row.training_carbs, trainingWater: row.training_water,
     fiber: row.fiber, water: row.water_ounces, alcoholWeekly: row.alcohol_weekly,
     meditationMinutes: row.meditation_minutes, calorieBuffer: row.calorie_buffer,
-    workoutPlan: parsePlan(row.workout_plan) ?? DEFAULT_GOALS.workoutPlan,
+    // Every kind in Settings gets an entry; the built-in plan only where the stored one has none.
+    workoutPlan: parsePlan(row.workout_plan ?? JSON.stringify(DEFAULT_GOALS.workoutPlan), kinds) ?? zeroByKind(kinds),
     dogWalks: row.dog_walks, walkMiles: row.walk_miles,
   }
 }
@@ -577,25 +584,29 @@ function cleanMinutes(input: unknown, required: boolean): number | null {
   }
   return Math.round(input)
 }
-/** A stored plan, every kind present; a missing or corrupt one reads as none. */
-function parsePlan(raw: string | null): WorkoutPlan | undefined {
+/**
+ * A stored plan, one entry per kind now in Settings; a missing or corrupt
+ * one reads as none. A kind added since starts at 0; one removed since is
+ * left out, its count kept in the row in case it comes back.
+ */
+function parsePlan(raw: string | null, kinds: string[]): WorkoutPlan | undefined {
   if (!raw) return undefined
   try {
     const obj = JSON.parse(raw) as Record<string, unknown>
-    return Object.fromEntries(WORKOUT_KINDS.map((k) => [k, typeof obj[k] === 'number' ? obj[k] : 0])) as WorkoutPlan
+    return Object.fromEntries(kinds.map((k) => [k, typeof obj[k] === 'number' ? obj[k] : 0])) as WorkoutPlan
   } catch {
     return undefined
   }
 }
 
-/** A plan from a client: whole numbers of sessions, 0-14 a week, for any kinds given (the rest are 0). */
-function cleanPlan(input: unknown): WorkoutPlan {
+/** A plan from a client: whole numbers of sessions, 0-14 a week, for any of the kinds in Settings (the rest are 0). */
+function cleanPlan(input: unknown, kinds: string[]): WorkoutPlan {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new ValidationError('plan must be an object of sessions per kind')
   const src = input as Record<string, unknown>
   for (const k of Object.keys(src)) {
-    if (!(WORKOUT_KINDS as readonly string[]).includes(k)) throw new ValidationError(`unknown workout kind: ${k}`)
+    if (!kinds.includes(k)) throw new ValidationError(`unknown workout kind: ${k}`)
   }
-  return Object.fromEntries(WORKOUT_KINDS.map((k) => {
+  return Object.fromEntries(kinds.map((k) => {
     const v = src[k] ?? 0
     if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 14) {
       throw new ValidationError(`${k} must be a whole number of sessions, 0 to 14`)
@@ -604,8 +615,47 @@ function cleanPlan(input: unknown): WorkoutPlan {
   })) as WorkoutPlan
 }
 
-const planTotal = (plan: WorkoutPlan): number => WORKOUT_KINDS.reduce((sum, k) => sum + plan[k], 0)
-const zeroByKind = (): Record<WorkoutKind, number> => Object.fromEntries(WORKOUT_KINDS.map((k) => [k, 0])) as Record<WorkoutKind, number>
+const planTotal = (plan: WorkoutPlan): number => Object.values(plan).reduce((sum, n) => sum + n, 0)
+const zeroByKind = (kinds: string[]): Record<WorkoutKind, number> => Object.fromEntries(kinds.map((k) => [k, 0])) as Record<WorkoutKind, number>
+
+const KIND_ID = /^[a-z0-9][a-z0-9_-]{0,23}$/
+const MAX_WORKOUT_KINDS = 20
+
+/**
+ * The activities from a client: 1 to 20 of them, each with an id (lower-case
+ * letters, digits, - or _; unique), a label, one of the known icons and a
+ * training flag. The id is what logs and plans are stored under, so the
+ * client keeps it fixed once an activity exists.
+ */
+function cleanWorkoutKinds(input: unknown): WorkoutKindDef[] {
+  if (!Array.isArray(input) || !input.length || input.length > MAX_WORKOUT_KINDS) {
+    throw new ValidationError(`workoutKinds must be a list of 1 to ${MAX_WORKOUT_KINDS} activities`)
+  }
+  const seen = new Set<string>()
+  return input.map((raw, i) => {
+    const k = (raw ?? {}) as Record<string, unknown>
+    const id = typeof k.id === 'string' ? k.id.trim() : ''
+    const label = typeof k.label === 'string' ? k.label.trim().slice(0, 24) : ''
+    if (!KIND_ID.test(id)) throw new ValidationError(`activity ${i + 1}: id must be lower-case letters, digits, - or _`)
+    if (seen.has(id)) throw new ValidationError(`activity ids must be unique: ${id} appears twice`)
+    seen.add(id)
+    if (!label) throw new ValidationError(`activity ${id}: a label is required`)
+    if (!(WORKOUT_ICONS as readonly string[]).includes(String(k.icon))) {
+      throw new ValidationError(`activity ${id}: icon must be one of ${WORKOUT_ICONS.join(', ')}`)
+    }
+    return { id, label, icon: k.icon as WorkoutKindDef['icon'], training: k.training === true }
+  })
+}
+
+/** The stored activities; never set, or unreadable, is the built-in six. */
+function parseWorkoutKinds(raw: string | null): WorkoutKindDef[] {
+  if (raw == null) return DEFAULT_WORKOUT_KINDS.map((k) => ({ ...k }))
+  try {
+    return cleanWorkoutKinds(JSON.parse(raw))
+  } catch {
+    return DEFAULT_WORKOUT_KINDS.map((k) => ({ ...k }))
+  }
+}
 
 interface BodyRow { metric: string; measured_at: number; date: string; value: number }
 
@@ -646,7 +696,7 @@ const cleanNote = (input: unknown): string | undefined =>
   (typeof input === 'string' && input.trim() ? input.trim().slice(0, MAX_NAME) : undefined)
 interface SettingsRow {
   usda_api_key: string; lm_studio_url: string; lm_studio_token: string; research_model: string; auto_lookup: number
-  app_icon: string; charts: string | null
+  app_icon: string; charts: string | null; workout_kinds: string | null
 }
 function settingsFromRow(row: SettingsRow): Settings {
   return {
@@ -654,6 +704,7 @@ function settingsFromRow(row: SettingsRow): Settings {
     researchModel: row.research_model, autoLookup: row.auto_lookup === 1,
     appIcon: (APP_ICONS as readonly string[]).includes(row.app_icon) ? row.app_icon as AppIcon : 'ring',
     charts: parseCharts(row.charts),
+    workoutKinds: parseWorkoutKinds(row.workout_kinds),
   }
 }
 
@@ -715,6 +766,7 @@ function migrateFromJson(paths: ReturnType<typeof locate>): void {
     autoLookup: typeof rawSettings.autoLookup === 'boolean' ? rawSettings.autoLookup : true,
     appIcon: 'ring',
     charts: [...DEFAULT_CHARTS],
+    workoutKinds: DEFAULT_WORKOUT_KINDS.map((k) => ({ ...k })),
   }
 
   const tmp = `${paths.sqlite}.${process.pid}.tmp`
@@ -971,7 +1023,7 @@ export class Store {
       ),
       selectSettings: this.db.prepare('SELECT * FROM settings WHERE id = 1'),
       updateSettings: this.db.prepare(
-        'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=?, app_icon=?, charts=? WHERE id=1',
+        'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=?, app_icon=?, charts=?, workout_kinds=? WHERE id=1',
       ),
       selectWaterByDate: this.db.prepare('SELECT * FROM water_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
       selectWaterBetween: this.db.prepare('SELECT * FROM water_logs WHERE date >= ? AND date <= ?'),
@@ -1186,18 +1238,20 @@ export class Store {
     const alcoholTotal = days.reduce((sum, d) => sum + d.alcohol, 0)
     const byKind = countByKind(alcoholRows)
 
-    const workoutsByKind = zeroByKind()
+    const kinds = this.getSettings().workoutKinds
+    const kindIds = kinds.map((k) => k.id)
+    const workoutsByKind = zeroByKind(kindIds)
     for (const r of workoutRows) if (r.kind in workoutsByKind) workoutsByKind[r.kind as WorkoutKind]++
     // Each day carries a seventh of its own week's plan, so a range that cuts a week
     // (a month starting midweek) gets that share of it; whole weeks come out exact.
     const plans = new Map<string, WorkoutPlan>()
-    const goalShare = zeroByKind()
+    const goalShare = zeroByKind(kindIds)
     for (const d of days) {
       const week = startOfWeek(d.date)
       if (!plans.has(week)) plans.set(week, this.planForWeek(week).plan)
-      for (const k of WORKOUT_KINDS) goalShare[k] += plans.get(week)![k] / 7
+      for (const k of kindIds) goalShare[k] += (plans.get(week)![k] ?? 0) / 7
     }
-    const goalByKind = Object.fromEntries(WORKOUT_KINDS.map((k) => [k, Math.round(goalShare[k])])) as Record<WorkoutKind, number>
+    const goalByKind = Object.fromEntries(kindIds.map((k) => [k, Math.round(goalShare[k])])) as Record<WorkoutKind, number>
     const meditationTotal = days.reduce((sum, d) => sum + d.meditationMinutes, 0)
     // A streak runs up to today at the latest -- the days still ahead can't have broken it -- and a
     // today with nothing logged yet doesn't break it either: it counts back from yesterday until it does.
@@ -1218,9 +1272,10 @@ export class Store {
         sessions: workoutRows.length,
         days: days.filter((d) => d.workouts > 0).length,
         minutes: days.reduce((sum, d) => sum + d.workoutMinutes, 0),
+        kinds,
         byKind: workoutsByKind,
         goalByKind,
-        goal: WORKOUT_KINDS.reduce((sum, k) => sum + goalByKind[k], 0),
+        goal: kindIds.reduce((sum, k) => sum + goalByKind[k], 0),
       },
       meditation: {
         total: meditationTotal,
@@ -1299,12 +1354,13 @@ export class Store {
     const sessions = (this.stmts.selectWorkoutsByDate.all(date) as unknown as WorkoutLogRow[]).map(workoutFromRow)
     const weekStart = startOfWeek(date)
     const weekRows = this.stmts.selectWorkoutsBetween.all(weekStart, addDays(weekStart, 6)) as unknown as WorkoutLogRow[]
-    const weekByKind = zeroByKind()
+    const kinds = this.getSettings().workoutKinds
+    const weekByKind = zeroByKind(kinds.map((k) => k.id))
     for (const r of weekRows) if (r.kind in weekByKind) weekByKind[r.kind as WorkoutKind]++
     const { plan, custom } = this.planForWeek(weekStart)
     return {
       sessions, minutes: sessions.reduce((sum, s) => sum + (s.minutes ?? 0), 0),
-      weekStart, plan, planIsCustom: custom, weekByKind,
+      weekStart, kinds, plan, planIsCustom: custom, weekByKind,
       weekTotal: weekRows.length, weekGoal: planTotal(plan), lastLogId: sessions[0]?.id ?? null,
       // The whole week's sessions, latest day first, so any of them can be seen and removed from any day.
       weekSessions: weekRows.map(workoutFromRow).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt),
@@ -1314,14 +1370,19 @@ export class Store {
   /** A week's own plan if it has one, else the default from Settings. */
   planForWeek(weekStart: string): { plan: WorkoutPlan; custom: boolean } {
     const row = this.stmts.selectWeekPlan.get(weekStart) as { plan: string } | undefined
-    const own = row ? parsePlan(row.plan) : undefined
+    const own = row ? parsePlan(row.plan, this.kindIds()) : undefined
     return own ? { plan: own, custom: true } : { plan: this.getGoals().workoutPlan, custom: false }
+  }
+
+  /** The ids of the activities in Settings, in order. */
+  private kindIds(): string[] {
+    return this.getSettings().workoutKinds.map((k) => k.id)
   }
 
   /** Give one week (by its Sunday) its own plan; other weeks keep theirs, or the default. */
   setWeekPlan(weekStart: string, plan: unknown): WorkoutPlan {
     if (!isDateString(weekStart) || startOfWeek(weekStart) !== weekStart) throw new ValidationError('weekStart must be a Sunday, YYYY-MM-DD')
-    const clean = cleanPlan(plan)
+    const clean = cleanPlan(plan, this.kindIds())
     this.stmts.upsertWeekPlan.run(weekStart, JSON.stringify(clean))
     return clean
   }
@@ -1338,16 +1399,18 @@ export class Store {
   }
 
   /**
-   * One workout session. A WOD or weightlifting session is what a training
-   * day is, so logging one ticks the day as training -- the extra carbs
-   * apply without a second tap. Other kinds (a ride, yoga) leave the day
-   * type alone, and the box in Day view can still be changed by hand.
+   * One workout session. An activity marked "training" in Settings (a WOD
+   * or lifting session, as set up) is what a training day is, so logging
+   * one ticks the day as training -- the extra carbs apply without a second
+   * tap. Other kinds (a ride, yoga) leave the day type alone, and the box in
+   * Day view can still be changed by hand.
    */
   addWorkout(input: { date?: unknown; kind?: unknown; minutes?: unknown; note?: unknown }): WorkoutLog {
     const { date, kind } = input
     if (typeof date !== 'string' || !isDateString(date)) throw new ValidationError('date must be YYYY-MM-DD')
-    if (typeof kind !== 'string' || !(WORKOUT_KINDS as readonly string[]).includes(kind)) {
-      throw new ValidationError(`kind must be one of ${WORKOUT_KINDS.join(', ')}`)
+    const kinds = this.getSettings().workoutKinds
+    if (typeof kind !== 'string' || !kinds.some((k) => k.id === kind)) {
+      throw new ValidationError(`kind must be one of ${kinds.map((k) => k.id).join(', ')}`)
     }
     const note = cleanNote(input.note)
     const log: WorkoutLog = {
@@ -1355,7 +1418,7 @@ export class Store {
       ...(note ? { note } : {}),
     }
     this.stmts.insertWorkout.run(log.id, log.date, log.kind, log.minutes, log.note ?? null, log.createdAt)
-    if (TRAINING_KINDS.has(log.kind)) this.stmts.upsertDayType.run(date, 'training')
+    if (isTrainingKind(kinds, log.kind)) this.stmts.upsertDayType.run(date, 'training')
     return log
   }
 
@@ -1810,7 +1873,7 @@ export class Store {
   // --- goals and settings -----------------------------------------------------
 
   getGoals(): Goals {
-    return goalsFromRow(this.stmts.selectGoals.get() as unknown as GoalsRow)
+    return goalsFromRow(this.stmts.selectGoals.get() as unknown as GoalsRow, this.kindIds())
   }
 
   /** Change any of the goals; fields left out stay as they were. */
@@ -1825,7 +1888,7 @@ export class Store {
     if (input.fiber !== undefined) next.fiber = cleanGoalNumber(input.fiber, 'fiber', 1000)
     if (input.water !== undefined) next.water = cleanGoalNumber(input.water, 'water', 1000)
     if (input.alcoholWeekly !== undefined) next.alcoholWeekly = cleanGoalNumber(input.alcoholWeekly, 'alcoholWeekly', 1000)
-    if (input.workoutPlan !== undefined) next.workoutPlan = cleanPlan(input.workoutPlan)
+    if (input.workoutPlan !== undefined) next.workoutPlan = cleanPlan(input.workoutPlan, this.kindIds())
     if (input.meditationMinutes !== undefined) next.meditationMinutes = cleanGoalNumber(input.meditationMinutes, 'meditationMinutes', 1440)
     if (input.dogWalks !== undefined) next.dogWalks = cleanGoalNumber(input.dogWalks, 'dogWalks', 20)
     if (input.walkMiles !== undefined) next.walkMiles = cleanGoalNumber(input.walkMiles, 'walkMiles', 50)
@@ -1865,6 +1928,7 @@ export class Store {
       autoLookup: s.autoLookup,
       appIcon: s.appIcon,
       charts: s.charts,
+      workoutKinds: s.workoutKinds,
     }
   }
 
@@ -1885,6 +1949,7 @@ export class Store {
       }
       next.charts = CHARTABLE.filter((k) => list.includes(k)) // no repeats, always in the same order
     }
+    if (input.workoutKinds !== undefined) next.workoutKinds = cleanWorkoutKinds(input.workoutKinds)
     if (typeof input.lmStudioUrl === 'string') {
       const url = input.lmStudioUrl.trim().replace(/\/+$/, '')
       if (url) {
@@ -1896,7 +1961,7 @@ export class Store {
       }
       next.lmStudioUrl = url || 'http://127.0.0.1:1234'
     }
-    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon, JSON.stringify(next.charts))
+    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon, JSON.stringify(next.charts), JSON.stringify(next.workoutKinds))
     return this.getPublicSettings()
   }
 }

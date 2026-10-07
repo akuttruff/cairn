@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Drawer } from 'vaul'
+import { Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import { parseNum } from '../lib/format.ts'
-import { APP_ICONS, CHARTABLE, DEFAULT_CHARTS, WORKOUT_KINDS } from '../types.ts'
-import type { AppIcon, ChartKey, Goals, LmModelOption, PublicSettings, WorkoutKind, WorkoutPlan } from '../types.ts'
-import { WORKOUTS } from './WorkoutTracker.tsx'
+import { WORKOUT_ICON, kindIdFor } from '../lib/workoutIcons.ts'
+import { APP_ICONS, CHARTABLE, DEFAULT_CHARTS, DEFAULT_WORKOUT_KINDS, WORKOUT_ICONS } from '../types.ts'
+import type { AppIcon, ChartKey, Goals, LmModelOption, PublicSettings, WorkoutIcon, WorkoutKindDef, WorkoutPlan } from '../types.ts'
 
 interface SettingsSheetProps {
   open: boolean
@@ -31,7 +32,6 @@ export default function SettingsSheet({ open, session, onClose, onSaved }: Setti
 
 /** The number fields, as typed; each is parsed and checked on every render. */
 type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'trainingWater' | 'calorieBuffer' | 'fiber' | 'water' | 'alcoholWeekly' | 'meditationMinutes' | 'dogWalks' | 'walkMiles'
-  | `plan:${WorkoutKind}`
 const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
   // Each says which way it points: a min to reach, or a max to stay under.
   { key: 'protein', label: 'Protein (g, min)' },
@@ -47,10 +47,24 @@ const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
   { key: 'meditationMinutes', label: 'Meditation (minutes per day)', hint: 'Sits are 25 minutes each, so 50 is two a day.' },
   { key: 'dogWalks', label: 'Dog walks (per day)' },
   { key: 'walkMiles', label: 'Dog walk length (miles)', hint: 'What one tap logs. Walks already logged keep their length.' },
-  // The default weekly plan, one field per kind; drawn in a section of their own below.
-  ...WORKOUT_KINDS.map((k) => ({ key: `plan:${k}` as const, label: `${WORKOUTS[k].label} (per week)` })),
 ]
-const PLAN_START = NUMBER_FIELDS.findIndex((f) => f.key.startsWith('plan:'))
+
+/**
+ * One activity as it's being edited. An existing one keeps its id (logs and
+ * plans are stored under it); a new one gets an id from its label on save.
+ */
+interface KindRow extends WorkoutKindDef {
+  isNew?: boolean
+  /** Sessions a week, as typed. */
+  perWeek: string
+}
+
+const ICON_NAMES: Record<WorkoutIcon, string> = {
+  flame: 'Flame', dumbbell: 'Dumbbell', footprints: 'Footprints', bike: 'Bike', sparkles: 'Sparkles', 'person-standing': 'Figure',
+  waves: 'Waves', mountain: 'Mountain', 'heart-pulse': 'Heart', activity: 'Pulse', zap: 'Bolt', target: 'Target', timer: 'Timer',
+  trophy: 'Trophy', medal: 'Medal', swords: 'Swords', music: 'Music', snowflake: 'Snowflake', sun: 'Sun', sailboat: 'Boat',
+  tent: 'Tent', volleyball: 'Ball',
+}
 
 const CHART_LABELS: Record<ChartKey, string> = {
   calories: 'Calories', protein: 'Protein', fat: 'Fat', carbs: 'Carbs', fiber: 'Fiber', water: 'Water',
@@ -81,6 +95,9 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const [appIcon, setAppIcon] = useState<AppIcon | null>(null)
   // Which daily charts Week and Month draw; null until one is toggled.
   const [charts, setCharts] = useState<ChartKey[] | null>(null)
+  // The activities, each with its sessions a week; built once goals and settings are both here.
+  const [kinds, setKinds] = useState<KindRow[] | null>(null)
+  const [goals, setGoals] = useState<Goals | null>(null)
   const [settings, setSettings] = useState<PublicSettings | null>(null)
   const [models, setModels] = useState<LmModelOption[]>([])
   const [modelsError, setModelsError] = useState<string | null>(null)
@@ -88,13 +105,13 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
 
   useEffect(() => {
     api.goals().then((g) => {
+      setGoals(g)
       setDrafts({
         protein: String(g.protein), fat: String(g.fat), carbs: String(g.carbs), trainingCarbs: String(g.trainingCarbs), trainingWater: String(g.trainingWater), calorieBuffer: String(g.calorieBuffer),
         fiber: String(g.fiber), water: String(g.water), alcoholWeekly: String(g.alcoholWeekly),
         meditationMinutes: String(g.meditationMinutes),
         dogWalks: String(g.dogWalks), walkMiles: String(g.walkMiles),
-        ...Object.fromEntries(WORKOUT_KINDS.map((k) => [`plan:${k}`, String(g.workoutPlan[k])])),
-      } as Record<NumberField, string>)
+      })
     }).catch((err) => toast.error((err as Error).message))
     api.settings().then(setSettings).catch(() => { /* the placeholder just stays generic */ })
     api.lmModels()
@@ -102,7 +119,27 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       .catch(() => { /* the picker just offers "whichever is loaded" */ })
   }, [])
 
+  // The activity rows: the ones in Settings (or the built-in six, if the settings never arrive) with the plan's counts.
+  useEffect(() => {
+    if (kinds || !goals || !settings) return
+    const source = settings.workoutKinds ?? DEFAULT_WORKOUT_KINDS
+    setKinds(source.map((k) => ({ ...k, perWeek: String(goals.workoutPlan[k.id] ?? 0) })))
+  }, [kinds, goals, settings])
+
   const chosenModel = lmModel ?? settings?.researchModel ?? ''
+
+  const setKind = (i: number, patch: Partial<KindRow>): void =>
+    setKinds((rows) => rows && rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  const addKind = (): void =>
+    setKinds((rows) => [...(rows ?? []), { id: '', label: '', icon: 'activity', training: false, isNew: true, perWeek: '0' }])
+  const removeKind = (i: number): void => setKinds((rows) => rows && rows.filter((_, j) => j !== i))
+  // A row's problems, if any: a label it needs, or a count that isn't a whole number 0-14.
+  const kindProblem = (r: KindRow): string | null => {
+    if (!r.label.trim()) return 'Needs a name.'
+    const n = parseNum(r.perWeek)
+    return n == null || !Number.isInteger(n) || n < 0 || n > 14 ? 'A whole number, 0 to 14.' : null
+  }
+  const kindsInvalid = !kinds || kinds.length === 0 || kinds.some((r) => kindProblem(r) !== null)
 
   const parsed = drafts
     ? Object.fromEntries(NUMBER_FIELDS.map((f) => [f.key, parseNum(drafts[f.key])])) as Record<NumberField, number | null>
@@ -112,23 +149,25 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     v == null || v < 0 || (key.startsWith('plan:') && (!Number.isInteger(v) || v > 14))
     || (key === 'dogWalks' && (!Number.isInteger(v) || v > 20)) || (key === 'walkMiles' && (v === 0 || v > 50))
   const invalid = parsed ? NUMBER_FIELDS.filter((f) => badValue(f.key, parsed[f.key])).map((f) => f.key) : []
-  const formInvalid = !parsed || invalid.length > 0
+  const formInvalid = !parsed || invalid.length > 0 || kindsInvalid
   // The preview leaves the buffer out while it's being typed wrong, rather than hiding the whole line.
   const buffer = parsed && !invalid.includes('calorieBuffer') ? parsed.calorieBuffer! : 0
 
   const save = async (): Promise<void> => {
-    if (!parsed || formInvalid) return
+    if (!parsed || formInvalid || !kinds) return
     setBusy(true)
     try {
-      const next: Goals = {
-        protein: parsed.protein!, fat: parsed.fat!, carbs: parsed.carbs!, trainingCarbs: parsed.trainingCarbs!, trainingWater: parsed.trainingWater!, calorieBuffer: parsed.calorieBuffer!,
-        fiber: parsed.fiber!, water: parsed.water!, alcoholWeekly: parsed.alcoholWeekly!,
-        meditationMinutes: parsed.meditationMinutes!,
-        dogWalks: parsed.dogWalks!, walkMiles: parsed.walkMiles!,
-        workoutPlan: Object.fromEntries(WORKOUT_KINDS.map((k) => [k, parsed[`plan:${k}`]!])) as WorkoutPlan,
-      }
-      await api.setGoals(next)
+      // New activities get their ids now, from their labels, kept apart from the ids in use.
+      const taken = kinds.filter((r) => !r.isNew).map((r) => r.id)
+      const finalKinds: WorkoutKindDef[] = kinds.map((r) => {
+        const id = r.isNew ? kindIdFor(r.label, taken) : r.id
+        if (r.isNew) taken.push(id)
+        return { id, label: r.label.trim(), icon: r.icon, training: r.training }
+      })
+      const planNext = Object.fromEntries(finalKinds.map((k, i) => [k.id, parseNum(kinds[i]!.perWeek)!])) as WorkoutPlan
       const changes: Parameters<typeof api.setSettings>[0] = {}
+      const before = settings?.workoutKinds ?? DEFAULT_WORKOUT_KINDS
+      if (JSON.stringify(finalKinds) !== JSON.stringify(before)) changes.workoutKinds = finalKinds
       if (key.trim()) changes.usdaApiKey = key.trim()
       if (lmToken.trim()) changes.lmStudioToken = lmToken.trim()
       if (lmUrl != null && lmUrl.trim() !== settings?.lmStudioUrl) changes.lmStudioUrl = lmUrl.trim()
@@ -137,7 +176,16 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       const iconChanged = appIcon != null && appIcon !== settings?.appIcon
       if (iconChanged) changes.appIcon = appIcon
       if (charts && charts.join() !== (settings?.charts ?? DEFAULT_CHARTS).join()) changes.charts = charts
+      // Settings first: the plan is checked against the activities in force.
       if (Object.keys(changes).length) await api.setSettings(changes)
+      const next: Goals = {
+        protein: parsed.protein!, fat: parsed.fat!, carbs: parsed.carbs!, trainingCarbs: parsed.trainingCarbs!, trainingWater: parsed.trainingWater!, calorieBuffer: parsed.calorieBuffer!,
+        fiber: parsed.fiber!, water: parsed.water!, alcoholWeekly: parsed.alcoholWeekly!,
+        meditationMinutes: parsed.meditationMinutes!,
+        dogWalks: parsed.dogWalks!, walkMiles: parsed.walkMiles!,
+        workoutPlan: planNext,
+      }
+      await api.setGoals(next)
       // The tab icon follows at once; a home-screen icon only when the app is added again.
       if (iconChanged) refreshIconLinks()
       toast.success('Saved')
@@ -163,10 +211,9 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       {f.hint && <div className="hint">{f.hint}</div>}
       {invalid.includes(f.key) && (
         <div className="hint bad">
-          {f.key.startsWith('plan:') ? 'A whole number, 0 to 14.'
-            : f.key === 'dogWalks' ? 'A whole number, 0 to 20.'
-              : f.key === 'walkMiles' ? 'More than 0, up to 50 miles.'
-                : 'Needs a non-negative number.'}
+          {f.key === 'dogWalks' ? 'A whole number, 0 to 20.'
+            : f.key === 'walkMiles' ? 'More than 0, up to 50 miles.'
+              : 'Needs a non-negative number.'}
         </div>
       )}
     </div>
@@ -189,11 +236,60 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
                 )}
               </div>
             )}
-            {NUMBER_FIELDS.slice(4, PLAN_START).map(field)}
+            {NUMBER_FIELDS.slice(4).map(field)}
 
-            <h3 className="sheet-h">Default weekly workouts</h3>
-            <div className="hint">Sessions of each per week (Sunday to Saturday). Any week can have its own from the Workouts card in Day view; this is what the rest get. Logging a WOD or lifting session also ticks the day as a training day.</div>
-            <div className="nutrient-fields">{NUMBER_FIELDS.slice(PLAN_START).map(field)}</div>
+            <h3 className="sheet-h">Workout activities</h3>
+            <div className="hint">
+              The activities the Workouts card offers, each with its sessions per week (Sunday to Saturday; any week can have
+              its own counts from the card). &ldquo;Training day&rdquo; means logging one ticks the day as a training day,
+              with its extra carbs and water. Sessions already logged keep their activity if it is removed here.
+            </div>
+            <ul className="kind-list" aria-label="Workout activities">
+              {(kinds ?? []).map((r, i) => {
+                const Icon = WORKOUT_ICON[r.icon]
+                const problem = kindProblem(r)
+                const name = r.label.trim() || `Activity ${i + 1}`
+                return (
+                  <li key={r.isNew ? `new-${i}` : r.id} className="kind-row">
+                    <div className="kind-main">
+                      <span className="kind-icon" aria-hidden="true"><Icon size={16} /></span>
+                      <select className="kind-icon-pick" aria-label={`Icon for ${name}`} value={r.icon} onChange={(e) => setKind(i, { icon: e.target.value as WorkoutIcon })}>
+                        {WORKOUT_ICONS.map((icon) => <option key={icon} value={icon}>{ICON_NAMES[icon]}</option>)}
+                      </select>
+                      <input
+                        className="kind-label"
+                        type="text"
+                        aria-label={`Name of activity ${i + 1}`}
+                        placeholder="Name"
+                        value={r.label}
+                        maxLength={24}
+                        onChange={(e) => setKind(i, { label: e.target.value })}
+                      />
+                      <input
+                        className="kind-count"
+                        type="text"
+                        inputMode="numeric"
+                        aria-label={`${name} (per week)`}
+                        value={r.perWeek}
+                        onChange={(e) => setKind(i, { perWeek: e.target.value })}
+                      />
+                      <span className="kind-per">/wk</span>
+                      <button type="button" className="kind-remove" aria-label={`Remove ${name}`} onClick={() => removeKind(i)} disabled={(kinds?.length ?? 0) <= 1}>
+                        <X size={15} aria-hidden="true" />
+                      </button>
+                    </div>
+                    <label className="check kind-training">
+                      <input type="checkbox" checked={r.training} onChange={(e) => setKind(i, { training: e.target.checked })} />
+                      Training day
+                    </label>
+                    {problem && <div className="hint bad">{problem}</div>}
+                  </li>
+                )
+              })}
+            </ul>
+            <button type="button" className="link-btn accent kind-add" onClick={addKind} disabled={!kinds || kinds.length >= 20}>
+              <Plus size={14} aria-hidden="true" /> Add activity
+            </button>
 
             <h3 className="sheet-h">Charts</h3>
             <div className="hint">Which daily charts the Week and Month views draw.</div>

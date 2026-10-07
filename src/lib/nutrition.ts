@@ -1,7 +1,7 @@
 import { ALCOHOL_KINDS, NUTRIENTS } from '../types.ts'
 import type {
   AlcoholKind, DaySummary, DayTotals, DayType, Entry, Goals, Meal, MacroRange, NutrientKey, Nutrients, ResolvedGoals, Scorecard,
-  WorkoutKind,
+  WorkoutKindDef,
 } from '../types.ts'
 
 /**
@@ -29,8 +29,8 @@ export const DEFAULT_GOALS: Goals = {
   walkMiles: 1,
 }
 
-/** The workout kinds that make a day a training day (the carb bump is for these). */
-export const TRAINING_KINDS: ReadonlySet<WorkoutKind> = new Set(['wod', 'weightlifting'])
+/** Whether logging this kind makes the day a training day (the carb and water bumps are for these). */
+export const isTrainingKind = (kinds: WorkoutKindDef[], id: string): boolean => kinds.some((k) => k.id === id && k.training)
 
 export const UNITS: Record<NutrientKey, string> = {
   calories: 'kcal',

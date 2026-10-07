@@ -5,6 +5,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { Store, ValidationError } from './store.ts'
 import { DEFAULT_GOALS, addDays, startOfWeek } from '../src/lib/nutrition.ts'
+import { DEFAULT_WORKOUT_KINDS } from '../src/types.ts'
 import type { NewEntry, Nutrients } from '../src/types.ts'
 
 let dir: string
@@ -281,7 +282,7 @@ describe('goals and settings', () => {
     store.setSettings({ usdaApiKey: 'SECRETKEY', lmStudioToken: 'sk-lm-SECRET' })
     const pub = store.getPublicSettings()
     expect(pub).toEqual({ hasUsdaKey: true, hasLmStudioToken: true, lmStudioUrl: 'http://127.0.0.1:1234', researchModel: '', autoLookup: true, appIcon: 'ring',
-      charts: ['calories', 'protein', 'fiber', 'water'],
+      charts: ['calories', 'protein', 'fiber', 'water'], workoutKinds: DEFAULT_WORKOUT_KINDS,
     })
     expect(JSON.stringify(pub)).not.toMatch(/SECRET/)
   })
@@ -747,7 +748,7 @@ describe('water', () => {
 describe('workouts', () => {
   it('starts empty, against the weekly goal', () => {
     expect(store.getDay(DAY).workouts).toEqual({
-      sessions: [], minutes: 0, weekStart: startOfWeek(DAY), planIsCustom: false,
+      sessions: [], minutes: 0, weekStart: startOfWeek(DAY), planIsCustom: false, kinds: DEFAULT_WORKOUT_KINDS,
       plan: { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 },
       weekByKind: { wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 0, pilates: 0 },
       weekTotal: 0, weekGoal: 9, lastLogId: null, weekSessions: [],
@@ -789,6 +790,53 @@ describe('workouts', () => {
     store.deleteWorkout(s.id)
     expect(store.getDay(DAY).workouts.sessions).toEqual([])
     expect(() => store.deleteWorkout(s.id)).toThrow(/no such log/)
+  })
+
+  describe('the activities are set up in Settings', () => {
+    const custom = [
+      { id: 'wod', label: 'CrossFit', icon: 'flame', training: true },
+      { id: 'yoga', label: 'Yoga', icon: 'sparkles', training: true }, // now a training day too
+      { id: 'climbing', label: 'Rock climbing', icon: 'mountain', training: false },
+    ] as const
+
+    it('starts with the built-in six and keeps a changed list, in order', () => {
+      expect(store.getPublicSettings().workoutKinds).toEqual(DEFAULT_WORKOUT_KINDS)
+      store.setSettings({ workoutKinds: custom.map((k) => ({ ...k })) })
+      expect(new Store({ dir }).getPublicSettings().workoutKinds).toEqual(custom)
+    })
+
+    it('refuses a bad list: no activities, a bad id, a repeated id, a missing name, an unknown icon', () => {
+      expect(() => store.setSettings({ workoutKinds: [] })).toThrow(/1 to 20 activities/)
+      expect(() => store.setSettings({ workoutKinds: [{ id: 'Rock Climbing', label: 'x', icon: 'flame', training: false }] })).toThrow(/id must be/)
+      expect(() => store.setSettings({ workoutKinds: [{ id: 'a', label: 'A', icon: 'flame', training: false }, { id: 'a', label: 'B', icon: 'flame', training: false }] })).toThrow(/unique/)
+      expect(() => store.setSettings({ workoutKinds: [{ id: 'a', label: ' ', icon: 'flame', training: false }] })).toThrow(/label is required/)
+      expect(() => store.setSettings({ workoutKinds: [{ id: 'a', label: 'A', icon: 'unicorn', training: false }] as never })).toThrow(/icon must be one of/)
+    })
+
+    it('follows the list: the plan, the counts, what can be logged, and which kinds make a training day', () => {
+      store.setGoals({ workoutPlan: { wod: 2, run: 3 } })
+      store.addWorkout({ date: DAY, kind: 'run' })
+      store.setSettings({ workoutKinds: custom.map((k) => ({ ...k })) })
+      // The plan is read against the new list: climbing appears at 0, run is left out (its 3 kept in the row, unseen).
+      expect(store.getGoals().workoutPlan).toEqual({ wod: 2, yoga: 0, climbing: 0 })
+      const day = store.getDay(DAY)
+      expect(day.workouts.kinds.map((k) => k.id)).toEqual(['wod', 'yoga', 'climbing'])
+      expect(day.workouts.weekByKind).toEqual({ wod: 0, yoga: 0, climbing: 0 })
+      // The run already logged is still there, still counted in the week, just not in any kind's count.
+      expect(day.workouts.sessions.map((s) => s.kind)).toEqual(['run'])
+      expect(day.workouts.weekTotal).toBe(1)
+      // A new kind can be logged and planned; a removed one can't be logged any more.
+      store.addWorkout({ date: DAY, kind: 'climbing' })
+      expect(() => store.addWorkout({ date: DAY, kind: 'run' })).toThrow(/kind must be one of wod, yoga, climbing/)
+      store.setGoals({ workoutPlan: { climbing: 2 } })
+      expect(store.getGoals().workoutPlan).toEqual({ wod: 0, yoga: 0, climbing: 2 })
+      expect(() => store.setGoals({ workoutPlan: { run: 1 } })).toThrow(/unknown workout kind: run/)
+      // Yoga now ticks a training day, as the setting says; climbing does not.
+      expect(store.getDay(DAY).dayType).toBe('rest')
+      store.addWorkout({ date: DAY, kind: 'yoga' })
+      expect(store.getDay(DAY).dayType).toBe('training')
+      expect(store.getRange(DAY, DAY).workouts.kinds).toEqual(custom)
+    })
   })
 
   it('refuses an unknown kind, a bad date or nonsense minutes', () => {
@@ -1070,7 +1118,7 @@ describe('ranges', () => {
     const range = store.getRange(D1, D3)
     // Three days (Mon-Wed) of one week: three sevenths of its plan, rounded -- 2 WOD -> 1, 4 yoga -> 2, 1 pilates -> 0.
     expect(range.workouts).toEqual({
-      sessions: 3, days: 2, minutes: 65, byKind: { wod: 1, weightlifting: 0, run: 1, cycling: 1, yoga: 0, pilates: 0 },
+      sessions: 3, days: 2, minutes: 65, kinds: DEFAULT_WORKOUT_KINDS, byKind: { wod: 1, weightlifting: 0, run: 1, cycling: 1, yoga: 0, pilates: 0 },
       goalByKind: { wod: 1, weightlifting: 1, run: 0, cycling: 0, yoga: 2, pilates: 0 }, goal: 4,
     })
     // A whole week gets its plan exactly, its own plan if it has one.

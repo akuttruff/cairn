@@ -1,21 +1,11 @@
 import { useState } from 'react'
-import { Bike, Dumbbell, Footprints, Flame, Minus, Pencil, PersonStanding, Plus, Sparkles } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+import { Minus, Pencil, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
-import { TRAINING_KINDS, localDate } from '../lib/nutrition.ts'
+import { isTrainingKind, localDate } from '../lib/nutrition.ts'
 import { dayLabel } from '../lib/format.ts'
-import { WORKOUT_KINDS } from '../types.ts'
+import { kindView } from '../lib/workoutIcons.ts'
 import type { DayView, WorkoutKind, WorkoutLog, WorkoutPlan } from '../types.ts'
-
-export const WORKOUTS: Record<WorkoutKind, { label: string; Icon: LucideIcon }> = {
-  wod: { label: 'WOD', Icon: Flame },
-  weightlifting: { label: 'Lifting', Icon: Dumbbell },
-  run: { label: 'Run', Icon: Footprints },
-  cycling: { label: 'Cycling', Icon: Bike },
-  yoga: { label: 'Yoga', Icon: Sparkles },
-  pilates: { label: 'Pilates', Icon: PersonStanding },
-}
 
 interface WorkoutTrackerProps {
   date: string
@@ -31,7 +21,10 @@ interface WorkoutTrackerProps {
  * stays in Settings for every other week.
  */
 export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrackerProps) {
-  const { plan, weekByKind, weekTotal, weekGoal, planIsCustom, weekStart, weekSessions } = workouts
+  const { kinds, plan, weekByKind, weekTotal, weekGoal, planIsCustom, weekStart, weekSessions } = workouts
+  // The activities from Settings, plus any a session this week was logged under that has since been
+  // removed there: still shown (dimmed, nothing to log), so a logged session never vanishes.
+  const rowIds = [...kinds.map((k) => k.id), ...weekSessions.map((s) => s.kind).filter((id, i, all) => !kinds.some((k) => k.id === id) && all.indexOf(id) === i)]
   const [draft, setDraft] = useState<WorkoutPlan | null>(null)
   const [busy, setBusy] = useState(false)
   /** The dot tapped: its day, with Remove / Keep, under its row. */
@@ -42,7 +35,7 @@ export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrac
   const add = async (kind: WorkoutKind): Promise<void> => {
     try {
       await api.addWorkout({ date, kind, minutes: null })
-      if (TRAINING_KINDS.has(kind)) toast(`${WORKOUTS[kind].label} logged -- marked as a training day`)
+      if (isTrainingKind(kinds, kind)) toast(`${kindView(kinds, kind).label} logged -- marked as a training day`)
       onLogged()
     } catch (err) {
       toast.error((err as Error).message)
@@ -73,7 +66,7 @@ export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrac
     }
   }
   const step = (k: WorkoutKind, by: number): void =>
-    setDraft((d) => d && { ...d, [k]: Math.max(0, Math.min(14, d[k] + by)) })
+    setDraft((d) => d && { ...d, [k]: Math.max(0, Math.min(14, (d[k] ?? 0) + by)) })
 
   return (
     <section className="water-card workout-card" aria-label="Workouts">
@@ -106,15 +99,16 @@ export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrac
 
       {!draft && (
         <ul className="wk-list" aria-label="This week by activity">
-          {WORKOUT_KINDS.map((k) => {
-            const { label, Icon } = WORKOUTS[k]
-            const goal = plan[k]
-            const done = weekByKind[k]
+          {rowIds.map((k) => {
+            const { label, Icon } = kindView(kinds, k)
+            const retired = !kinds.some((kind) => kind.id === k)
+            const goal = plan[k] ?? 0
+            const done = weekByKind[k] ?? weekSessions.filter((s) => s.kind === k).length
             // Oldest first, so the dots read through the week left to right.
             const sessions = weekSessions.filter((s) => s.kind === k).reverse()
             const open = confirming && confirming.kind === k ? confirming : null
             return (
-              <li key={k} className={`wk-item${goal === 0 && done === 0 ? ' unplanned' : ''}${goal > 0 && done >= goal ? ' met' : ''}`}>
+              <li key={k} className={`wk-item${(goal === 0 && done === 0) || retired ? ' unplanned' : ''}${goal > 0 && done >= goal ? ' met' : ''}`}>
                 <div className="wk-row">
                   <Icon size={15} aria-hidden="true" className="wk-icon" />
                   <span className="wk-name">{label}</span>
@@ -135,9 +129,13 @@ export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrac
                     {Array.from({ length: Math.max(0, goal - done) }, (_, i) => <span key={i} className="pip" aria-hidden="true" />)}
                   </span>
                   <span className="plan-count">{goal > 0 ? `${done} / ${goal}` : done || ''}</span>
-                  <button type="button" className="wk-add" aria-label={`Log ${label}`} title={`Log ${label} for ${dayLabel(date)}`} onClick={() => void add(k)}>
-                    <Plus size={16} aria-hidden="true" />
-                  </button>
+                  {retired ? (
+                    <span className="wk-add" aria-hidden="true" />
+                  ) : (
+                    <button type="button" className="wk-add" aria-label={`Log ${label}`} title={`Log ${label} for ${dayLabel(date)}`} onClick={() => void add(k)}>
+                      <Plus size={16} aria-hidden="true" />
+                    </button>
+                  )}
                 </div>
                 {open && (
                   <div className="wk-confirm" role="group" aria-label={`Remove ${label}?`}>
@@ -156,14 +154,14 @@ export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrac
 
       {draft && (
         <div className="plan-editor" aria-label="This week's plan">
-          {WORKOUT_KINDS.map((k) => (
+          {kinds.map(({ id: k, label }) => (
             <div key={k} className="plan-edit-row">
-              <span className="plan-name">{WORKOUTS[k].label}</span>
-              <button type="button" className="stepper" aria-label={`Fewer ${WORKOUTS[k].label}`} onClick={() => step(k, -1)} disabled={draft[k] === 0}>
+              <span className="plan-name">{label}</span>
+              <button type="button" className="stepper" aria-label={`Fewer ${label}`} onClick={() => step(k, -1)} disabled={(draft[k] ?? 0) === 0}>
                 <Minus size={14} aria-hidden="true" />
               </button>
-              <span className="plan-value" aria-label={`${WORKOUTS[k].label} this week`}>{draft[k]}</span>
-              <button type="button" className="stepper" aria-label={`More ${WORKOUTS[k].label}`} onClick={() => step(k, 1)}>
+              <span className="plan-value" aria-label={`${label} this week`}>{draft[k] ?? 0}</span>
+              <button type="button" className="stepper" aria-label={`More ${label}`} onClick={() => step(k, 1)}>
                 <Plus size={14} aria-hidden="true" />
               </button>
             </div>

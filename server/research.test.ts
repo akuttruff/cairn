@@ -1,9 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
 import { RESEARCH_PLUGIN, ResearchJobs, chooseModel, extractJson, listLlms, normalizeQuery, researchFood, toFoods } from './research.ts'
 import type { LookupStore } from './research.ts'
+import { DEFAULT_WORKOUT_KINDS } from '../src/types.ts'
 import type { Settings } from '../src/types.ts'
 
-const SETTINGS: Settings = { usdaApiKey: '', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: 'sk-lm-T', researchModel: '', autoLookup: true, appIcon: 'ring', charts: ['calories', 'protein', 'fiber', 'water'] }
+const SETTINGS: Settings = { usdaApiKey: '', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: 'sk-lm-T', researchModel: '', autoLookup: true, appIcon: 'ring', charts: ['calories', 'protein', 'fiber', 'water'], workoutKinds: DEFAULT_WORKOUT_KINDS }
 
 const BOWL_REPLY = {
   found: true,
