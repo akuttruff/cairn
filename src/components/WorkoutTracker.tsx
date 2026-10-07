@@ -62,9 +62,10 @@ export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrac
         </span>
       </div>
 
-      {workouts.sessions.length > 0 && (
-        <ul className="session-list">
-          {workouts.sessions.map((s) => {
+      {workouts.weekSessions.length > 0 && (
+        // The week's sessions, not just this day's, each with its day, so any can be checked or removed.
+        <ul className="session-list" aria-label="This week's sessions">
+          {workouts.weekSessions.map((s) => {
             const { label, Icon } = WORKOUTS[s.kind] ?? { label: s.kind, Icon: Dumbbell }
             return (
               <li key={s.id} className="session-row">

@@ -1306,6 +1306,8 @@ export class Store {
       sessions, minutes: sessions.reduce((sum, s) => sum + (s.minutes ?? 0), 0),
       weekStart, plan, planIsCustom: custom, weekByKind,
       weekTotal: weekRows.length, weekGoal: planTotal(plan), lastLogId: sessions[0]?.id ?? null,
+      // The whole week's sessions, latest day first, so any of them can be seen and removed from any day.
+      weekSessions: weekRows.map(workoutFromRow).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt),
     }
   }
 

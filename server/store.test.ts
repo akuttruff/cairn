@@ -740,7 +740,7 @@ describe('workouts', () => {
       sessions: [], minutes: 0, weekStart: startOfWeek(DAY), planIsCustom: false,
       plan: { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 },
       weekByKind: { wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 0, pilates: 0 },
-      weekTotal: 0, weekGoal: 9, lastLogId: null,
+      weekTotal: 0, weekGoal: 9, lastLogId: null, weekSessions: [],
     })
   })
 
@@ -791,6 +791,21 @@ describe('workouts', () => {
   it('survives a restart', () => {
     store.addWorkout({ date: DAY, kind: 'wod', minutes: 20 })
     expect(new Store({ dir }).getDay(DAY).workouts.sessions[0]).toMatchObject({ kind: 'wod', minutes: 20 })
+  })
+})
+
+describe('the week\'s workout sessions', () => {
+  it('lists every session in the week, latest day first, from any day of it', () => {
+    const sunday = startOfWeek(DAY)
+    const mon = store.addWorkout({ date: addDays(sunday, 1), kind: 'weightlifting' })
+    const tue1 = store.addWorkout({ date: addDays(sunday, 2), kind: 'wod' })
+    const tue2 = store.addWorkout({ date: addDays(sunday, 2), kind: 'yoga' })
+    store.addWorkout({ date: addDays(sunday, -1), kind: 'run' }) // the week before: left out
+    const fromTuesday = store.getDay(addDays(sunday, 2)).workouts
+    expect(fromTuesday.sessions.map((s) => s.id).sort()).toEqual([tue1.id, tue2.id].sort())
+    expect(fromTuesday.weekSessions.map((s) => s.date)).toEqual([addDays(sunday, 2), addDays(sunday, 2), addDays(sunday, 1)])
+    expect(fromTuesday.weekSessions.at(-1)!.id).toBe(mon.id)
+    expect(store.getDay(addDays(sunday, 5)).workouts.weekSessions).toHaveLength(3) // the same list from later in the week
   })
 })
 

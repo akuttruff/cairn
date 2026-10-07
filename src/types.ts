@@ -268,6 +268,8 @@ export interface DayView extends DayTotals {
     planIsCustom: boolean
     /** Sessions of each kind logged in that week so far. */
     weekByKind: Record<WorkoutKind, number>
+    /** Every session in that week, latest day first (newest first within a day). */
+    weekSessions: WorkoutLog[]
     /** All of them, against the plan's total. */
     weekTotal: number
     weekGoal: number

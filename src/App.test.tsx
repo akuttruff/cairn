@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { dayLabel } from './lib/format.ts'
 import App from './App.tsx'
 import { addDays, localDate, startOfWeek } from './lib/nutrition.ts'
 import type { DayView, Entry, Food, Goals, RangeView } from './types.ts'
@@ -17,7 +18,7 @@ const NO_KINDS = { wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 0, pilate
 /** A day's workouts: nothing today, nothing yet this week, on the default plan. */
 const WORKOUTS_DAY = {
   sessions: [], minutes: 0, weekStart: startOfWeek(TODAY), plan: PLAN, planIsCustom: false, weekByKind: NO_KINDS,
-  weekTotal: 0, weekGoal: 9, lastLogId: null,
+  weekTotal: 0, weekGoal: 9, lastLogId: null, weekSessions: [],
 }
 /** What Settings edits and /api/goals returns -- separate shape from GOALS above (a resolved, per-day view). */
 const STORED_GOALS: Goals = {
@@ -525,15 +526,22 @@ describe('App', () => {
         workouts: {
           ...WORKOUTS_DAY, sessions: [{ id: 'w1', date: TODAY, kind: 'run', minutes: 30, createdAt: 1 }], minutes: 30,
           weekByKind: { ...NO_KINDS, run: 1, yoga: 1 }, weekTotal: 2, lastLogId: 'w1',
+          weekSessions: [
+            { id: 'w1', date: TODAY, kind: 'run', minutes: 30, createdAt: 3 },
+            { id: 'w0', date: addDays(TODAY, -2), kind: 'weightlifting', minutes: null, createdAt: 1 },
+          ],
         },
       }),
       'POST /api/workouts': { id: 'w2', date: TODAY, kind: 'wod', minutes: null, createdAt: 2 },
     })
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Workouts' })
-    expect(within(card.querySelector('.session-list') as HTMLElement).getByText('Run')).toBeInTheDocument()
-    // Each session says which day it counts for.
-    expect(within(card.querySelector('.session-row') as HTMLElement).getByText('Today')).toBeInTheDocument()
+    // The whole week's sessions, latest first, each with the day it counts for -- not just this day's.
+    const list = within(card).getByRole('list', { name: "This week's sessions" })
+    expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Run30 minToday', `Lifting${dayLabel(addDays(TODAY, -2))}`,
+    ])
+    expect(within(list).getByRole('button', { name: 'Remove Lifting' })).toBeInTheDocument()
     expect(within(card).getByText('30 min')).toBeInTheDocument() // minutes logged before are still shown
     expect(within(card).getByRole('progressbar', { name: 'Workouts this week' })).toHaveAttribute('aria-valuenow', '2')
     expect(within(card).getByText('/ 9')).toBeInTheDocument()
@@ -584,7 +592,10 @@ describe('App', () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([], {
-        workouts: { ...WORKOUTS_DAY, sessions: [{ id: 'w1', date: TODAY, kind: 'yoga', minutes: null, createdAt: 1 }], weekByKind: { ...NO_KINDS, yoga: 1 }, weekTotal: 1, lastLogId: 'w1' },
+        workouts: {
+          ...WORKOUTS_DAY, sessions: [{ id: 'w1', date: TODAY, kind: 'yoga', minutes: null, createdAt: 1 }], weekByKind: { ...NO_KINDS, yoga: 1 }, weekTotal: 1, lastLogId: 'w1',
+          weekSessions: [{ id: 'w1', date: TODAY, kind: 'yoga', minutes: null, createdAt: 1 }],
+        },
       }),
       'POST /api/workouts': { id: 'w2', date: TODAY, kind: 'cycling', minutes: null, createdAt: 2 },
       'DELETE /api/workouts/w1': { ok: true },
