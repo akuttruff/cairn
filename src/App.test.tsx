@@ -532,6 +532,8 @@ describe('App', () => {
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Workouts' })
     expect(within(card.querySelector('.session-list') as HTMLElement).getByText('Run')).toBeInTheDocument()
+    // Each session says which day it counts for.
+    expect(within(card.querySelector('.session-row') as HTMLElement).getByText('Today')).toBeInTheDocument()
     expect(within(card).getByText('30 min')).toBeInTheDocument() // minutes logged before are still shown
     expect(within(card).getByRole('progressbar', { name: 'Workouts this week' })).toHaveAttribute('aria-valuenow', '2')
     expect(within(card).getByText('/ 9')).toBeInTheDocument()

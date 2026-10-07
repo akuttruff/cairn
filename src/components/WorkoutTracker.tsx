@@ -4,6 +4,7 @@ import type { LucideIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import { TRAINING_KINDS } from '../lib/nutrition.ts'
+import { dayLabel } from '../lib/format.ts'
 import { WORKOUT_KINDS } from '../types.ts'
 import type { DayView, WorkoutKind, WorkoutPlan } from '../types.ts'
 
@@ -70,6 +71,8 @@ export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrac
                 <Icon size={14} aria-hidden="true" />
                 <span className="session-name">{label}</span>
                 {s.minutes != null && <span className="session-min">{s.minutes} min</span>}
+                {/* Which day it counts for, so a session is never mistaken for one logged today. */}
+                <span className="session-day">{dayLabel(s.date)}</span>
                 <button type="button" className="session-remove" aria-label={`Remove ${label}`} onClick={() => void remove(s.id)}>
                   <X size={14} aria-hidden="true" />
                 </button>

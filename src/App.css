@@ -240,6 +240,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .session-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 14px; color: var(--c-workout); }
 .session-name { color: var(--paper); }
 .session-min { color: var(--paper-dim); font-size: 13px; font-variant-numeric: tabular-nums; }
+.session-day { margin-left: auto; color: var(--paper-dim); font-family: var(--mono); font-size: 12px; }
+.session-day + .session-remove { margin-left: 0; }
 .session-remove { margin-left: auto; background: none; border: none; color: var(--paper-dim); padding: 4px; display: flex; }
 /* Six kinds: a three-column grid keeps every button the same size, two rows on a phone. */
 .workout-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
