@@ -46,6 +46,7 @@ if (!window.matchMedia) {
   })) as typeof window.matchMedia
 }
 import { cleanup } from '@testing-library/react'
+import { toast } from 'sonner'
 import { afterEach, beforeEach, vi } from 'vitest'
 
 beforeEach(() => {
@@ -56,6 +57,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // A toast from one test (an Undo, say) must not greet the next.
+  toast.dismiss()
   cleanup()
   vi.unstubAllGlobals()
   vi.clearAllTimers()

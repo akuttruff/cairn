@@ -419,6 +419,13 @@ button:disabled { opacity: 0.45; cursor: default; }
   margin-bottom: 2px;
 }
 .meal-head h2 { font-size: 15px; font-weight: 600; margin: 0; }
+/* Select mode for the day's entries: a small bar above the meals. */
+.meals-bar { display: flex; align-items: center; gap: 10px; justify-content: flex-end; padding: 0 2px 8px; }
+.meals-count { font-size: 13px; color: var(--paper-dim); margin-right: auto; }
+.link-btn.danger { color: var(--danger, var(--rust)); }
+.link-btn:disabled { opacity: 0.45; cursor: default; }
+.entry.selectable { gap: 10px; }
+.entry .pick-check { flex: 0 0 auto; }
 .meal-kcal { font-family: var(--mono); font-size: 12px; color: var(--paper-dim); }
 .meal-add {
   margin-left: auto;

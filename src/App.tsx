@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Toaster } from 'sonner'
+import { Toaster, toast } from 'sonner'
 import { Plus } from 'lucide-react'
 import Header from './components/Header.tsx'
 import type { ViewMode } from './components/Header.tsx'
@@ -101,6 +101,26 @@ export default function App() {
                   entries={view.entries}
                   onOpen={(e) => { setEditing(e); open('entry') }}
                   onAdd={(m) => { setAddMeal(m); open('add') }}
+                  onDeleteMany={async (chosen) => {
+                    // Gone at once; Undo logs the same entries again from the copies kept here.
+                    try {
+                      await Promise.all(chosen.map((e) => api.deleteEntry(e.id)))
+                    } catch (err) {
+                      toast.error((err as Error).message)
+                      refresh()
+                      return
+                    }
+                    refresh()
+                    toast(`Deleted ${chosen.length} ${chosen.length === 1 ? 'entry' : 'entries'}`, {
+                      action: {
+                        label: 'Undo',
+                        onClick: () => {
+                          void Promise.all(chosen.map(({ id, createdAt, ...rest }) => api.addEntry(rest)))
+                            .then(refresh, (err: Error) => toast.error(err.message))
+                        },
+                      },
+                    })
+                  }}
                 />
               </>
             )}

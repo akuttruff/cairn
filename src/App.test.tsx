@@ -573,6 +573,57 @@ describe('App', () => {
     expect(await screen.findByRole('button', { name: 'Remove Oats from My foods' })).toHaveAttribute('aria-pressed', 'true')
   })
 
+  it('selects several logged foods and deletes them together, with Undo logging them again', async () => {
+    const user = userEvent.setup()
+    const entries = [entry(), entry({ id: 'e2', name: 'Banana', meal: 'lunch' }), entry({ id: 'e3', name: 'Yogurt', meal: 'dinner' })]
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day(entries),
+      'DELETE /api/entries/e1': { ok: true }, 'DELETE /api/entries/e2': { ok: true },
+      'POST /api/entries': entry(),
+    })
+    render(<App />)
+    await screen.findByText('Oats')
+    await user.click(screen.getByRole('button', { name: 'Select' }))
+    // Tapping ticks rather than opens.
+    await user.click(screen.getByText('Oats'))
+    await user.click(screen.getByText('Banana'))
+    expect(screen.queryByLabelText('Amount (g)')).not.toBeInTheDocument()
+    expect(screen.getByText('2 selected')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Delete 2' }))
+    await waitFor(() => expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.url).sort()).toEqual(['/api/entries/e1', '/api/entries/e2']))
+    expect(calls.some((c) => c.url === '/api/entries/e3')).toBe(false)
+
+    await user.click(await screen.findByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(calls.filter((c) => c.method === 'POST' && c.url === '/api/entries')).toHaveLength(2))
+    const names = calls.filter((c) => c.method === 'POST' && c.url === '/api/entries').map((c) => (c.body as { name: string; id?: string }))
+    expect(names.map((b) => b.name).sort()).toEqual(['Banana', 'Oats'])
+    expect(names.every((b) => b.id === undefined)).toBe(true)
+  })
+
+  it('corrects a search result\u2019s numbers from its row, and shows the corrected copy', async () => {
+    const user = userEvent.setup()
+    const fixedBanana = { ...banana, per100g: { ...banana.per100g!, fiber: 9 } }
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/search': { usda: [banana], off: [], errors: [] },
+      'POST /api/foods': fixedBanana,
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.type(await screen.findByLabelText('Search foods'), 'banana')
+    await user.click(await screen.findByRole('button', { name: 'Edit Bananas, raw' }))
+    await user.clear(screen.getByLabelText('Fiber (g)'))
+    await user.type(screen.getByLabelText('Fiber (g)'), '9')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/foods')).toBe(true))
+    expect(calls.find((c) => c.method === 'POST' && c.url === '/api/foods')!.body).toMatchObject({ id: banana.id, per100g: { fiber: 9 } })
+    // Back on the results: the corrected numbers in the row, the star on, and the food now under Yours too.
+    const usda = await screen.findByRole('region', { name: 'Whole foods' })
+    expect(await within(usda).findByText(/Fib 9/)).toBeInTheDocument()
+    expect(within(usda).getByRole('button', { name: 'Remove Bananas, raw from My foods' })).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Yours' })).getByText(/Fib 9/)).toBeInTheDocument()
+  })
+
   it('deletes an entry', async () => {
     const user = userEvent.setup()
     const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([entry()]), 'DELETE /api/entries/e1': { ok: true } })
