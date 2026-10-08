@@ -21,7 +21,7 @@ export function parseNum(s: string): number | null {
 }
 
 export const MEAL_LABELS: Record<Meal, string> = {
-  breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks',
+  breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner', snack: 'Snacks/Supplements',
 }
 
 /** Nutrient amounts as typed. Blank means unknown, not zero. */
