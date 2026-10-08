@@ -101,14 +101,35 @@ export function entryFor(
  * so starring it is the same food the search would show, not a duplicate.
  */
 export function foodFromEntry(e: Entry): Food {
-  const base = { id: e.foodId ?? `entry:${e.id}`, name: e.name, brand: e.brand, source: e.source }
+  return foodFromItem(e, `entry:${e.id}`)
+}
+
+/** The same, for a saved meal's item, which has no id of its own: `fallbackId` keys it when it knows no food. */
+export function foodFromItem(e: MealPresetItem, fallbackId: string): Food {
+  const base = { id: e.foodId ?? fallbackId, name: e.name, brand: e.brand, source: e.source }
   if (e.per100g) {
     const servings = e.amount?.unitGrams ? [{ label: e.amount.unit, grams: e.amount.unitGrams }] : undefined
     return { ...base, per100g: e.per100g, servings }
   }
   if (e.perUnit && e.amount) return { ...base, perServing: { label: e.amount.unit, grams: e.amount.unitGrams, nutrients: e.perUnit } }
   // Logged by its numbers alone: one serving is what was eaten.
-  return { ...base, perServing: { label: e.amount?.unit ?? '1 serving', grams: e.grams, nutrients: e.nutrients } }
+  return { ...base, perServing: { label: e.amount?.unit ?? '1 serving', grams: e.grams, nutrients: e.nutrients ?? { calories: null, protein: null, fat: null, carbs: null, fiber: null } } }
+}
+
+/**
+ * How an item was measured, as a unit of `food` and a quantity -- to edit a
+ * saved meal in the terms it was saved in: "1.5" x "1 cup", or 120 g.
+ */
+export function amountOf(food: Pick<Food, 'per100g' | 'servings' | 'perServing'>, item: Pick<MealPresetItem, 'amount' | 'grams' | 'perUnit'>): { unitKey: string; qty: string } {
+  const units = unitsFor(food)
+  if (item.amount) {
+    const label = item.amount.unit.toLowerCase()
+    const unit = units.find((u) => u.label.toLowerCase() === label) ?? (item.perUnit ? units.find((u) => u.key === 'serving') : undefined)
+    if (unit) return { unitKey: unit.key, qty: String(item.amount.quantity) }
+  }
+  if (item.grams != null && units.some((u) => u.key === 'g')) return { unitKey: 'g', qty: String(item.grams) }
+  const first = units[0]
+  return { unitKey: first?.key ?? 'g', qty: first?.key === 'g' ? '100' : '1' }
 }
 
 /**

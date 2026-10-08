@@ -1365,6 +1365,77 @@ describe('App', () => {
       expect(await screen.findByText('2 foods')).toBeInTheDocument()
     })
 
+    it('edits a saved meal: rename it, change an amount, drop a food, and save it under the same id', async () => {
+      const user = userEvent.setup()
+      const calls = stubApi({
+        [`GET /api/day/${TODAY}`]: day([]),
+        'GET /api/foods': { saved: [eggs, toastFood], recent: [] },
+        'GET /api/meals': [{
+          id: 'meal:m1', name: 'Breakfast', createdAt: 0,
+          items: [
+            { name: 'Eggs', foodId: eggs.id, grams: 100, per100g: eggs.per100g, source: 'usda' },
+            { name: 'Toast', foodId: toastFood.id, grams: 50, per100g: toastFood.per100g, source: 'off' },
+          ],
+        }],
+        'POST /api/meals': { id: 'meal:m1', name: 'Big breakfast', items: [{}], createdAt: 0 },
+      })
+      render(<App />)
+      await openMineTab(user)
+      await user.click(await screen.findByRole('button', { name: 'Edit Breakfast' }))
+
+      // Prefilled with the meal as it was saved.
+      expect(screen.getByLabelText('Meal name')).toHaveValue('Breakfast')
+      expect(screen.getByLabelText('Amount of Eggs')).toHaveValue('100')
+      expect(screen.getByLabelText('Amount of Toast')).toHaveValue('50')
+
+      await user.clear(screen.getByLabelText('Amount of Eggs'))
+      await user.type(screen.getByLabelText('Amount of Eggs'), '120')
+      await user.click(screen.getByRole('button', { name: 'Remove Toast from this meal' }))
+      await user.clear(screen.getByLabelText('Meal name'))
+      await user.type(screen.getByLabelText('Meal name'), 'Big breakfast')
+      await user.click(screen.getByRole('button', { name: 'Save meal' }))
+
+      await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/meals')).toBe(true))
+      const body = calls.find((c) => c.method === 'POST' && c.url === '/api/meals')!.body as { id?: string; name: string; items: { name: string; grams: number | null }[] }
+      expect(body.id).toBe('meal:m1')
+      expect(body.name).toBe('Big breakfast')
+      expect(body.items).toHaveLength(1)
+      expect(body.items[0]).toMatchObject({ name: 'Eggs', grams: 120 })
+      expect(await screen.findByText('Big breakfast')).toBeInTheDocument()
+    })
+
+    it('adds a food to a saved meal, keeping the name and amounts already entered', async () => {
+      const user = userEvent.setup()
+      const calls = stubApi({
+        [`GET /api/day/${TODAY}`]: day([]),
+        'GET /api/foods': { saved: [eggs, toastFood], recent: [] },
+        'GET /api/meals': [{
+          id: 'meal:m1', name: 'Breakfast', createdAt: 0,
+          items: [{ name: 'Eggs', foodId: eggs.id, grams: 100, per100g: eggs.per100g, source: 'usda' }],
+        }],
+        'POST /api/meals': { id: 'meal:m1', name: 'Breakfast', items: [{}, {}], createdAt: 0 },
+      })
+      render(<App />)
+      await openMineTab(user)
+      await user.click(await screen.findByRole('button', { name: 'Edit Breakfast' }))
+      await user.clear(screen.getByLabelText('Amount of Eggs'))
+      await user.type(screen.getByLabelText('Amount of Eggs'), '120')
+      await user.click(screen.getByRole('button', { name: '+ Add foods' }))
+
+      // Picking, with the meal's own food already ticked; add Toast.
+      await user.click(screen.getByText('Toast'))
+      await user.click(screen.getByRole('button', { name: 'Next (2)' }))
+      expect(screen.getByLabelText('Meal name')).toHaveValue('Breakfast')
+      expect(screen.getByLabelText('Amount of Eggs')).toHaveValue('120')
+      expect(screen.getByLabelText('Amount of Toast')).toHaveValue('100')
+      await user.click(screen.getByRole('button', { name: 'Save meal' }))
+
+      await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/meals')).toBe(true))
+      const body = calls.find((c) => c.method === 'POST' && c.url === '/api/meals')!.body as { id?: string; items: { name: string; grams: number | null }[] }
+      expect(body.id).toBe('meal:m1')
+      expect(body.items.map((i) => [i.name, i.grams])).toEqual([['Eggs', 120], ['Toast', 100]])
+    })
+
     it('logs every food in a saved meal with one tap', async () => {
       const user = userEvent.setup()
       const calls = stubApi({
