@@ -91,7 +91,7 @@ function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddS
           </div>
 
           {picked
-            ? <Amount food={picked} onLog={log} />
+            ? <Amount food={picked} onChange={setPicked} onLog={log} />
             : (
               <>
                 <div className="tabs" role="tablist">
@@ -587,10 +587,12 @@ function MineTab({ onPick, onApplyMeal }: { onPick: (f: Food) => void; onApplyMe
  * fix a value it got wrong -- so every future log of it is right. Blank means
  * unknown. Entries already logged keep what they were logged with.
  */
-function EditFood({ food, onCancel, onSaved }: {
+function EditFood({ food, onCancel, onSaved, fromResult = false }: {
   food: Food
   onCancel: () => void
   onSaved: (food: Food) => void
+  /** Editing a search or lookup result rather than a food already in My foods. */
+  fromResult?: boolean
 }) {
   const [d100, setD100, auto100] = useNutrientDraft(food.per100g ? draftOf(food.per100g) : undefined)
   const [dServing, setDServing, autoServing] = useNutrientDraft(food.perServing ? draftOf(food.perServing.nutrients) : undefined)
@@ -636,8 +638,10 @@ function EditFood({ food, onCancel, onSaved }: {
           </>
         )}
         <div className="hint">
-          Leave a field blank if it&apos;s unknown. This changes the saved food for future logs; entries you&apos;ve
-          already logged keep their numbers (fix those from the entry).
+          Leave a field blank if it&apos;s unknown.{' '}
+          {fromResult
+            ? 'Saving keeps a corrected copy in My foods, and a repeat lookup shows these numbers too. Entries you\u2019ve already logged keep theirs.'
+            : 'This changes the saved food for future logs; entries you\u2019ve already logged keep their numbers (fix those from the entry).'}
         </div>
         {junk && <div className="hint bad">Numbers only, please.</div>}
       </div>
@@ -802,7 +806,18 @@ function CreateMeal({ items, onCancel, onSaved }: {
  * Pick how much of a chosen food: a number of any of its servings ("1.5" x
  * "1 cup, sliced"), or a weight in g or oz when its per-100g values are known.
  */
-function Amount({ food, onLog }: { food: Food; onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => Promise<void> }) {
+/**
+ * Pick how much of a chosen food to log. Its numbers can be corrected here
+ * too -- a lookup that missed the fiber, a database typo -- before anything
+ * is logged: the fix is saved as a copy in My foods, so it sticks.
+ */
+function Amount({ food, onChange, onLog }: {
+  food: Food
+  /** The food after its numbers were corrected; replaces the one picked. */
+  onChange: (f: Food) => void
+  onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
   const [servings, setServings] = useState<Serving[]>(food.servings ?? [])
   const units = useMemo(() => unitsFor({ ...food, servings }), [food, servings])
   const first = units[0]
@@ -843,6 +858,22 @@ function Amount({ food, onLog }: { food: Food; onLog: (e: Omit<NewEntry, 'date' 
     if (quantity) setQty(quantity)
   }
 
+  if (editing) {
+    return (
+      <EditFood
+        food={food}
+        fromResult
+        onCancel={() => setEditing(false)}
+        onSaved={(saved) => {
+          onChange(saved)
+          // It's in My foods now; the star says so.
+          setSave(true)
+          setEditing(false)
+        }}
+      />
+    )
+  }
+
   const submit = async (): Promise<void> => {
     if (!valid || !unit || !nutrients) return
     setBusy(true)
@@ -865,15 +896,20 @@ function Amount({ food, onLog }: { food: Food; onLog: (e: Omit<NewEntry, 'date' 
             <div className="entry-name">{food.name}</div>
             {food.brand && <div className="entry-sub">{food.brand}</div>}
           </div>
-          <button
-            type="button"
-            className={`star${save ? ' on' : ''}`}
-            aria-pressed={save}
-            aria-label="Save to My foods"
-            onClick={() => setSave((v) => !v)}
-          >
-            <Star size={18} fill={save ? 'currentColor' : 'none'} aria-hidden="true" />
-          </button>
+          <div className="picked-actions">
+            <button type="button" className="round-btn" aria-label="Edit nutrition numbers" onClick={() => setEditing(true)}>
+              <Pencil size={16} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className={`star${save ? ' on' : ''}`}
+              aria-pressed={save}
+              aria-label="Save to My foods"
+              onClick={() => setSave((v) => !v)}
+            >
+              <Star size={18} fill={save ? 'currentColor' : 'none'} aria-hidden="true" />
+            </button>
+          </div>
         </div>
 
         {chips.length > 0 && (

@@ -671,7 +671,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 
 .picked-name { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 14px; }
 .picked-name .entry-name { font-size: 17px; font-weight: 600; }
-.star { background: none; border: 1px solid var(--line); border-radius: 50%; width: 38px; height: 38px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; color: var(--paper-dim); }
+.picked-actions { display: flex; gap: 8px; flex: 0 0 auto; }
+.star, .round-btn { background: none; border: 1px solid var(--line); border-radius: 50%; width: 38px; height: 38px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; color: var(--paper-dim); }
 .star.on { color: var(--amber); border-color: var(--amber); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }

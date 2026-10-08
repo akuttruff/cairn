@@ -1170,6 +1170,50 @@ describe('App', () => {
     })
   }, 15_000)
 
+  it('corrects a looked-up food\u2019s numbers before logging it, keeping the corrected copy', async () => {
+    // The lookup missed the fiber. Fix it right there on the pick screen: the
+    // fix is saved (which also corrects the cached lookup) and the entry is
+    // logged with the corrected numbers.
+    const user = userEvent.setup()
+    const bowl: Food = {
+      id: 'web:chipotle-bowl', name: 'Chicken Burrito Bowl', brand: 'Chipotle', source: 'web',
+      perServing: { label: '1 bowl', grams: null, nutrients: { calories: 660, protein: 50, fat: 21, carbs: 68, fiber: null } },
+      sources: [{ title: 'chipotle.com', url: 'https://www.chipotle.com/nutrition-calculator' }],
+    }
+    const fixed: Food = { ...bowl, perServing: { ...bowl.perServing!, nutrients: { ...bowl.perServing!.nutrients, fiber: 8 } } }
+    const job = { id: 'j1', query: 'chipotle chicken bowl', startedAt: Date.now() }
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/search': { usda: [], off: [], errors: [] },
+      'POST /api/research': { ...job, status: 'running', step: 'starting' },
+      'GET /api/research/j1': { ...job, status: 'done', step: 'done', result: { query: job.query, foods: [bowl], model: 'qwen/qwen3.8-27b', seconds: 74 } },
+      'POST /api/foods': fixed,
+      'POST /api/entries': entry(),
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.type(await screen.findByLabelText('Search foods'), 'chipotle chicken bowl')
+    await user.click(await screen.findByText('Chicken Burrito Bowl', {}, { timeout: 5000 }))
+
+    await user.click(screen.getByRole('button', { name: 'Edit nutrition numbers' }))
+    expect(screen.getByLabelText('Fiber (g)')).toHaveValue('')
+    await user.type(screen.getByLabelText('Fiber (g)'), '8')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/foods')).toBe(true))
+    expect(calls.find((c) => c.method === 'POST' && c.url === '/api/foods')!.body).toMatchObject({
+      id: 'web:chipotle-bowl', perServing: { label: '1 bowl', nutrients: { calories: 660, protein: 50, fat: 21, carbs: 68, fiber: 8 } },
+    })
+
+    // Back on the pick screen, with the corrected food and the star on.
+    expect(await screen.findByLabelText('Unit')).toHaveDisplayValue('1 bowl')
+    expect(screen.getByRole('button', { name: 'Save to My foods' })).toHaveAttribute('aria-pressed', 'true')
+    await user.click(screen.getByRole('button', { name: /^Log 1 bowl/ }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/entries')).toBe(true))
+    expect(calls.find((c) => c.url === '/api/entries')!.body).toMatchObject({
+      name: 'Chicken Burrito Bowl', source: 'web', perUnit: { calories: 660, protein: 50, fat: 21, carbs: 68, fiber: 8 },
+    })
+  }, 15_000)
+
   it('saves an online lookup result to My foods directly, without logging it', async () => {
     // The whole point: a repeat lookup can cost a minute or two, so a food
     // found online should be keepable without going through Amount/Log.
