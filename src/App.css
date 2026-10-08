@@ -581,6 +581,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .sheet-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex: 0 0 auto; }
 .sheet-top .drawer-title { margin: 0; white-space: nowrap; }
 .sheet-top .icon-btn { margin-left: -8px; }
+.entry-top { justify-content: space-between; align-items: flex-start; }
+.entry-top .drawer-title { white-space: normal; }
 .meal-select { width: auto; flex: 1; padding: 7px 10px; }
 
 .tabs {

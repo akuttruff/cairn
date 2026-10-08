@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { OUNCE_GRAMS, describeAmount, entryFor, gramsFor, headline, multiply, nutrientsFor, resolveNutrients, unitsFor } from './units.ts'
+import { OUNCE_GRAMS, describeAmount, entryFor, foodFromEntry, gramsFor, headline, multiply, nutrientsFor, resolveNutrients, unitsFor } from './units.ts'
 import type { Food, Nutrients } from '../types.ts'
 
 const n = (calories: number, protein: number | null = null): Nutrients =>
@@ -133,5 +133,28 @@ describe('resolveNutrients', () => {
 
   it('is null with no basis at all', () => {
     expect(resolveNutrients({ grams: null })).toBeNull()
+  })
+})
+
+describe('foodFromEntry', () => {
+  const base = { id: 'e1', date: '2026-10-07', meal: 'lunch' as const, name: 'Oats', source: 'usda' as const, createdAt: 1,
+    nutrients: { calories: 190, protein: 6.5, fat: 3.4, carbs: 33, fiber: 5 } }
+
+  it('rebuilds a weighed food per 100 g, keyed by the food it came from, with the unit used as a serving', () => {
+    const per100g = { calories: 380, protein: 13, fat: 6.8, carbs: 66, fiber: 10 }
+    expect(foodFromEntry({ ...base, foodId: 'usda:1', grams: 80, per100g, amount: { quantity: 2, unit: '1 cup', unitGrams: 40 } }))
+      .toEqual({ id: 'usda:1', name: 'Oats', brand: undefined, source: 'usda', per100g, servings: [{ label: '1 cup', grams: 40 }] })
+    expect(foodFromEntry({ ...base, foodId: 'usda:1', grams: 50, per100g }).servings).toBeUndefined()
+  })
+
+  it('rebuilds a per-serving food from the unit it was logged in', () => {
+    const perUnit = { calories: 660, protein: 50, fat: 21, carbs: 68, fiber: null }
+    expect(foodFromEntry({ ...base, foodId: 'web:bowl', source: 'web', grams: null, perUnit, amount: { quantity: 1, unit: '1 bowl', unitGrams: null } }))
+      .toEqual({ id: 'web:bowl', name: 'Oats', brand: undefined, source: 'web', perServing: { label: '1 bowl', grams: null, nutrients: perUnit } })
+  })
+
+  it('treats a bare-numbers entry as one serving, keyed by the entry when no food is known', () => {
+    expect(foodFromEntry({ ...base, source: 'custom', grams: null }))
+      .toEqual({ id: 'entry:e1', name: 'Oats', brand: undefined, source: 'custom', perServing: { label: '1 serving', grams: null, nutrients: base.nutrients } })
   })
 })

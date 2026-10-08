@@ -278,7 +278,9 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
   const errorFor = (source: 'usda' | 'off') => result?.errors.find((e) => e.source === source)?.message
 
   // An online lookup outlives this sheet -- and the page, if the phone locks
-  // -- so pick a recent one back up, with the words it was for.
+  // -- so pick one back up, with the words it was for, while it is still
+  // running. Once it has settled it is forgotten: otherwise the last thing
+  // looked up would greet every opening as if it had just been typed.
   const [job, setJob] = useState<ResearchJob | null>(null)
   useEffect(() => {
     const saved = readSavedJob()

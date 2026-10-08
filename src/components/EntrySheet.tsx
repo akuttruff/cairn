@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Drawer } from 'vaul'
+import { Star } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import { scale } from '../lib/nutrition.ts'
-import { multiply } from '../lib/units.ts'
+import { foodFromEntry, multiply } from '../lib/units.ts'
 import { MEAL_LABELS, draftHasJunk, draftOf, nutrientsOf, parseNum } from '../lib/format.ts'
 import { MEALS, NUTRIENTS } from '../types.ts'
 import type { Entry, Meal, Nutrients } from '../types.ts'
@@ -27,7 +28,7 @@ interface EntrySheetProps {
  */
 export default function EntrySheet({ open, session, entry, onClose, onChanged }: EntrySheetProps) {
   return (
-    <Drawer.Root open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+    <Drawer.Root open={open} onOpenChange={(v) => { if (!v) onClose() }} repositionInputs={false}>
       <Drawer.Portal>
         <Drawer.Overlay className="drawer-overlay" />
         <Drawer.Content className="drawer-content" aria-describedby={undefined}>
@@ -48,6 +49,33 @@ function EntryForm({ entry, onClose, onChanged }: { entry: Entry; onClose: () =>
   const [numbersOpen, setNumbersOpen] = useState(false)
   const [numDraft, setNumDraft, numAuto] = useNutrientDraft(draftOf(entry.nutrients))
   const [busy, setBusy] = useState(false)
+
+  // Star: keep this food in My foods, or drop it. Known once the saved
+  // list has loaded; until then the star is just off.
+  const food = foodFromEntry(entry)
+  const [saved, setSaved] = useState(false)
+  useEffect(() => {
+    let live = true
+    api.foods()
+      .then((f) => { if (live) setSaved((f?.saved ?? []).some((x) => x.id === food.id)) })
+      .catch(() => { /* the star still works; it just starts off */ })
+    return () => { live = false }
+  }, [food.id])
+  const toggleSaved = async (): Promise<void> => {
+    try {
+      if (saved) {
+        await api.deleteFood(food.id)
+        setSaved(false)
+        toast.success(`Removed ${food.name} from My foods`)
+      } else {
+        await api.saveFood(food)
+        setSaved(true)
+        toast.success(`Saved ${food.name} to My foods`)
+      }
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
 
   // Edit in the unit it was logged in ("1.5 cup"); by weight if it was
   // weighed; by its numbers if it's a one-off with neither.
@@ -129,7 +157,18 @@ function EntryForm({ entry, onClose, onChanged }: { entry: Entry; onClose: () =>
 
   return (
     <>
-          <Drawer.Title className="drawer-title">{entry.name}</Drawer.Title>
+          <div className="sheet-top entry-top">
+            <Drawer.Title className="drawer-title">{entry.name}</Drawer.Title>
+            <button
+              type="button"
+              className={`star${saved ? ' on' : ''}`}
+              aria-pressed={saved}
+              aria-label={saved ? `Remove ${entry.name} from My foods` : `Save ${entry.name} to My foods`}
+              onClick={() => void toggleSaved()}
+            >
+              <Star size={18} fill={saved ? 'currentColor' : 'none'} aria-hidden="true" />
+            </button>
+          </div>
           <div className="drawer-scroll short" data-vaul-no-drag>
             {entry.brand && <div className="hint" style={{ marginTop: -10, marginBottom: 12 }}>{entry.brand}</div>}
             <div className="field">

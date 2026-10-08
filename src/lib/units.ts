@@ -1,5 +1,5 @@
 import { NUTRIENTS } from '../types.ts'
-import type { Amount, Food, MealPresetItem, Nutrients } from '../types.ts'
+import type { Amount, Entry, Food, MealPresetItem, Nutrients } from '../types.ts'
 import { emptyNutrients, scale } from './nutrition.ts'
 
 /**
@@ -92,6 +92,23 @@ export function entryFor(
   return unit.nutrients
     ? { ...base, grams, perUnit: unit.nutrients, amount }
     : { ...base, grams, per100g: food.per100g, amount }
+}
+
+/**
+ * The food a logged entry was made from, rebuilt from what the entry kept --
+ * the same way the server lists "recent" foods -- so it can be saved to My
+ * foods after the fact. Keyed by the original food when the entry knows it,
+ * so starring it is the same food the search would show, not a duplicate.
+ */
+export function foodFromEntry(e: Entry): Food {
+  const base = { id: e.foodId ?? `entry:${e.id}`, name: e.name, brand: e.brand, source: e.source }
+  if (e.per100g) {
+    const servings = e.amount?.unitGrams ? [{ label: e.amount.unit, grams: e.amount.unitGrams }] : undefined
+    return { ...base, per100g: e.per100g, servings }
+  }
+  if (e.perUnit && e.amount) return { ...base, perServing: { label: e.amount.unit, grams: e.amount.unitGrams, nutrients: e.perUnit } }
+  // Logged by its numbers alone: one serving is what was eaten.
+  return { ...base, perServing: { label: e.amount?.unit ?? '1 serving', grams: e.grams, nutrients: e.nutrients } }
 }
 
 /**

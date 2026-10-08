@@ -539,6 +539,40 @@ describe('App', () => {
     })
   })
 
+  it('stars a logged food into My foods from its entry, and unstars one already there', async () => {
+    const user = userEvent.setup()
+    const logged = entry({ foodId: banana.id, per100g: banana.per100g, grams: 120 })
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([logged]),
+      'GET /api/foods': { saved: [], recent: [] },
+      'POST /api/foods': banana,
+      'DELETE /api/foods/usda:173944': { ok: true },
+    })
+    render(<App />)
+    await user.click(await screen.findByText('Oats'))
+    const star = await screen.findByRole('button', { name: 'Save Oats to My foods' })
+    expect(star).toHaveAttribute('aria-pressed', 'false')
+    await user.click(star)
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/foods')).toBe(true))
+    expect(calls.find((c) => c.method === 'POST' && c.url === '/api/foods')!.body).toMatchObject({ id: banana.id, name: 'Oats', source: 'usda', per100g: banana.per100g })
+    const on = await screen.findByRole('button', { name: 'Remove Oats from My foods' })
+    expect(on).toHaveAttribute('aria-pressed', 'true')
+    await user.click(on)
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/foods/usda%3A173944')).toBe(true))
+    expect(await screen.findByRole('button', { name: 'Save Oats to My foods' })).toBeInTheDocument()
+  })
+
+  it('shows the star already on for a logged food that is in My foods', async () => {
+    const user = userEvent.setup()
+    stubApi({
+      [`GET /api/day/${TODAY}`]: day([entry({ foodId: banana.id, per100g: banana.per100g })]),
+      'GET /api/foods': { saved: [banana], recent: [] },
+    })
+    render(<App />)
+    await user.click(await screen.findByText('Oats'))
+    expect(await screen.findByRole('button', { name: 'Remove Oats from My foods' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
   it('deletes an entry', async () => {
     const user = userEvent.setup()
     const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([entry()]), 'DELETE /api/entries/e1': { ok: true } })
