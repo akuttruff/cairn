@@ -605,6 +605,10 @@ button:disabled { opacity: 0.45; cursor: default; }
 
 .search-box { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-bottom: 4px; color: var(--paper-dim); }
 .search-box input { flex: 1; min-width: 0; background: none; border: none; outline: none; color: var(--paper); font-size: 16px; padding: 0; }
+/* Our own clear button stands in for the browser's, which iOS does not show anyway. */
+.search-box input::-webkit-search-cancel-button, .search-box input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
+.search-clear { display: grid; place-items: center; background: none; border: none; color: var(--paper-dim); padding: 8px; margin: -8px -4px; border-radius: 50%; cursor: pointer; }
+.search-clear:active { color: var(--paper); }
 
 .saved-row { display: flex; align-items: center; }
 .saved-row .food-row { flex: 1; min-width: 0; }

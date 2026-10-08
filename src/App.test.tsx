@@ -241,6 +241,58 @@ describe('App', () => {
     expect(await screen.findByLabelText('Search foods')).toHaveValue('')
   })
 
+  it('clears the search box with its button, and puts the cursor back', async () => {
+    const user = userEvent.setup()
+    stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/search': { usda: [banana], off: [], errors: [] } })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    const box = await screen.findByLabelText('Search foods')
+    expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument()
+    await user.type(box, 'banana')
+    expect(await screen.findByText('Bananas, raw')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(box).toHaveValue('')
+    expect(box).toHaveFocus()
+    expect(screen.queryByText('Bananas, raw')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument()
+  })
+
+  it('does not bring back a finished online lookup, or its words, on the next opening', async () => {
+    // What the sheet remembers across openings is only a lookup still in
+    // flight. One that has answered used to refill the box every time.
+    const user = userEvent.setup()
+    localStorage.setItem('macros.research', 'j1')
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/search': { usda: [], off: [], errors: [] },
+      'GET /api/research/j1': {
+        id: 'j1', query: 'pad thai', status: 'done', step: 'done', startedAt: Date.now() - 60_000,
+        result: { query: 'pad thai', foods: [], model: 'qwen/qwen3.8-27b', seconds: 74 },
+      },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    const box = await screen.findByLabelText('Search foods')
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/research/j1')).toBe(true))
+    expect(box).toHaveValue('')
+    expect(screen.queryByRole('region', { name: 'Online' })).not.toBeInTheDocument()
+    await waitFor(() => expect(localStorage.getItem('macros.research')).toBeNull())
+  })
+
+  it('picks a still-running online lookup back up, with the words it was for', async () => {
+    const user = userEvent.setup()
+    localStorage.setItem('macros.research', 'j1')
+    stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/search': { usda: [], off: [], errors: [] },
+      'GET /api/research/j1': { id: 'j1', query: 'pad thai', status: 'running', step: 'reading', startedAt: Date.now() - 20_000 },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    expect(await screen.findByLabelText('Search foods')).toHaveValue('pad thai')
+    expect(await screen.findByText(/Looking it up/)).toBeInTheDocument()
+  })
+
   it('searches, picks a USDA food, and logs it in its household portion', async () => {
     const user = userEvent.setup()
     const calls = stubApi({

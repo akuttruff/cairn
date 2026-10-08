@@ -284,7 +284,7 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
     const saved = readSavedJob()
     if (!saved) return
     api.research(saved).then((j) => {
-      if (!isJob(j)) return
+      if (!isJob(j) || j.status !== 'running') { forgetJob(); return }
       setJob(j)
       setQ((cur) => cur || j.query)
     }).catch(() => forgetJob())
@@ -308,12 +308,25 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
     try {
       const j = await api.startResearch(text, refresh)
       if (!isJob(j)) return
-      saveJob(j.id)
+      // Only a running one is worth coming back to; a cached answer is instant.
+      if (j.status === 'running') saveJob(j.id)
+      else forgetJob()
       setJob(j)
     } catch (err) {
       toast.error((err as Error).message)
     }
   }, [])
+
+  // Start over: empty the box and drop the lookup that went with it, so
+  // neither comes back on the next opening.
+  const clear = (): void => {
+    const prev = jobRef.current
+    if (prev?.status === 'running') void api.cancelResearch(prev.id).catch(() => {})
+    forgetJob()
+    setJob(null)
+    setQ('')
+    input.current?.focus()
+  }
 
   const lookupable = query.length >= 3 && !isBarcodeQuery(query)
   useEffect(() => {
@@ -348,6 +361,11 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
+        {q && (
+          <button type="button" className="search-clear" aria-label="Clear search" onClick={clear}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        )}
       </form>
       <div className="drawer-scroll" data-vaul-no-drag>
         {yours.length > 0 && (
@@ -990,7 +1008,12 @@ function OnlineLookup({ query, job, auto, onJob, onStart, onRefresh, onPick, fav
     const poll = setInterval(() => {
       api.research(jobId)
         // Only if it's still the current job: a replaced one may answer late.
-        .then((j) => { if (isJob(j) && j.id === jobId) onJob(j) })
+        .then((j) => {
+          if (!isJob(j) || j.id !== jobId) return
+          // Settled: nothing left to come back to.
+          if (j.status !== 'running') forgetJob()
+          onJob(j)
+        })
         .catch(() => { forgetJob(); onJob(null) })
     }, POLL_MS)
     return () => { clearInterval(tick); clearInterval(poll) }
@@ -1028,7 +1051,7 @@ function OnlineLookup({ query, job, auto, onJob, onStart, onRefresh, onPick, fav
           <button
             type="button"
             className="link-btn"
-            onClick={() => { void api.cancelResearch(mine.id); onJob({ ...mine, status: 'error', error: 'Cancelled.' }) }}
+            onClick={() => { void api.cancelResearch(mine.id); forgetJob(); onJob({ ...mine, status: 'error', error: 'Cancelled.' }) }}
           >
             Cancel
           </button>
