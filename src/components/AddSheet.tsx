@@ -138,12 +138,14 @@ function mealFoodIds(presets: MealPreset[]): Set<string> {
 
 const normalizeMeals = (p: MealPreset[] | null | undefined): MealPreset[] => (Array.isArray(p) ? p : [])
 
-function FoodRow({ food, onPick, favorited, onToggleFavorite, inMeal }: {
+function FoodRow({ food, onPick, favorited, onToggleFavorite, onEdit, inMeal }: {
   food: Food
   onPick: (f: Food) => void
   /** Already in My foods. Omit favorited/onToggleFavorite together to leave the star off entirely. */
   favorited?: boolean
   onToggleFavorite?: (food: Food) => void
+  /** Correct this food's numbers right here, without picking it first. */
+  onEdit?: (food: Food) => void
   /** Used by at least one saved meal. */
   inMeal?: boolean
 }) {
@@ -174,10 +176,16 @@ function FoodRow({ food, onPick, favorited, onToggleFavorite, inMeal }: {
       </div>
     </button>
   )
-  if (!onToggleFavorite) return row
+  if (!onToggleFavorite && !onEdit) return row
   return (
     <div className="food-row-wrap">
       {row}
+      {onEdit && (
+        <button type="button" className="edit-food" aria-label={`Edit ${food.name}`} onClick={() => onEdit(food)}>
+          <Pencil size={15} aria-hidden="true" />
+        </button>
+      )}
+      {onToggleFavorite && (
       <button
         type="button"
         className={`favorite-btn${favorited ? ' on' : ''}`}
@@ -187,6 +195,7 @@ function FoodRow({ food, onPick, favorited, onToggleFavorite, inMeal }: {
       >
         <Star size={16} fill={favorited ? 'currentColor' : 'none'} aria-hidden="true" />
       </button>
+      )}
     </div>
   )
 }
@@ -247,6 +256,11 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
   const input = useRef<HTMLInputElement>(null)
   const [foods, setFoods] = useState<{ saved: Food[]; recent: Food[] }>({ saved: [], recent: [] })
   const [presets, setPresets] = useState<MealPreset[]>([])
+  // A result being corrected, and the corrected copies, shown in place of
+  // what the databases or the lookup said (the server remembers them too).
+  const [editing, setEditing] = useState<Food | null>(null)
+  const [fixed, setFixed] = useState<Map<string, Food>>(() => new Map())
+  const fix = (f: Food): Food => fixed.get(f.id) ?? f
 
   useEffect(() => {
     api.foods().then((f) => setFoods(normalizeFoods(f))).catch(() => { /* search still works */ })
@@ -337,6 +351,22 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
     return () => clearTimeout(t)
   }, [autoLookup, lookupable, query, lookUp])
 
+  if (editing) {
+    return (
+      <EditFood
+        food={editing}
+        fromResult
+        onCancel={() => setEditing(null)}
+        onSaved={(saved) => {
+          setFixed((prev) => new Map(prev).set(saved.id, saved))
+          // It is in My foods now: the star says so, and Yours lists it.
+          setFoods((prev) => ({ ...prev, saved: [...prev.saved.filter((x) => x.id !== saved.id), saved] }))
+          setEditing(null)
+        }}
+      />
+    )
+  }
+
   return (
     <>
       <form
@@ -373,10 +403,11 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
         {yours.length > 0 && (
           <section className="result-group" aria-label="Yours">
             <h3 className="sheet-h">Yours <span className="src">saved &amp; recent</span></h3>
-            {yours.map((f) => (
+            {yours.map(fix).map((f) => (
               <FoodRow
                 key={f.id} food={f} onPick={onPick}
                 favorited={favorites.ids.has(f.id)} onToggleFavorite={(food) => void favorites.toggle(food)}
+                onEdit={setEditing}
                 inMeal={inMeal.has(f.id)}
               />
             ))}
@@ -387,7 +418,7 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
         {lookupable && (
           <OnlineLookup
             query={query} job={job} auto={autoLookup} onJob={setJob} onStart={() => void lookUp(query, true)} onRefresh={() => void lookUp(query, true, true)}
-            onPick={onPick} favorites={favorites} inMeal={inMeal}
+            onPick={onPick} onEdit={setEditing} fix={fix} favorites={favorites} inMeal={inMeal}
           />
         )}
         {busy && <div className="hint center">Searching…</div>}
@@ -399,22 +430,22 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
               <ResultGroup
                 title={result.barcode ? 'Barcode' : result.brand!}
                 subtitle="Open Food Facts"
-                foods={result.off}
+                foods={result.off.map(fix)}
                 error={errorFor('off')}
                 empty={result.barcode ? 'No product with that barcode yet.' : undefined}
-                onPick={onPick}
+                onPick={onPick} onEdit={setEditing}
                 favorites={favorites} inMeal={inMeal}
               />
             )
             : (
               <>
                 <ResultGroup
-                  title="Whole foods" subtitle="USDA" foods={result.usda} error={errorFor('usda')}
-                  onPick={onPick} favorites={favorites} inMeal={inMeal}
+                  title="Whole foods" subtitle="USDA" foods={result.usda.map(fix)} error={errorFor('usda')}
+                  onPick={onPick} onEdit={setEditing} favorites={favorites} inMeal={inMeal}
                 />
                 <ResultGroup
-                  title="Packaged" subtitle="Open Food Facts" foods={result.off} error={errorFor('off')}
-                  onPick={onPick} favorites={favorites} inMeal={inMeal}
+                  title="Packaged" subtitle="Open Food Facts" foods={result.off.map(fix)} error={errorFor('off')}
+                  onPick={onPick} onEdit={setEditing} favorites={favorites} inMeal={inMeal}
                 />
               </>
             )
@@ -432,9 +463,9 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
   )
 }
 
-function ResultGroup({ title, subtitle, foods, error, empty = 'No matches.', onPick, favorites, inMeal }: {
+function ResultGroup({ title, subtitle, foods, error, empty = 'No matches.', onPick, onEdit, favorites, inMeal }: {
   title: string; subtitle: string; foods: Food[]; error?: string; empty?: string
-  onPick: (f: Food) => void; favorites: Favorites; inMeal: Set<string>
+  onPick: (f: Food) => void; onEdit?: (f: Food) => void; favorites: Favorites; inMeal: Set<string>
 }) {
   return (
     <section className="result-group" aria-label={title}>
@@ -445,6 +476,7 @@ function ResultGroup({ title, subtitle, foods, error, empty = 'No matches.', onP
         <FoodRow
           key={f.id} food={f} onPick={onPick}
           favorited={favorites.ids.has(f.id)} onToggleFavorite={(food) => void favorites.toggle(food)}
+          onEdit={onEdit}
           inMeal={inMeal.has(f.id)}
         />
       ))}
@@ -1072,7 +1104,7 @@ const isBarcodeQuery = (q: string): boolean => /^\d{8,14}$/.test(q.replace(/[\s-
  * particular build of a bowl. Takes a minute or two, so it runs on the server
  * and this polls; it starts by itself once typing pauses, unless turned off.
  */
-function OnlineLookup({ query, job, auto, onJob, onStart, onRefresh, onPick, favorites, inMeal }: {
+function OnlineLookup({ query, job, auto, onJob, onStart, onRefresh, onPick, onEdit, fix = (f) => f, favorites, inMeal }: {
   query: string
   job: ResearchJob | null
   auto: boolean
@@ -1081,6 +1113,9 @@ function OnlineLookup({ query, job, auto, onJob, onStart, onRefresh, onPick, fav
   /** Run the lookup again, ignoring the remembered answer. */
   onRefresh: () => void
   onPick: (f: Food) => void
+  onEdit?: (f: Food) => void
+  /** A corrected copy of a found food, when there is one. */
+  fix?: (f: Food) => Food
   favorites: Favorites
   inMeal: Set<string>
 }) {
@@ -1152,10 +1187,11 @@ function OnlineLookup({ query, job, auto, onJob, onStart, onRefresh, onPick, fav
       {mine.status === 'done' && mine.result && (
         <>
           {mine.result.foods.length
-            ? mine.result.foods.map((f) => (
+            ? mine.result.foods.map(fix).map((f) => (
               <FoodRow
                 key={f.id} food={f} onPick={onPick}
                 favorited={favorites.ids.has(f.id)} onToggleFavorite={(food) => void favorites.toggle(food)}
+                onEdit={onEdit}
                 inMeal={inMeal.has(f.id)}
               />
             ))

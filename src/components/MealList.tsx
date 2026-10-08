@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { Check } from 'lucide-react'
 import { MEALS } from '../types.ts'
 import { MEAL_LABELS, fmt } from '../lib/format.ts'
 import { describeAmount } from '../lib/units.ts'
