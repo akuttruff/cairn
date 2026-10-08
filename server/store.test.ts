@@ -1226,7 +1226,7 @@ describe('ranges', () => {
   })
 
   it('scores each logged day against its own goal, and says how the days were split', () => {
-    // A target a banana can meet: at least 1 g protein; at most 1 g fat, 30 g carbs and (with the buffer) 233 kcal.
+    // A target a banana can nearly meet: at least 1 g protein and 1 g fat; at most 30 g carbs and (with the buffer) 233 kcal.
     store.setGoals({ protein: 1, fat: 1, carbs: 30, trainingCarbs: 10 })
     store.addEntry(banana({ date: D1 })) // 118 g: 105 kcal, 1.3 g protein, 26.9 g carbs, 0.4 g fat, 3.1 g fiber
     store.setDayType(D3, 'training')
@@ -1234,9 +1234,9 @@ describe('ranges', () => {
     expect(range.dayTypes).toEqual({ training: 1, rest: 2 })
     expect(range.days[0]!.goals.carbs).toEqual({ min: 30, max: 30 })
     expect(range.days[2]!.goals.carbs).toEqual({ min: 40, max: 40 }) // the training day's bump
-    // Only D1 was logged: it met everything but fiber (3.1 g of the 30 g goal).
+    // Only D1 was logged: it met everything but the floors a banana can't reach -- fat (0.4 of 1 g) and fiber (3.1 of 30 g).
     expect(range.scorecard).toEqual({
-      calories: { met: 1, of: 1 }, protein: { met: 1, of: 1 }, fat: { met: 1, of: 1 }, carbs: { met: 1, of: 1 }, fiber: { met: 0, of: 1 },
+      calories: { met: 1, of: 1 }, protein: { met: 1, of: 1 }, fat: { met: 0, of: 1 }, carbs: { met: 1, of: 1 }, fiber: { met: 0, of: 1 },
     })
   })
 

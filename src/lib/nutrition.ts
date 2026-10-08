@@ -202,10 +202,11 @@ export function rangeStatus(total: number, range: MacroRange): RangeStatus {
  * Caps: the goal is to stay under them, and coming in under is a win.
  * Going past turns the bar red and costs the day its goal.
  */
-export const OVER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['calories', 'carbs', 'fat'])
+export const OVER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['calories', 'carbs'])
 
 /** Floors: the goal is to reach them, and going over is fine. */
-export const UNDER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['protein', 'fiber'])
+/** Fat is a floor too: a daily minimum to eat, not a cap. */
+export const UNDER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['protein', 'fat', 'fiber'])
 
 /** Which way a nutrient's goal points, in words: "stay under" a cap, "reach" a floor. */
 export const goalDirection = (key: NutrientKey): string => (OVER_IS_BAD.has(key) ? 'stay under' : 'reach')

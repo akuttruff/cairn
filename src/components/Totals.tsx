@@ -13,8 +13,8 @@ interface TotalsProps extends DayTotals {
   onSetDayType: (type: DayType) => void
 }
 
-/** The grid under the calories: the two to reach on top, then the two to stay under. */
-const MACROS: Exclude<NutrientKey, 'calories'>[] = ['protein', 'fiber', 'carbs', 'fat']
+/** The grid under the calories: the ones to reach first, the one to stay under last. */
+const MACROS: Exclude<NutrientKey, 'calories'>[] = ['protein', 'fat', 'fiber', 'carbs']
 
 /** Marks a total that leaves out entries whose source didn't report it. */
 function Partial({ count }: { count: number }) {
@@ -28,8 +28,8 @@ function Partial({ count }: { count: number }) {
 
 /**
  * The day against its goals. Each goal says which way it points -- "max"
- * for the ones to stay under (calories, carbs, fat), "min" for the ones to
- * reach (protein, fiber) -- and the line under each bar says where the day
+ * for the ones to stay under (calories, carbs), "min" for the ones to
+ * reach (protein, fat, fiber) -- and the line under each bar says where the day
  * stands in those terms: so much left or over a max, so much to go to a
  * min, or met.
  *

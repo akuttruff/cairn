@@ -35,7 +35,7 @@ type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'trainingWate
 const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
   // Each says which way it points: a min to reach, or a max to stay under.
   { key: 'protein', label: 'Protein (g, min)' },
-  { key: 'fat', label: 'Fat (g, max)' },
+  { key: 'fat', label: 'Fat (g, min)' },
   { key: 'carbs', label: 'Carbs (g, max)' },
   // With the macros, filling the two-by-two grid: a minimum to reach, the same on any day.
   { key: 'fiber', label: 'Fiber (g, min)' },

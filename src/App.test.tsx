@@ -103,12 +103,12 @@ describe('App', () => {
     expect(screen.getByRole('progressbar', { name: 'Fiber' })).toHaveAttribute('aria-valuenow', '5')
   })
 
-  it('lists the goals to reach (protein, fiber) above the ones to stay under (carbs, fat)', async () => {
+  it('lists the goals to reach (protein, fat, fiber) before the one to stay under (carbs)', async () => {
     stubApi({ [`GET /api/day/${TODAY}`]: day([entry()]) })
     render(<App />)
     const card = await screen.findByRole('region', { name: 'Daily totals' })
     const names = [...card.querySelectorAll('.macro-grid .macro-name')].map((el) => el.textContent)
-    expect(names).toEqual(['Protein', 'Fiber', 'Carbs', 'Fat'])
+    expect(names).toEqual(['Protein', 'Fat', 'Fiber', 'Carbs'])
   })
 
   it("shows the scale's latest readings in lb, with the change since the last one", async () => {
@@ -173,19 +173,20 @@ describe('App', () => {
     expect(await screen.findByTitle('1 item missing this value')).toBeInTheDocument()
   })
 
-  it('flags going over on carbs and fat, which are maxes, but not on protein or fiber, which are mins', async () => {
+  it('flags going over on carbs, a max, but not on protein, fat or fiber, which are mins', async () => {
     stubApi({ [`GET /api/day/${TODAY}`]: day([], { totals: { calories: 1000, protein: 200, fat: 100, carbs: 250, fiber: 45 } }) })
     render(<App />)
     await screen.findByText('Today')
     expect(screen.getByRole('progressbar', { name: 'Carbs' })).toHaveClass('over')
-    expect(screen.getByRole('progressbar', { name: 'Fat' })).toHaveClass('over')
+    expect(screen.getByRole('progressbar', { name: 'Fat' })).not.toHaveClass('over')
     expect(screen.getByRole('progressbar', { name: 'Protein' })).not.toHaveClass('over')
     expect(screen.getByRole('progressbar', { name: 'Fiber' })).not.toHaveClass('over')
     // Each goal says which way it points, and the line under it says where the day stands.
-    expect(screen.getByText('/ max 65g')).toBeInTheDocument()
-    expect(screen.getByText('35 g over')).toBeInTheDocument() // fat 100 against 65
+    expect(screen.getByText('/ max 200g')).toBeInTheDocument()
+    expect(screen.getByText('50 g over')).toBeInTheDocument() // carbs 250 against 200
+    expect(screen.getByText('/ min 65g')).toBeInTheDocument() // fat is a floor now
     expect(screen.getByText('/ min 150g')).toBeInTheDocument()
-    expect(screen.getAllByText('Goal met')).toHaveLength(2) // protein 200 >= 150, fiber 45 >= 30
+    expect(screen.getAllByText('Goal met')).toHaveLength(3) // protein 200 >= 150, fat 100 >= 65, fiber 45 >= 30
   })
 
   it('counts down to a min that has not been reached yet', async () => {
@@ -193,7 +194,7 @@ describe('App', () => {
     render(<App />)
     expect(await screen.findByText('60 g to go')).toBeInTheDocument() // protein 90 of 150
     expect(screen.getByText('18 g to go')).toBeInTheDocument() // fiber 12 of 30
-    expect(screen.getByText('45 g left')).toBeInTheDocument() // fat 20 of a 65 max
+    expect(screen.getByText('45 g to go')).toBeInTheDocument() // fat 20 of a 65 min
   })
 
   it('says how far over the calorie goal the day is', async () => {

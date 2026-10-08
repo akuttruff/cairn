@@ -201,21 +201,23 @@ describe('goalMet', () => {
     expect(goalMet(237.1, { min: 220, max: 237 }, 'carbs')).toBe(false)
   })
 
-  it('treats fat as a cap too: at or under the goal is a hit, over is a miss', () => {
+  it('treats fat as a floor, like protein: at or over the goal is a hit, under is a miss', () => {
     const r = { min: 60, max: 60 }
     expect(goalMet(60, r, 'fat')).toBe(true)
-    expect(goalMet(40, r, 'fat')).toBe(true)
-    expect(goalMet(60.1, r, 'fat')).toBe(false)
+    expect(goalMet(80, r, 'fat')).toBe(true)
+    expect(goalMet(59.9, r, 'fat')).toBe(false)
   })
 
   it('says which way each goal points, and where a day stands in those terms', () => {
     const r = { min: 60, max: 60 }
-    expect(goalDirection('fat')).toBe('stay under')
+    expect(goalDirection('fat')).toBe('reach')
+    expect(goalDirection('carbs')).toBe('stay under')
     expect(goalDirection('protein')).toBe('reach')
     expect(goalLabel('calories', { min: 1800, max: 1800 })).toBe('max 1800')
     expect(goalLabel('fiber', { min: 30, max: 30 })).toBe('min 30')
-    expect(goalStatus('fat', 45, r, 'g')).toEqual({ text: '15 g left', bad: false, met: true })
-    expect(goalStatus('fat', 72, r, 'g')).toEqual({ text: '12 g over', bad: true, met: false })
+    expect(goalStatus('carbs', 45, r, 'g')).toEqual({ text: '15 g left', bad: false, met: true })
+    expect(goalStatus('carbs', 72, r, 'g')).toEqual({ text: '12 g over', bad: true, met: false })
+    expect(goalStatus('fat', 45, r, 'g')).toEqual({ text: '15 g to go', bad: false, met: false })
     expect(goalStatus('protein', 110, { min: 130, max: 130 }, 'g')).toEqual({ text: '20 g to go', bad: false, met: false })
     expect(goalStatus('protein', 150, { min: 130, max: 130 }, 'g')).toEqual({ text: 'Goal met', bad: false, met: true })
   })
