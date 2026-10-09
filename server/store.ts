@@ -256,6 +256,12 @@ CREATE INDEX IF NOT EXISTS idx_body_measurements_date ON body_measurements(date)
 CREATE TABLE IF NOT EXISTS lookup_cache (
   key TEXT PRIMARY KEY, at INTEGER NOT NULL, result TEXT NOT NULL
 );
+
+-- Notes on a week or month, written by the local model; fingerprint is what they were written from.
+CREATE TABLE IF NOT EXISTS range_notes (
+  key TEXT PRIMARY KEY, start_date TEXT NOT NULL, end_date TEXT NOT NULL, fingerprint TEXT NOT NULL,
+  text TEXT NOT NULL, model TEXT NOT NULL, at INTEGER NOT NULL
+);
 `
 
 /**
@@ -375,6 +381,7 @@ function migrateSchema(db: DatabaseSync): void {
     // The workout activities, set up in Settings; null means the built-in six.
     const cols = db.prepare('PRAGMA table_info(settings)').all() as { name: string }[]
     if (!cols.some((c) => c.name === 'workout_kinds')) db.exec('ALTER TABLE settings ADD COLUMN workout_kinds TEXT')
+    if (!cols.some((c) => c.name === 'notes_model')) db.exec("ALTER TABLE settings ADD COLUMN notes_model TEXT NOT NULL DEFAULT ''")
     db.exec('PRAGMA user_version = 13')
   }
 }
@@ -696,12 +703,12 @@ const cleanNote = (input: unknown): string | undefined =>
   (typeof input === 'string' && input.trim() ? input.trim().slice(0, MAX_NAME) : undefined)
 interface SettingsRow {
   usda_api_key: string; lm_studio_url: string; lm_studio_token: string; research_model: string; auto_lookup: number
-  app_icon: string; charts: string | null; workout_kinds: string | null
+  app_icon: string; charts: string | null; workout_kinds: string | null; notes_model: string | null
 }
 function settingsFromRow(row: SettingsRow): Settings {
   return {
     usdaApiKey: row.usda_api_key, lmStudioUrl: row.lm_studio_url, lmStudioToken: row.lm_studio_token,
-    researchModel: row.research_model, autoLookup: row.auto_lookup === 1,
+    researchModel: row.research_model, notesModel: row.notes_model ?? '', autoLookup: row.auto_lookup === 1,
     appIcon: (APP_ICONS as readonly string[]).includes(row.app_icon) ? row.app_icon as AppIcon : 'ring',
     charts: parseCharts(row.charts),
     workoutKinds: parseWorkoutKinds(row.workout_kinds),
@@ -763,6 +770,7 @@ function migrateFromJson(paths: ReturnType<typeof locate>): void {
     lmStudioUrl: typeof rawSettings.lmStudioUrl === 'string' && rawSettings.lmStudioUrl ? rawSettings.lmStudioUrl : 'http://127.0.0.1:1234',
     lmStudioToken: typeof rawSettings.lmStudioToken === 'string' ? rawSettings.lmStudioToken : '',
     researchModel: typeof rawSettings.researchModel === 'string' ? rawSettings.researchModel : '',
+    notesModel: '',
     autoLookup: typeof rawSettings.autoLookup === 'boolean' ? rawSettings.autoLookup : true,
     appIcon: 'ring',
     charts: [...DEFAULT_CHARTS],
@@ -911,6 +919,8 @@ interface Stmts {
   selectBodyBetween: StatementSync
   selectLookup: StatementSync
   upsertLookup: StatementSync
+  selectNotes: StatementSync
+  upsertNotes: StatementSync
   pruneLookups: StatementSync
 }
 
@@ -1023,7 +1033,7 @@ export class Store {
       ),
       selectSettings: this.db.prepare('SELECT * FROM settings WHERE id = 1'),
       updateSettings: this.db.prepare(
-        'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=?, app_icon=?, charts=?, workout_kinds=? WHERE id=1',
+        'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=?, app_icon=?, charts=?, workout_kinds=?, notes_model=? WHERE id=1',
       ),
       selectWaterByDate: this.db.prepare('SELECT * FROM water_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
       selectWaterBetween: this.db.prepare('SELECT * FROM water_logs WHERE date >= ? AND date <= ?'),
@@ -1052,6 +1062,11 @@ export class Store {
       // The two latest readings of a kind on or before a day: the current one, and the one it changed from.
       selectBodyUpTo: this.db.prepare('SELECT * FROM body_measurements WHERE metric = ? AND date <= ? ORDER BY measured_at DESC LIMIT 2'),
       selectBodyBetween: this.db.prepare('SELECT * FROM body_measurements WHERE date >= ? AND date <= ? ORDER BY measured_at'),
+      selectNotes: this.db.prepare('SELECT start_date AS start, end_date AS end, fingerprint, text, model, at FROM range_notes WHERE key = ?'),
+      upsertNotes: this.db.prepare(
+        'INSERT INTO range_notes (key,start_date,end_date,fingerprint,text,model,at) VALUES (?,?,?,?,?,?,?) '
+        + 'ON CONFLICT(key) DO UPDATE SET fingerprint=excluded.fingerprint, text=excluded.text, model=excluded.model, at=excluded.at',
+      ),
       selectLookup: this.db.prepare('SELECT at, result FROM lookup_cache WHERE key = ?'),
       upsertLookup: this.db.prepare(
         'INSERT INTO lookup_cache (key,at,result) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET at=excluded.at, result=excluded.result',
@@ -1795,6 +1810,19 @@ export class Store {
     }
   }
 
+  // --- notes on a week or month ----------------------------------------------
+
+  /** The notes written for this exact range, if any, with what they were written from. */
+  getNotes(start: string, end: string): { start: string; end: string; fingerprint: string; text: string; model: string; at: number } | null {
+    const row = this.stmts.selectNotes.get(`${start}..${end}`) as unknown as
+      { start: string; end: string; fingerprint: string; text: string; model: string; at: number } | undefined
+    return row ?? null
+  }
+
+  saveNotes(start: string, end: string, fingerprint: string, text: string, model: string): void {
+    this.stmts.upsertNotes.run(`${start}..${end}`, start, end, fingerprint, text, model, Date.now())
+  }
+
   deleteFood(id: string): void {
     const result = this.stmts.deleteFood.run(id) // cascades servings/sources
     if (result.changes === 0) throw new ValidationError('no such food')
@@ -1925,6 +1953,7 @@ export class Store {
       hasLmStudioToken: Boolean(s.lmStudioToken),
       lmStudioUrl: s.lmStudioUrl,
       researchModel: s.researchModel,
+      notesModel: s.notesModel,
       autoLookup: s.autoLookup,
       appIcon: s.appIcon,
       charts: s.charts,
@@ -1937,6 +1966,7 @@ export class Store {
     if (typeof input.usdaApiKey === 'string') next.usdaApiKey = input.usdaApiKey.trim().slice(0, 100)
     if (typeof input.lmStudioToken === 'string') next.lmStudioToken = input.lmStudioToken.trim().slice(0, 300)
     if (typeof input.researchModel === 'string') next.researchModel = input.researchModel.trim().slice(0, 200)
+    if (typeof input.notesModel === 'string') next.notesModel = input.notesModel.trim().slice(0, 200)
     if (typeof input.autoLookup === 'boolean') next.autoLookup = input.autoLookup
     if (input.appIcon !== undefined) {
       if (!(APP_ICONS as readonly string[]).includes(input.appIcon)) throw new ValidationError(`appIcon must be one of ${APP_ICONS.join(', ')}`)
@@ -1961,7 +1991,7 @@ export class Store {
       }
       next.lmStudioUrl = url || 'http://127.0.0.1:1234'
     }
-    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon, JSON.stringify(next.charts), JSON.stringify(next.workoutKinds))
+    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon, JSON.stringify(next.charts), JSON.stringify(next.workoutKinds), next.notesModel)
     return this.getPublicSettings()
   }
 }

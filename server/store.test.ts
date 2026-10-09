@@ -281,7 +281,7 @@ describe('goals and settings', () => {
   it('never exposes the USDA key', () => {
     store.setSettings({ usdaApiKey: 'SECRETKEY', lmStudioToken: 'sk-lm-SECRET' })
     const pub = store.getPublicSettings()
-    expect(pub).toEqual({ hasUsdaKey: true, hasLmStudioToken: true, lmStudioUrl: 'http://127.0.0.1:1234', researchModel: '', autoLookup: true, appIcon: 'ring',
+    expect(pub).toEqual({ hasUsdaKey: true, hasLmStudioToken: true, lmStudioUrl: 'http://127.0.0.1:1234', researchModel: '', notesModel: '', autoLookup: true, appIcon: 'ring',
       charts: ['calories', 'protein', 'fiber', 'water'], workoutKinds: DEFAULT_WORKOUT_KINDS,
     })
     expect(JSON.stringify(pub)).not.toMatch(/SECRET/)
@@ -1249,5 +1249,26 @@ describe('ranges', () => {
   it('rejects a range longer than a year', () => {
     expect(() => store.getRange('2025-01-01', '2026-01-02')).toThrow(/too long/)
     expect(() => store.getRange('2025-01-01', '2026-01-01')).not.toThrow()
+  })
+})
+
+describe('notes on a week or month', () => {
+  let dir: string
+  let store: Store
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cairn-notes-')); store = new Store({ dir }) })
+  afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }) })
+
+  it('keeps one set of notes per range, replaced when rewritten, and survives a reopen', () => {
+    expect(store.getNotes('2026-10-05', '2026-10-11')).toBeNull()
+    store.saveNotes('2026-10-05', '2026-10-11', 'fp1', 'A good week.', 'qwen/qwen3.5-9b')
+    store.saveNotes('2026-10-05', '2026-10-11', 'fp2', 'A better week.', 'qwen/qwen3.5-9b')
+    const again = new Store({ dir }).getNotes('2026-10-05', '2026-10-11')!
+    expect(again).toMatchObject({ start: '2026-10-05', end: '2026-10-11', fingerprint: 'fp2', text: 'A better week.', model: 'qwen/qwen3.5-9b' })
+    expect(store.getNotes('2026-10-01', '2026-10-31')).toBeNull()
+  })
+
+  it('stores a notes model of its own in settings', () => {
+    expect(store.setSettings({ notesModel: ' qwen/qwen3.5-9b ' }).notesModel).toBe('qwen/qwen3.5-9b')
+    expect(new Store({ dir }).getSettings().notesModel).toBe('qwen/qwen3.5-9b')
   })
 })

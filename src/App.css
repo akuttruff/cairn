@@ -786,3 +786,10 @@ button:disabled { opacity: 0.45; cursor: default; }
 .add-to-meal-new { display: flex; gap: 8px; margin: 10px 0 4px; }
 .add-to-meal-new input { flex: 1 1 auto; min-width: 0; }
 .add-to-meal-new .primary { flex: 0 0 auto; padding: 0 16px; }
+
+/* Notes on a week or month, from the local model. */
+.notes-card .water-label { display: inline-flex; align-items: center; gap: 6px; }
+.notes-refresh { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--paper-dim); }
+.notes-text p { margin: 0 0 10px; font-size: 14.5px; line-height: 1.55; }
+.notes-text p:last-of-type { margin-bottom: 6px; }
+.notes-meta { font-family: var(--mono); font-size: 10.5px; color: var(--paper-dim); }

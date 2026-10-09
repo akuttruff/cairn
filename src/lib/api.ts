@@ -1,5 +1,5 @@
 import type {
-  DayType, DayView, Entry, Food, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeView, Serving,
+  DayType, DayView, Entry, Food, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeNotes, RangeView, Serving,
   AlcoholKind, AlcoholLog, AppIcon, ChartKey, WaterLog, LmModelOption, MeditationLog, DogWalkLog, WorkoutKind, WorkoutKindDef, WorkoutLog, WorkoutPlan,
 } from '../types.ts'
 
@@ -95,7 +95,7 @@ export const api = {
   addDogWalk: (w: { date: string; miles?: number }) => request<DogWalkLog>('POST', '/api/dog-walks', w),
   deleteDogWalk: (id: string) => request<{ ok: true }>('DELETE', `/api/dog-walks/${encodeURIComponent(id)}`),
   settings: () => request<PublicSettings>('GET', '/api/settings'),
-  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; autoLookup?: boolean; appIcon?: AppIcon; charts?: ChartKey[]; workoutKinds?: WorkoutKindDef[] }) =>
+  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; notesModel?: string; autoLookup?: boolean; appIcon?: AppIcon; charts?: ChartKey[]; workoutKinds?: WorkoutKindDef[] }) =>
     request<PublicSettings>('PUT', '/api/settings', s),
   /** LLMs LM Studio has downloaded, for the model picker. `error` says why the list is empty. */
   lmModels: () => request<{ models: LmModelOption[]; error: string | null }>('GET', '/api/lm-models'),
@@ -104,6 +104,10 @@ export const api = {
     request<ResearchJob>('POST', '/api/research', refresh ? { q, refresh: true } : { q }),
   research: (id: string) => request<ResearchJob>('GET', `/api/research/${encodeURIComponent(id)}`),
   cancelResearch: (id: string) => request<{ cancelled: boolean }>('DELETE', `/api/research/${encodeURIComponent(id)}`),
+  /** Notes on a week or month, if written; `stale` when the numbers moved since. */
+  notes: (start: string, end: string) => request<{ notes: RangeNotes | null }>('GET', `/api/notes?start=${start}&end=${end}`),
+  /** Write (or rewrite) the notes now; a few seconds on a small model. */
+  writeNotes: (start: string, end: string) => request<{ notes: RangeNotes | null }>('POST', '/api/notes', { start, end }),
   meals: () => request<MealPreset[]>('GET', '/api/meals'),
   /** Create with no id; save an edit with the id of the meal it replaces. */
   saveMeal: (meal: { id?: string; name: string; items: MealPresetItem[] }) =>

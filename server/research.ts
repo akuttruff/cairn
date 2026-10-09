@@ -159,7 +159,7 @@ interface LmModel {
   capabilities?: { reasoning?: { allowed_options?: string[] } }
 }
 
-const authHeaders = (settings: Settings): Record<string, string> =>
+export const authHeaders = (settings: Settings): Record<string, string> =>
   (settings.lmStudioToken ? { Authorization: `Bearer ${settings.lmStudioToken}` } : {})
 
 async function fetchLmModels(settings: Settings, fetchImpl: typeof fetch, signal?: AbortSignal): Promise<LmModel[]> {
@@ -202,9 +202,11 @@ export async function chooseModel(
   settings: Settings,
   fetchImpl: typeof fetch,
   signal?: AbortSignal,
+  /** A model to prefer over the research one (the notes model, when set). */
+  preferred = '',
 ): Promise<{ model: string; reasoning: string | null }> {
   const models = await fetchLmModels(settings, fetchImpl, signal)
-  const wanted = settings.researchModel
+  const wanted = preferred || settings.researchModel
   const entry = wanted
     ? models.find((m) => m.key === wanted || m.loaded_instances?.some((i) => i.id === wanted))
     : models.find((m) => m.type === 'llm' && m.loaded_instances?.length)
@@ -215,7 +217,7 @@ export async function chooseModel(
   return { model, reasoning }
 }
 
-async function describeError(res: Response): Promise<string> {
+export async function describeError(res: Response): Promise<string> {
   let detail = ''
   try {
     const text = await res.text()
@@ -440,4 +442,43 @@ export class ResearchJobs {
       if (job.status !== 'running' && job.startedAt < cutoff) this.jobs.delete(id)
     }
   }
+}
+
+/**
+ * One plain reply from LM Studio: the text of a /api/v1/chat stream with no
+ * tools, for the short jobs (the week's notes) that just want words back.
+ */
+export async function chatText(
+  settings: Settings,
+  body: Record<string, unknown>,
+  fetchImpl: typeof fetch,
+  signal?: AbortSignal,
+): Promise<string> {
+  const res = await fetchImpl(`${settings.lmStudioUrl.replace(/\/+$/, '')}/api/v1/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders(settings) },
+    body: JSON.stringify({ ...body, stream: true }),
+    signal,
+  })
+  if (!res.ok) throw new Error(await describeError(res))
+  if (!res.body) throw new Error('LM Studio returned no stream.')
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  let text = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop() ?? ''
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue
+      let evt: { type?: string; content?: string; error?: { message?: string } }
+      try { evt = JSON.parse(line.slice(5).trim()) } catch { continue }
+      if (evt.type === 'message.delta') text += evt.content ?? ''
+      else if (evt.type === 'error') throw new Error(evt.error?.message || 'LM Studio reported an error.')
+    }
+  }
+  return text.trim()
 }

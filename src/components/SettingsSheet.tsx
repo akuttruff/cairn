@@ -92,6 +92,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const [lmToken, setLmToken] = useState('')
   const [lmModel, setLmModel] = useState<string | null>(null)
   const [autoLookup, setAutoLookup] = useState<boolean | null>(null)
+  const [notesModel, setNotesModel] = useState<string | null>(null)
   const [appIcon, setAppIcon] = useState<AppIcon | null>(null)
   // Which daily charts Week and Month draw; null until one is toggled.
   const [charts, setCharts] = useState<ChartKey[] | null>(null)
@@ -127,6 +128,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   }, [kinds, goals, settings])
 
   const chosenModel = lmModel ?? settings?.researchModel ?? ''
+  const chosenNotesModel = notesModel ?? settings?.notesModel ?? ''
 
   const setKind = (i: number, patch: Partial<KindRow>): void =>
     setKinds((rows) => rows && rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
@@ -172,6 +174,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       if (lmToken.trim()) changes.lmStudioToken = lmToken.trim()
       if (lmUrl != null && lmUrl.trim() !== settings?.lmStudioUrl) changes.lmStudioUrl = lmUrl.trim()
       if (lmModel != null && lmModel.trim() !== settings?.researchModel) changes.researchModel = lmModel.trim()
+      if (notesModel != null && notesModel.trim() !== settings?.notesModel) changes.notesModel = notesModel.trim()
       if (autoLookup != null && autoLookup !== settings?.autoLookup) changes.autoLookup = autoLookup
       const iconChanged = appIcon != null && appIcon !== settings?.appIcon
       if (iconChanged) changes.appIcon = appIcon
@@ -417,6 +420,17 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
                     &ldquo;whichever is loaded&rdquo; and lookups fail whenever nothing is loaded, as after a restart.
                   </div>
                 )}
+            </div>
+            <div className="field">
+              <label htmlFor="notes-model">Notes model</label>
+              <select id="notes-model" value={chosenNotesModel} onChange={(e) => setNotesModel(e.target.value)}>
+                <option value="">Same as the lookup model</option>
+                {chosenNotesModel && !models.some((m) => m.key === chosenNotesModel) && <option value={chosenNotesModel}>{chosenNotesModel}</option>}
+                {models.map((m) => <option key={m.key} value={m.key}>{m.key}{m.loaded ? ' (loaded)' : ''}</option>)}
+              </select>
+              <div className="hint">
+                Writes the notes on each week and month in Week and Month view. A small, fast model is plenty for this.
+              </div>
             </div>
           </div>
           <div className="drawer-actions">

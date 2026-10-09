@@ -486,6 +486,8 @@ export interface Settings {
   lmStudioToken: string
   /** Model to research with; blank uses whichever LLM LM Studio has loaded. */
   researchModel: string
+  /** Model that writes the week and month notes; blank uses the research model's choice. */
+  notesModel: string
   /** Start an online lookup by itself once you stop typing. */
   autoLookup: boolean
   appIcon: AppIcon
@@ -507,10 +509,25 @@ export interface PublicSettings {
   hasLmStudioToken: boolean
   lmStudioUrl: string
   researchModel: string
+  notesModel: string
   autoLookup: boolean
   appIcon: AppIcon
   /** The daily charts to show in Week and Month, of CHARTABLE. */
   charts: ChartKey[]
   /** The workout activities, in the order the cards show them. */
   workoutKinds: WorkoutKindDef[]
+}
+
+/**
+ * Notes on a week or month, written by the local model from that range's
+ * numbers. `stale` says the range's data has changed since they were written.
+ */
+export interface RangeNotes {
+  start: string
+  end: string
+  text: string
+  model: string
+  /** When they were written, ms since the epoch. */
+  at: number
+  stale: boolean
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ALCOHOL_KINDS, DEFAULT_CHARTS, NUTRIENTS } from '../types.ts'
 import { LABELS, UNITS, dogWalksMet, goalDirection, goalMet, goalRangeFor, localDate, meditationMet, progress, waterMet } from '../lib/nutrition.ts'
+import RangeNotes from './RangeNotes.tsx'
 import { fmt } from '../lib/format.ts'
 import { kindView } from '../lib/workoutIcons.ts'
 import { SIT_MINUTES } from './MeditationTracker.tsx'
@@ -324,6 +325,8 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
         Logged {loggedDays} of {plural(totalDays, 'day')} · {dayTypes.training} training, {dayTypes.rest} rest
         {averagedDays < totalDays && <> · averages over {plural(averagedDays, 'finished day')}</>}
       </div>
+
+      <RangeNotes view={view} />
 
       <section className="scorecard" aria-label="Goals met">
         <div className="scorecard-head">

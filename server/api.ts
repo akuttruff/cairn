@@ -5,8 +5,9 @@ import type { Plugin } from 'vite'
 import { Store, ValidationError } from './store.ts'
 import { TtlCache, searchFoods, usdaPortions } from './foods.ts'
 import { ResearchJobs, listLlms } from './research.ts'
+import { fingerprint, writeNotes } from './notes.ts'
 import type { SearchResult } from './foods.ts'
-import type { Serving } from '../src/types.ts'
+import type { RangeNotes, Serving } from '../src/types.ts'
 
 type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void
 
@@ -62,6 +63,8 @@ function sameOrigin(req: IncomingMessage): boolean {
 export function createApi(options: ApiOptions = {}) {
   const store = new Store({ dir: options.dir })
   const fetchImpl = options.fetchImpl ?? fetch
+  /** Ranges whose notes are being written right now, so a double tap does not write twice. */
+  const writing = new Set<string>()
   const searchCache = new TtlCache<SearchResult>(DAY_MS)
   const portionCache = new TtlCache<Serving[]>(7 * DAY_MS)
   const research = new ResearchJobs(() => store.getSettings(), fetchImpl, {
@@ -233,6 +236,35 @@ export function createApi(options: ApiOptions = {}) {
       if (method === 'DELETE') {
         store.clearWeekPlan(weekStart)
         return json(res, 200, { weekStart, ...store.planForWeek(weekStart) })
+      }
+    }
+
+    // Notes on a week or month, from the local model. GET says what has been
+    // written and whether the range's numbers have moved since; POST writes
+    // them now (a few seconds on a small model).
+    if (p === '/api/notes' && (method === 'GET' || method === 'POST')) {
+      const body = method === 'POST' ? await readBody(req) as { start?: unknown; end?: unknown } : null
+      const start = (method === 'GET' ? url.searchParams.get('start') : String(body?.start ?? '')) || ''
+      const end = (method === 'GET' ? url.searchParams.get('end') : String(body?.end ?? '')) || ''
+      const view = store.getRange(start, end)
+      const now = fingerprint(view)
+      const present = (): RangeNotes | null => {
+        const saved = store.getNotes(start, end)
+        return saved && { start, end, text: saved.text, model: saved.model, at: saved.at, stale: saved.fingerprint !== now }
+      }
+      if (method === 'GET') return json(res, 200, { notes: present() })
+      if (view.loggedDays === 0 && view.water.of === 0 && view.workouts.sessions === 0) {
+        return json(res, 400, { error: 'Nothing logged in this period yet.' })
+      }
+      const key = `${start}..${end}`
+      if (writing.has(key)) return json(res, 409, { error: 'Already writing notes for this period.' })
+      writing.add(key)
+      try {
+        const { text, model } = await writeNotes(view, store.getSettings(), fetchImpl)
+        store.saveNotes(start, end, now, text, model)
+        return json(res, 200, { notes: present() })
+      } finally {
+        writing.delete(key)
       }
     }
 
