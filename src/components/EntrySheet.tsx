@@ -7,10 +7,11 @@ import { scale } from '../lib/nutrition.ts'
 import { foodFromEntry, multiply } from '../lib/units.ts'
 import { MEAL_LABELS, draftHasJunk, draftOf, nutrientsOf, parseNum } from '../lib/format.ts'
 import { MEALS, NUTRIENTS } from '../types.ts'
-import type { Entry, Meal, Nutrients } from '../types.ts'
+import type { Entry, Meal, MealPresetItem, Nutrients } from '../types.ts'
 import NutrientFields from './NutrientFields.tsx'
 import Preview from './Preview.tsx'
 import useNutrientDraft from '../hooks/useNutrientDraft.ts'
+import AddToMeal from './AddToMeal.tsx'
 
 interface EntrySheetProps {
   open: boolean
@@ -38,6 +39,13 @@ export default function EntrySheet({ open, session, entry, onClose, onChanged }:
       </Drawer.Portal>
     </Drawer.Root>
   )
+}
+
+/** The entry as a meal item: everything it was logged with, minus the day and meal it went to. */
+function itemOf(e: Entry): MealPresetItem {
+  const { id, date, meal, createdAt, ...rest } = e
+  void id; void date; void meal; void createdAt
+  return rest
 }
 
 function EntryForm({ entry, onClose, onChanged }: { entry: Entry; onClose: () => void; onChanged: () => void }) {
@@ -211,6 +219,7 @@ function EntryForm({ entry, onClose, onChanged }: { entry: Entry; onClose: () =>
               )
               : <button type="button" className="link-btn" onClick={() => setNumbersOpen(true)}>Edit nutrition numbers</button>)}
             {shown && !numbersOpen && <Preview nutrients={shown} />}
+            <AddToMeal item={itemOf(entry)} disabled={busy} />
           </div>
           <div className="drawer-actions">
             <div className="row">

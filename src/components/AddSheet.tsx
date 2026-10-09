@@ -13,6 +13,7 @@ import NutrientFields from './NutrientFields.tsx'
 import Preview from './Preview.tsx'
 import { matchMine } from '../lib/match.ts'
 import useNutrientDraft from '../hooks/useNutrientDraft.ts'
+import AddToMeal from './AddToMeal.tsx'
 
 type Tab = 'search' | 'mine' | 'manual'
 
@@ -1038,6 +1039,7 @@ function Amount({ food, onChange, onLog }: {
         {valid && grams != null && unit?.key !== 'g' && <div className="hint">= {fmt('protein', grams)} g</div>}
 
         {nutrients ? <Preview nutrients={nutrients} /> : <div className="hint bad">Enter an amount greater than 0.</div>}
+        <AddToMeal item={valid && unit && q != null ? entryFor(food, unit, q) : null} disabled={busy} />
         {headline(food) && calorieMismatch(headline(food)!.nutrients) && (
           <div className="hint warn" role="status">
             <TriangleAlert size={13} aria-hidden="true" /> This entry&apos;s calories don&apos;t match its

@@ -775,3 +775,11 @@ button:disabled { opacity: 0.45; cursor: default; }
 .kind-remove:disabled { opacity: 0.3; }
 .kind-training { margin-top: 8px; font-size: 13px; }
 .kind-add { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; }
+
+/* "Add to a meal" on the pick screen and the entry sheet: a quiet link that opens a short list of meals. */
+.add-to-meal { display: inline-flex; align-items: center; gap: 6px; margin: 8px 0 2px; padding: 6px 2px; }
+.add-to-meal-panel { margin-top: 4px; }
+.add-to-meal-panel .pick-row { padding: 10px 2px; }
+.add-to-meal-new { display: flex; gap: 8px; margin: 10px 0 4px; }
+.add-to-meal-new input { flex: 1 1 auto; min-width: 0; }
+.add-to-meal-new .primary { flex: 0 0 auto; padding: 0 16px; }

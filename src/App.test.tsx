@@ -303,6 +303,55 @@ describe('App', () => {
     expect(await screen.findByText(/Looking it up/)).toBeInTheDocument()
   })
 
+  it('adds a picked food, at the amount shown, to a saved meal from the pick screen', async () => {
+    const user = userEvent.setup()
+    const breakfast = { id: 'meal:m1', name: 'Breakfast', createdAt: 0, items: [{ name: 'Eggs', grams: 100, per100g: { calories: 155, protein: 13, fat: 11, carbs: 1.1, fiber: 0 }, source: 'usda' }] }
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/search': { usda: [banana], off: [], errors: [] },
+      'GET /api/portions/173944': [],
+      'GET /api/meals': [breakfast],
+      'POST /api/meals': { ...breakfast, items: [...breakfast.items, {}] },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.type(await screen.findByLabelText('Search foods'), 'banana')
+    await user.click(await screen.findByText('Bananas, raw', {}, { timeout: 2000 }))
+    await user.clear(await screen.findByLabelText('Amount'))
+    await user.type(screen.getByLabelText('Amount'), '150')
+    await user.click(screen.getByRole('button', { name: 'Add to a meal' }))
+    await user.click(await screen.findByRole('button', { name: /^Breakfast/ }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/meals')).toBe(true))
+    const body = calls.find((c) => c.method === 'POST' && c.url === '/api/meals')!.body as { id: string; items: { name: string; grams: number }[] }
+    expect(body.id).toBe('meal:m1')
+    expect(body.items.map((i) => [i.name, i.grams])).toEqual([['Eggs', 100], ['Bananas, raw', 150]])
+    // Nothing was logged: the pick screen is still here, meal added.
+    expect(calls.some((c) => c.url === '/api/entries')).toBe(false)
+    expect(screen.getByLabelText('Amount')).toBeInTheDocument()
+  })
+
+  it('starts a new meal from a logged entry, with the entry as its first food', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([entry()]),
+      'GET /api/meals': [],
+      'POST /api/meals': { id: 'meal:new', name: 'Lunch box', createdAt: 0, items: [{}] },
+    })
+    render(<App />)
+    await user.click(await screen.findByText('Oats'))
+    await user.click(await screen.findByRole('button', { name: 'Add to a meal' }))
+    await user.type(await screen.findByLabelText('New meal name'), 'Lunch box')
+    await user.click(screen.getByRole('button', { name: 'Add' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/meals')).toBe(true))
+    const body = calls.find((c) => c.method === 'POST' && c.url === '/api/meals')!.body as { id?: string; name: string; items: Record<string, unknown>[] }
+    expect(body.id).toBeUndefined()
+    expect(body.name).toBe('Lunch box')
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]).toMatchObject({ name: 'Oats', grams: 50, source: 'usda' })
+    expect(body.items[0]).not.toHaveProperty('date')
+    expect(body.items[0]).not.toHaveProperty('id')
+  })
+
   it('searches, picks a USDA food, and logs it in its household portion', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
