@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Check } from 'lucide-react'
 import { MEALS } from '../types.ts'
 import { MEAL_LABELS, fmt } from '../lib/format.ts'
+import { sumNutrients } from '../lib/nutrition.ts'
 import { describeAmount } from '../lib/units.ts'
 import type { Entry, Meal } from '../types.ts'
 
@@ -60,12 +61,17 @@ export default function MealList({ entries, onOpen, onAdd, onDeleteMany }: MealL
       )}
       {MEALS.map((meal) => {
         const items = entries.filter((e) => e.meal === meal)
-        const kcal = items.reduce((s, e) => s + (e.nutrients.calories ?? 0), 0)
+        const total = sumNutrients(items.map((e) => e.nutrients))
         return (
           <section key={meal} className="meal" aria-label={MEAL_LABELS[meal]}>
             <div className="meal-head">
               <h2>{MEAL_LABELS[meal]}</h2>
-              {items.length > 0 && <span className="meal-kcal">{Math.round(kcal)} kcal</span>}
+              {items.length > 0 && (
+                <span className="meal-kcal" aria-label={`${MEAL_LABELS[meal]} totals`}>
+                  {fmt('calories', total.calories)} kcal
+                  <span className="meal-macros"> · P {fmt('protein', total.protein)} · F {fmt('fat', total.fat)} · C {fmt('carbs', total.carbs)} · Fib {fmt('fiber', total.fiber)}</span>
+                </span>
+              )}
               {!selecting && (
                 <button type="button" className="meal-add" onClick={() => onAdd(meal)} aria-label={`Add to ${MEAL_LABELS[meal]}`}>
                   + Add

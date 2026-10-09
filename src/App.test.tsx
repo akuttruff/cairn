@@ -103,6 +103,15 @@ describe('App', () => {
     expect(screen.getByRole('progressbar', { name: 'Fiber' })).toHaveAttribute('aria-valuenow', '5')
   })
 
+  it('totals each meal\u2019s macros beside its calories, not just the calories', async () => {
+    const two = [entry(), entry({ id: 'e2', name: 'Banana', nutrients: { calories: 105, protein: 1.3, fat: 0.4, carbs: 27, fiber: 3.1 } })]
+    stubApi({ [`GET /api/day/${TODAY}`]: day(two) })
+    render(<App />)
+    const totals = await screen.findByLabelText('Breakfast totals')
+    expect(totals).toHaveTextContent('295 kcal')
+    expect(totals).toHaveTextContent('P 7.8 · F 3.8 · C 60 · Fib 8.1')
+  })
+
   it('lists the goals to reach (protein, fat, fiber) before the one to stay under (carbs)', async () => {
     stubApi({ [`GET /api/day/${TODAY}`]: day([entry()]) })
     render(<App />)
