@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { chatText, chooseModel } from './research.ts'
+import { localDate } from '../src/lib/nutrition.ts'
 import type { RangeView, Settings } from '../src/types.ts'
 
 /** How long the model gets to write the notes before they are given up on. */
@@ -10,28 +11,39 @@ export const NOTES_PROMPT = [
   'Write notes on the period for them: two or three short paragraphs, at most 170 words, plain prose,',
   'addressed as "you". Be specific with their numbers against their goals: what went well, what slipped',
   'and on which days, and one concrete, small suggestion for the next period. No headings, bullets,',
-  'bold or emoji. Do not moralize. Reply with the notes only.',
+  'bold or emoji. Do not moralize.',
+  'The period may still be under way: the input says which day is today and marks the days still ahead.',
+  'Days still ahead have not happened, so a weekly target (workouts, drinks) that can still be reached in them is',
+  'not missed: say what is left to do, or leave it out. Judge only the days that are over. Reply with the notes only.',
 ].join(' ')
 export const NOTES_MAX_TOKENS = 700
 
 const n = (v: number | null | undefined): string => (v == null ? '-' : String(Math.round(v)))
 
-/** The range, laid out for the model: goals, the period's averages, each day's line. */
-export function notesInput(view: RangeView): string {
+/** The range, laid out for the model: goals, the period's averages, each day's line, and which days are still ahead. */
+export function notesInput(view: RangeView, today: string = localDate()): string {
   const g = view.goals
   const lines: string[] = []
   const kind = view.days.length <= 7 ? 'Week' : 'Month'
+  const ahead = view.days.filter((d) => d.date > today).length
   lines.push(`${kind}: ${view.start} to ${view.end}. Logged ${view.loggedDays} of ${view.totalDays} days (${view.dayTypes.training} training, ${view.dayTypes.rest} rest).`)
+  lines.push(ahead > 0
+    ? `Today is ${today}. This ${kind.toLowerCase()} is still under way: ${ahead} day${ahead === 1 ? '' : 's'} still ahead, so weekly targets are not final.`
+    : `This ${kind.toLowerCase()} is over (today is ${today}).`)
   lines.push(`Daily goals: calories max ${n(g.calories.max)}, protein min ${n(g.protein.min)} g, fat min ${n(g.fat.min)} g, carbs max ${n(g.carbs.max)} g, fiber min ${n(g.fiber)} g, water ${n(g.water)} oz; alcohol at most ${n(g.alcoholWeekly)} drinks a week; meditation ${n(g.meditationMinutes)} min a day; dog walks ${n(g.dogWalks)} a day.`)
   lines.push(`Averages over ${view.averagedDays} finished days: ${n(view.averages.calories)} kcal, protein ${n(view.averages.protein)} g, fat ${n(view.averages.fat)} g, carbs ${n(view.averages.carbs)} g, fiber ${n(view.averages.fiber)} g; water ${n(view.water.average)} oz a day (goal met ${view.water.met} of ${view.water.of} logged days).`)
   const sc = view.scorecard
   lines.push(`Goal days met: calories ${sc.calories.met}/${sc.calories.of}, protein ${sc.protein.met}/${sc.protein.of}, fat ${sc.fat.met}/${sc.fat.of}, carbs ${sc.carbs.met}/${sc.carbs.of}, fiber ${sc.fiber.met}/${sc.fiber.of}.`)
   const w = view.workouts
   const byKind = w.kinds.filter((k) => w.byKind[k.id] > 0 || w.goalByKind[k.id] > 0).map((k) => `${k.label} ${w.byKind[k.id]}/${w.goalByKind[k.id]}`).join(', ')
-  lines.push(`Workouts: ${w.sessions} sessions on ${w.days} days (${w.minutes} min)${byKind ? `; by activity: ${byKind}` : ''}; goal ${w.goal}.`)
+  lines.push(`Workouts so far: ${w.sessions} sessions on ${w.days} days (${w.minutes} min)${byKind ? `; by activity (done/planned for the whole ${kind.toLowerCase()}): ${byKind}` : ''}; goal ${w.goal}${ahead > 0 ? `, with ${ahead} day${ahead === 1 ? '' : 's'} left to reach it` : ''}.`)
   lines.push(`Alcohol: ${view.alcohol.total} drinks (${Math.round(view.alcohol.calories)} kcal). Meditation: ${view.meditation.total} min on ${view.meditation.days} days, goal met ${view.meditation.met}/${view.meditation.of}, streak ${view.meditation.streak}. Dog walks: ${view.dog.walks} walks, ${view.dog.miles} miles on ${view.dog.days} days.`)
   lines.push('Each day (date, type, kcal/P/F/C/Fib, water oz, drinks, workouts, meditation min, dog walks):')
   for (const d of view.days) {
+    if (d.date > today) {
+      lines.push(`${d.date} ${d.dayType}: still ahead`)
+      continue
+    }
     if (d.entryCount === 0 && d.water === 0 && d.alcohol === 0 && d.workouts === 0 && d.meditationMinutes === 0 && d.dogWalks === 0) {
       lines.push(`${d.date} ${d.dayType}: nothing logged`)
       continue

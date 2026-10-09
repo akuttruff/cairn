@@ -35,12 +35,22 @@ const SETTINGS = { lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: 't', res
 
 describe('notes on a week or month', () => {
   it('lays out the goals, the period and each day for the model, saying which days had nothing', () => {
-    const input = notesInput(week())
+    const input = notesInput(week(), '2026-10-20')
     expect(input).toMatch(/^Week: 2026-10-05 to 2026-10-11\. Logged 3 of 7 days/)
+    expect(input).toMatch(/This week is over/)
     expect(input).toMatch(/protein min 130 g, fat min 50 g, carbs max 165 g/)
     expect(input).toMatch(/Goal days met: calories 3\/3, protein 0\/3/)
     expect(input).toMatch(/2026-10-05 rest: 1800\/120\/55\/150\/22/)
     expect(input).toMatch(/2026-10-11 rest: nothing logged/)
+  })
+
+  it('marks the days still ahead, and says the weekly targets are not final yet', () => {
+    const input = notesInput(week(), '2026-10-09')
+    expect(input).toMatch(/Today is 2026-10-09\. This week is still under way: 2 days still ahead/)
+    expect(input).toMatch(/2026-10-10 rest: still ahead/)
+    expect(input).toMatch(/2026-10-11 rest: still ahead/)
+    expect(input).toMatch(/2026-10-08 rest: nothing logged/)
+    expect(input).toMatch(/with 2 days left to reach it/)
   })
 
   it('changes its fingerprint when a day\u2019s numbers do, and not otherwise', () => {
