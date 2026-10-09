@@ -381,8 +381,13 @@ function migrateSchema(db: DatabaseSync): void {
     // The workout activities, set up in Settings; null means the built-in six.
     const cols = db.prepare('PRAGMA table_info(settings)').all() as { name: string }[]
     if (!cols.some((c) => c.name === 'workout_kinds')) db.exec('ALTER TABLE settings ADD COLUMN workout_kinds TEXT')
-    if (!cols.some((c) => c.name === 'notes_model')) db.exec("ALTER TABLE settings ADD COLUMN notes_model TEXT NOT NULL DEFAULT ''")
     db.exec('PRAGMA user_version = 13')
+  }
+  if (version < 14) {
+    // The model that writes the week and month notes.
+    const cols = db.prepare('PRAGMA table_info(settings)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'notes_model')) db.exec("ALTER TABLE settings ADD COLUMN notes_model TEXT NOT NULL DEFAULT ''")
+    db.exec('PRAGMA user_version = 14')
   }
 }
 
