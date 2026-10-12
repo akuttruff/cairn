@@ -302,6 +302,25 @@ describe('ResearchJobs', () => {
     expect(jobs.get(a.id)).toMatchObject({ status: 'error', error: 'Cancelled.' })
   })
 
+  it('hands over the answer itself when asked to wait, and from the cache the second time', async () => {
+    const lm = lmStudio(JSON.stringify(ORANGE_CHICKEN))
+    const jobs = new ResearchJobs(() => SETTINGS, lm.fetchImpl)
+    const steps: string[] = []
+    const first = await jobs.lookup('tj orange chicken', { onStep: (s) => steps.push(s) })
+    expect(first.foods[0]!.name).toBe('Mandarin Orange Chicken')
+    const chats = () => lm.calls.filter((c) => c.url.endsWith('/api/v1/chat')).length
+    expect(chats()).toBe(1)
+    const again = await jobs.lookup('orange chicken tj')
+    expect(again.foods[0]!.name).toBe('Mandarin Orange Chicken')
+    expect(chats()).toBe(1)
+  })
+
+  it('fails the waiting caller when the lookup does', async () => {
+    const lm = lmStudio('no json here')
+    const jobs = new ResearchJobs(() => SETTINGS, lm.fetchImpl)
+    await expect(jobs.lookup('pad thai')).rejects.toThrow(/expected format/)
+  })
+
   it('cancels', async () => {
     const hang = vi.fn((_u: string, init?: RequestInit) => new Promise<Response>((_, reject) => {
       init?.signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })))

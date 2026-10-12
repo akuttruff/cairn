@@ -156,7 +156,7 @@ interface LmModel {
   type?: string
   key?: string
   loaded_instances?: { id?: string }[]
-  capabilities?: { reasoning?: { allowed_options?: string[] } }
+  capabilities?: { vision?: boolean; reasoning?: { allowed_options?: string[] } }
 }
 
 export const authHeaders = (settings: Settings): Record<string, string> =>
@@ -204,7 +204,7 @@ export async function chooseModel(
   signal?: AbortSignal,
   /** A model to prefer over the research one (the notes model, when set). */
   preferred = '',
-): Promise<{ model: string; reasoning: string | null }> {
+): Promise<{ model: string; reasoning: string | null; vision: boolean | undefined }> {
   const models = await fetchLmModels(settings, fetchImpl, signal)
   const wanted = preferred || settings.researchModel
   const entry = wanted
@@ -214,7 +214,7 @@ export async function chooseModel(
   if (!model) throw new Error('No model is loaded in LM Studio. Load one, or choose one in Settings.')
   const allowed = entry?.capabilities?.reasoning?.allowed_options ?? []
   const reasoning = ['off', 'minimal', 'low'].find((r) => allowed.includes(r)) ?? null
-  return { model, reasoning }
+  return { model, reasoning, vision: entry?.capabilities?.vision }
 }
 
 export async function describeError(res: Response): Promise<string> {
@@ -361,8 +361,10 @@ export class MemoryLookupCache implements LookupStore {
   }
 }
 
+type InternalJob = ResearchJob & { controller?: AbortController; settled?: Promise<void> }
+
 export class ResearchJobs {
-  private jobs = new Map<string, ResearchJob & { controller?: AbortController }>()
+  private jobs = new Map<string, InternalJob>()
   private cache: LookupStore
   private getSettings: () => Settings
   private fetchImpl: typeof fetch
@@ -392,10 +394,10 @@ export class ResearchJobs {
     }
 
     const controller = new AbortController()
-    const job = { id: randomUUID(), query: q, status: 'running' as const, step: 'starting', startedAt: Date.now(), controller }
+    const job: InternalJob = { id: randomUUID(), query: q, status: 'running', step: 'starting', startedAt: Date.now(), controller }
     this.jobs.set(job.id, job)
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(LOOKUP_TIMEOUT_MS)])
-    researchFood(q, this.getSettings(), { fetchImpl: this.fetchImpl, signal, onStep: (s) => { job.step = s } })
+    job.settled = researchFood(q, this.getSettings(), { fetchImpl: this.fetchImpl, signal, onStep: (s) => { job.step = s } })
       .then((result) => {
         // "Nothing reliable found" isn't worth remembering: it would be replayed for a month.
         if (result.foods.length) this.cache.set(key, result)
@@ -416,6 +418,29 @@ export class ResearchJobs {
     return job && this.view(job)
   }
 
+  /**
+   * The answer itself, once it is in: from the cache, from a lookup already
+   * running for the same food, or from a fresh one. `onStep` hears its
+   * progress. Aborting `signal` cancels a lookup this call started.
+   */
+  async lookup(query: string, options: { signal?: AbortSignal; onStep?: (step: string) => void } = {}): Promise<ResearchResult> {
+    const before = new Set(this.jobs.keys())
+    const started = this.start(query)
+    const job = this.jobs.get(started.id)!
+    const own = !before.has(started.id) && job.controller != null
+    const onAbort = (): void => { if (own) this.cancel(started.id) }
+    options.signal?.addEventListener('abort', onAbort, { once: true })
+    const tick = options.onStep ? setInterval(() => { if (job.status === 'running') options.onStep!(job.step) }, 500) : null
+    try {
+      await job.settled
+    } finally {
+      if (tick) clearInterval(tick)
+      options.signal?.removeEventListener('abort', onAbort)
+    }
+    if (job.status === 'error') throw new Error(job.error ?? 'The lookup failed.')
+    return job.result!
+  }
+
   cancel(id: string): boolean {
     const job = this.jobs.get(id)
     if (!job?.controller) return false
@@ -431,8 +456,8 @@ export class ResearchJobs {
     return this.view(job)
   }
 
-  private view(job: ResearchJob & { controller?: AbortController }): ResearchJob {
-    const { controller: _controller, ...rest } = job
+  private view(job: InternalJob): ResearchJob {
+    const { controller: _controller, settled: _settled, ...rest } = job
     return { ...rest }
   }
 
