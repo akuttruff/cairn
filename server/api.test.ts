@@ -406,7 +406,7 @@ describe('routing', () => {
   })
 })
 
-describe('a photo of a label', () => {
+describe('a photo of a label, and a description in words', () => {
   it('wants the photo as an image data URL', async () => {
     expect((await call('POST', '/api/label', { image: 'not a photo' })).status).toBe(400)
     expect((await call('POST', '/api/label', { image: 'data:text/plain;base64,aGk=' })).status).toBe(400)
@@ -416,5 +416,22 @@ describe('a photo of a label', () => {
     const r = await call('POST', '/api/label', { image: 'data:image/jpeg;base64,/9j/4AAQ' })
     expect(r.status).toBe(502)
     expect(typeof r.body.error).toBe('string')
+  })
+
+  it('wants a few words to work out', async () => {
+    expect((await call('POST', '/api/intake', { text: 'hi' })).status).toBe(400)
+    expect((await call('POST', '/api/intake', { text: 'x'.repeat(601) })).status).toBe(400)
+  })
+
+  it('starts working a description out as a job you can poll and cancel', async () => {
+    const started = await call('POST', '/api/intake', { text: '2 eggs and toast' })
+    expect(started.status).toBe(202)
+    const job = started.body as { id: string; status: string; text: string }
+    expect(job.text).toBe('2 eggs and toast')
+    expect(await call('DELETE', `/api/intake/${job.id}`)).toMatchObject({ status: 200 })
+    const polled = await call('GET', `/api/intake/${job.id}`)
+    expect(polled.status).toBe(200)
+    expect(['running', 'error']).toContain((polled.body as { status: string }).status)
+    expect((await call('GET', '/api/intake/nope')).status).toBe(404)
   })
 })

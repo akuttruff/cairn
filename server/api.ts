@@ -6,7 +6,7 @@ import { Store, ValidationError } from './store.ts'
 import { TtlCache, searchFoods, usdaPortions } from './foods.ts'
 import { ResearchJobs, listLlms } from './research.ts'
 import { fingerprint, writeNotes } from './notes.ts'
-import { readLabel } from './intake.ts'
+import { IntakeJobs, MAX_DESCRIPTION, readLabel } from './intake.ts'
 import type { SearchResult } from './foods.ts'
 import type { RangeNotes, Serving } from '../src/types.ts'
 
@@ -77,6 +77,7 @@ export function createApi(options: ApiOptions = {}) {
     get: (key) => store.getLookup(key),
     set: (key, result) => store.setLookup(key, result),
   })
+  const intake = new IntakeJobs(research, () => store.getSettings(), fetchImpl)
 
   const route = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const url = new URL(req.url || '/', 'http://local')
@@ -236,6 +237,26 @@ export function createApi(options: ApiOptions = {}) {
       }
     }
 
+    // A description of what was eaten, split into foods and looked up, as a job to poll.
+    if (p === '/api/intake' && method === 'POST') {
+      const { text } = await readBody(req) as { text?: unknown }
+      const words = typeof text === 'string' ? text.trim() : ''
+      if (words.length < 3) throw new ValidationError('describe what you ate in a few words')
+      if (words.length > MAX_DESCRIPTION) throw new ValidationError(`keep the description under ${MAX_DESCRIPTION} characters`)
+      try {
+        return json(res, 202, intake.start(words))
+      } catch (err) {
+        return json(res, 429, { error: (err as Error).message })
+      }
+    }
+    if ((m = /^\/api\/intake\/([\w-]+)$/.exec(p))) {
+      const id = m[1]!
+      if (method === 'GET') {
+        const job = intake.get(id)
+        return job ? json(res, 200, job) : json(res, 404, { error: 'no such description' })
+      }
+      if (method === 'DELETE') return json(res, 200, { cancelled: intake.cancel(id) })
+    }
 
     // /api/targets is what the app uses (blockers block "goals" URLs); /api/goals stays for anything else.
     if (p === '/api/targets' || p === '/api/goals') {

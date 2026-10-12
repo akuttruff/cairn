@@ -794,6 +794,36 @@ button:disabled { opacity: 0.45; cursor: default; }
 .notes-text p:last-of-type { margin-bottom: 6px; }
 .notes-meta { font-family: var(--mono); font-size: 10.5px; color: var(--paper-dim); }
 
-/* ====== Scanning a label ====== */
+/* ====== Scanning a label, describing a meal ====== */
 .label-scan { margin: 2px 0 6px; }
 .label-scan.compact .lookup-btn { margin-top: 0; }
+.describe textarea {
+  width: 100%; min-height: 84px; resize: vertical;
+  background: var(--bg); color: var(--paper); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; font: inherit; font-size: 16px; line-height: 1.4;
+}
+.describe textarea:focus { outline: none; border-color: var(--moss-dim); }
+.describe textarea:disabled { opacity: 0.7; }
+.describe-result { margin-top: 6px; }
+/* One described food: a tick, the words said, its calories; the match and amount beneath. */
+.described { border-bottom: 1px solid var(--line); padding: 8px 0 10px; }
+.described.off .described-body, .described.off .described-kcal { opacity: 0.45; }
+.described-head {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: none; padding: 4px 0; text-align: left; color: var(--paper); font-size: 15px;
+}
+.described-head:disabled { opacity: 0.6; }
+.described-text { flex: 1 1 auto; min-width: 0; }
+.described-kcal { flex: 0 0 auto; font-family: var(--mono); font-size: 12.5px; color: var(--paper-dim); }
+.described-body { padding-left: 32px; display: flex; flex-direction: column; gap: 6px; }
+.described-match { font-size: 13px; color: var(--paper-dim); }
+.described-body select, .described-amount input, .described-amount select {
+  background: var(--bg); color: var(--paper); border: 1px solid var(--line); border-radius: 8px;
+  padding: 7px 10px; font: inherit; font-size: 14px; min-width: 0;
+}
+.described-amount { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; }
+.described-amount input { font-variant-numeric: tabular-nums; }
+.described-macros { font-family: var(--mono); font-size: 11px; color: var(--paper-dim); }
+.described .hint { margin: 0; }
+.spinner.inline { display: inline-block; width: 11px; height: 11px; vertical-align: -1px; margin-right: 4px; }
+.hint-inline { font-size: 12px; color: var(--paper-dim); margin-right: 10px; }

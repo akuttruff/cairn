@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { dayLabel } from './lib/format.ts'
 import App from './App.tsx'
 import { addDays, localDate, startOfWeek } from './lib/nutrition.ts'
-import { DEFAULT_WORKOUT_KINDS } from './types.ts'
+import { DEFAULT_WORKOUT_KINDS, MEALS } from './types.ts'
 import type { DayView, Entry, Food, Goals, RangeView } from './types.ts'
 
 const TODAY = localDate()
@@ -1984,6 +1984,100 @@ describe('App', () => {
       expect(screen.getByRole('button', { name: 'Previous month' })).toBeInTheDocument()
     })
   })
+  it('works a description out into foods, at the amounts said, and logs the ones kept', async () => {
+    const user = userEvent.setup()
+    const egg: Food = { id: 'web:egg', name: 'Egg, large', source: 'web', per100g: { calories: 143, protein: 12.6, fat: 9.5, carbs: 0.7, fiber: 0 }, servings: [{ label: '1 large', grams: 50 }] }
+    const job = {
+      id: 'in1', text: '2 eggs and a slice of toast', status: 'done', step: 'done', startedAt: Date.now() - 30_000, model: 'qwen/qwen3.8-27b',
+      items: [
+        { text: '2 eggs', food: 'large egg', quantity: 2, unit: null, grams: null, status: 'done', foods: [egg] },
+        { text: 'a slice of toast', food: 'sourdough bread', quantity: 1, unit: 'slice', grams: null, status: 'done', foods: [], note: 'Too many kinds.' },
+      ],
+    }
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'POST /api/intake': job,
+      'POST /api/entries': entry(),
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.click(await screen.findByRole('tab', { name: 'Describe' }))
+    await user.type(screen.getByLabelText('What did you eat?'), '2 eggs and a slice of toast')
+    await user.click(screen.getByRole('button', { name: 'Work out the foods' }))
+    expect((calls.find((c) => c.url === '/api/intake')!.body as { text: string }).text).toBe('2 eggs and a slice of toast')
+
+    // Two eggs, counted in the food's own serving: 2 x 50 g at 143 kcal per 100 g.
+    expect(await screen.findByLabelText('Amount of 2 eggs')).toHaveValue('2')
+    expect(screen.getByLabelText('Unit of 2 eggs')).toHaveValue('s0')
+    expect(screen.getByText('143 kcal')).toBeInTheDocument()
+    // The toast could not be placed: it says so, and offers the search box.
+    expect(screen.getByText(/Nothing reliable found: Too many kinds/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Search for “sourdough bread” instead/ })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Log 1 food · 143 kcal/ }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/entries')).toBe(true))
+    const logged = calls.filter((c) => c.method === 'POST' && c.url === '/api/entries').map((c) => c.body as { name: string; grams: number; meal: string; amount?: { quantity: number; unit: string } })
+    expect(logged).toHaveLength(1)
+    // To the meal chosen above the tabs, whichever the hour suggested.
+    expect(logged[0]).toMatchObject({ name: 'Egg, large', grams: 100, amount: { quantity: 2, unit: '1 large' }, date: TODAY })
+    expect(MEALS).toContain(logged[0]!.meal)
+  })
+
+  it('hands a food the description could not place to the search box', async () => {
+    const user = userEvent.setup()
+    stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'POST /api/intake': { id: 'in2', text: 'toast', status: 'done', step: 'done', startedAt: Date.now(), items: [
+        { text: 'toast', food: 'sourdough bread', quantity: 1, unit: null, grams: null, status: 'error', error: 'The lookup took too long and was stopped.' },
+      ] },
+      'GET /api/search': { usda: [], off: [], errors: [] },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.click(await screen.findByRole('tab', { name: 'Describe' }))
+    await user.type(screen.getByLabelText('What did you eat?'), 'toast')
+    await user.click(screen.getByRole('button', { name: 'Work out the foods' }))
+    await user.click(await screen.findByRole('button', { name: /Search for “sourdough bread” instead/ }))
+    expect(await screen.findByLabelText('Search foods')).toHaveValue('sourdough bread')
+  })
+
+  it('brings a worked-out description back on the next opening, until it is logged', async () => {
+    const user = userEvent.setup()
+    localStorage.setItem('macros.intake', 'in4')
+    const egg: Food = { id: 'web:egg', name: 'Egg, large', source: 'web', per100g: { calories: 143, protein: 12.6, fat: 9.5, carbs: 0.7, fiber: 0 }, servings: [{ label: '1 large', grams: 50 }] }
+    stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/intake/in4': { id: 'in4', text: '2 eggs', status: 'done', step: 'done', startedAt: Date.now() - 90_000, items: [
+        { text: '2 eggs', food: 'large egg', quantity: 2, unit: null, grams: null, status: 'done', foods: [egg] },
+      ] },
+      'POST /api/entries': entry(),
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.click(await screen.findByRole('tab', { name: 'Describe' }))
+    expect(await screen.findByLabelText('Amount of 2 eggs')).toHaveValue('2')
+    expect(localStorage.getItem('macros.intake')).toBe('in4')
+    await user.click(screen.getByRole('button', { name: /^Log 1 food/ }))
+    await waitFor(() => expect(localStorage.getItem('macros.intake')).toBeNull())
+  })
+
+  it('picks a description still being worked out back up on the next opening', async () => {
+    const user = userEvent.setup()
+    localStorage.setItem('macros.intake', 'in3')
+    stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/intake/in3': { id: 'in3', text: 'a big lunch', status: 'running', step: 'looking up 1 of 3', startedAt: Date.now() - 5000, items: [
+        { text: 'a big lunch', food: 'lunch', quantity: 1, unit: null, grams: null, status: 'looking', step: 'searching the web' },
+      ] },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.click(await screen.findByRole('tab', { name: 'Describe' }))
+    expect(await screen.findByText(/Working it out… looking up 1 of 3/)).toBeInTheDocument()
+    expect(screen.getByLabelText('What did you eat?')).toHaveValue('a big lunch')
+    localStorage.removeItem('macros.intake')
+  })
+
   it('reads a photo of a label into a food and opens it on the amount screen', async () => {
     const user = userEvent.setup()
     const pb: Food = {

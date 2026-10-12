@@ -15,8 +15,9 @@ import { matchMine } from '../lib/match.ts'
 import useNutrientDraft from '../hooks/useNutrientDraft.ts'
 import AddToMeal from './AddToMeal.tsx'
 import LabelScan from './LabelScan.tsx'
+import DescribeTab from './DescribeTab.tsx'
 
-type Tab = 'search' | 'mine' | 'manual'
+type Tab = 'search' | 'mine' | 'describe' | 'manual'
 
 interface AddSheetProps {
   open: boolean
@@ -55,6 +56,8 @@ function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddS
   const [tab, setTab] = useState<Tab>('search')
   const [meal, setMeal] = useState<Meal>(initialMeal)
   const [picked, setPicked] = useState<Food | null>(null)
+  // A food the description could not place, handed to the search box.
+  const [seed, setSeed] = useState('')
 
   const log = async (entry: Omit<NewEntry, 'date' | 'meal'>): Promise<void> => {
     try {
@@ -67,6 +70,22 @@ function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddS
     }
   }
 
+  /** Several foods at once, from a description; what was logged before a failure stays logged. */
+  const logMany = async (entries: MealPresetItem[]): Promise<void> => {
+    let done = 0
+    try {
+      for (const entry of entries) {
+        await api.addEntry({ ...entry, date, meal })
+        done++
+      }
+      toast.success(`Logged ${entries.length} food${entries.length === 1 ? '' : 's'}`)
+      onLogged()
+      onClose()
+    } catch (err) {
+      toast.error(`${done ? `Logged ${done} of ${entries.length}. ` : ''}${(err as Error).message}`)
+      if (done) onLogged()
+    }
+  }
 
   const applyMeal = async (preset: MealPreset): Promise<void> => {
     try {
@@ -98,7 +117,7 @@ function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddS
             : (
               <>
                 <div className="tabs" role="tablist">
-                  {(['search', 'mine', 'manual'] as const).map((t) => (
+                  {(['search', 'mine', 'describe', 'manual'] as const).map((t) => (
                     <button
                       key={t}
                       type="button"
@@ -107,12 +126,13 @@ function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddS
                       className={tab === t ? 'active' : ''}
                       onClick={() => setTab(t)}
                     >
-                      {t === 'search' ? 'Search' : t === 'mine' ? 'My foods' : 'Manual'}
+                      {t === 'search' ? 'Search' : t === 'mine' ? 'My foods' : t === 'describe' ? 'Describe' : 'Manual'}
                     </button>
                   ))}
                 </div>
-                {tab === 'search' && <SearchTab open={open} onPick={setPicked} />}
+                {tab === 'search' && <SearchTab open={open} onPick={setPicked} initialQuery={seed} />}
                 {tab === 'mine' && <MineTab onPick={setPicked} onApplyMeal={applyMeal} />}
+                {tab === 'describe' && <DescribeTab onLog={logMany} onSearch={(t) => { setSeed(t); setTab('search') }} />}
                 {tab === 'manual' && <ManualTab onLog={log} onScan={setPicked} />}
               </>
             )}
@@ -246,8 +266,8 @@ function useFavorites(saved: Food[]): Favorites {
   return { ids, toggle }
 }
 
-function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void }) {
-  const [q, setQ] = useState('')
+function SearchTab({ open, onPick, initialQuery = '' }: { open: boolean; onPick: (f: Food) => void; initialQuery?: string }) {
+  const [q, setQ] = useState(initialQuery)
   // Each outcome remembers the query it answers, so a stale one is never shown.
   const [settled, setSettled] = useState<{ q: string; result?: SearchResult; error?: string } | null>(null)
   const query = q.trim()

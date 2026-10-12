@@ -14,6 +14,33 @@ export interface ResearchJob {
   error?: string
 }
 
+/** One food from a description, as the server works through it; see server/intake.ts. */
+export interface IntakeItem {
+  text: string
+  food: string
+  brand?: string
+  quantity: number
+  unit: string | null
+  grams: number | null
+  status: 'pending' | 'looking' | 'done' | 'error'
+  step?: string
+  foods?: Food[]
+  note?: string
+  error?: string
+}
+
+/** A description of what was eaten being turned into foods. */
+export interface IntakeJob {
+  id: string
+  text: string
+  status: 'running' | 'done' | 'error'
+  step: string
+  startedAt: number
+  model?: string
+  items: IntakeItem[]
+  error?: string
+}
+
 export interface LabelResult {
   foods: Food[]
   note?: string
@@ -112,6 +139,9 @@ export const api = {
   research: (id: string) => request<ResearchJob>('GET', `/api/research/${encodeURIComponent(id)}`),
   cancelResearch: (id: string) => request<{ cancelled: boolean }>('DELETE', `/api/research/${encodeURIComponent(id)}`),
   readLabel: (image: string, hint = '') => request<LabelResult>('POST', '/api/label', hint ? { image, hint } : { image }),
+  startIntake: (text: string) => request<IntakeJob>('POST', '/api/intake', { text }),
+  intake: (id: string) => request<IntakeJob>('GET', `/api/intake/${encodeURIComponent(id)}`),
+  cancelIntake: (id: string) => request<{ cancelled: boolean }>('DELETE', `/api/intake/${encodeURIComponent(id)}`),
   /** Notes on a week or month, if written; `stale` when the numbers moved since. */
   notes: (start: string, end: string) => request<{ notes: RangeNotes | null }>('GET', `/api/notes?start=${start}&end=${end}`),
   /** Write (or rewrite) the notes now; a few seconds on a small model. */
