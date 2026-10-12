@@ -405,3 +405,16 @@ describe('routing', () => {
     expect((await call('GET', '/api/nope')).status).toBe(404)
   })
 })
+
+describe('a photo of a label', () => {
+  it('wants the photo as an image data URL', async () => {
+    expect((await call('POST', '/api/label', { image: 'not a photo' })).status).toBe(400)
+    expect((await call('POST', '/api/label', { image: 'data:text/plain;base64,aGk=' })).status).toBe(400)
+  })
+
+  it('reports LM Studio trouble with the label as a 502, not a crash', async () => {
+    const r = await call('POST', '/api/label', { image: 'data:image/jpeg;base64,/9j/4AAQ' })
+    expect(r.status).toBe(502)
+    expect(typeof r.body.error).toBe('string')
+  })
+})

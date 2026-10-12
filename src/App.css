@@ -793,3 +793,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .notes-text p { margin: 0 0 10px; font-size: 14.5px; line-height: 1.55; }
 .notes-text p:last-of-type { margin-bottom: 6px; }
 .notes-meta { font-family: var(--mono); font-size: 10.5px; color: var(--paper-dim); }
+
+/* ====== Scanning a label ====== */
+.label-scan { margin: 2px 0 6px; }
+.label-scan.compact .lookup-btn { margin-top: 0; }

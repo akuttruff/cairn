@@ -14,6 +14,13 @@ export interface ResearchJob {
   error?: string
 }
 
+export interface LabelResult {
+  foods: Food[]
+  note?: string
+  model: string
+  seconds: number
+}
+
 export interface SearchResult {
   usda: Food[]
   off: Food[]
@@ -104,6 +111,7 @@ export const api = {
     request<ResearchJob>('POST', '/api/research', refresh ? { q, refresh: true } : { q }),
   research: (id: string) => request<ResearchJob>('GET', `/api/research/${encodeURIComponent(id)}`),
   cancelResearch: (id: string) => request<{ cancelled: boolean }>('DELETE', `/api/research/${encodeURIComponent(id)}`),
+  readLabel: (image: string, hint = '') => request<LabelResult>('POST', '/api/label', hint ? { image, hint } : { image }),
   /** Notes on a week or month, if written; `stale` when the numbers moved since. */
   notes: (start: string, end: string) => request<{ notes: RangeNotes | null }>('GET', `/api/notes?start=${start}&end=${end}`),
   /** Write (or rewrite) the notes now; a few seconds on a small model. */

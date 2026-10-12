@@ -14,6 +14,7 @@ import Preview from './Preview.tsx'
 import { matchMine } from '../lib/match.ts'
 import useNutrientDraft from '../hooks/useNutrientDraft.ts'
 import AddToMeal from './AddToMeal.tsx'
+import LabelScan from './LabelScan.tsx'
 
 type Tab = 'search' | 'mine' | 'manual'
 
@@ -66,6 +67,7 @@ function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddS
     }
   }
 
+
   const applyMeal = async (preset: MealPreset): Promise<void> => {
     try {
       await api.applyMeal(preset.id, date, meal)
@@ -111,7 +113,7 @@ function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddS
                 </div>
                 {tab === 'search' && <SearchTab open={open} onPick={setPicked} />}
                 {tab === 'mine' && <MineTab onPick={setPicked} onApplyMeal={applyMeal} />}
-                {tab === 'manual' && <ManualTab onLog={log} />}
+                {tab === 'manual' && <ManualTab onLog={log} onScan={setPicked} />}
               </>
             )}
     </>
@@ -452,12 +454,15 @@ function SearchTab({ open, onPick }: { open: boolean; onPick: (f: Food) => void 
             )
         )}
         {!query && (
-          <div className="hint center">
-            Whole foods come from USDA FoodData Central; packaged foods from
-            Open Food Facts. Start with a store — <b>trader joe&apos;s</b>,{' '}
-            <b>costco</b>, <b>whole foods</b> — to search just its products, or
-            type the number under a barcode.
-          </div>
+          <>
+            <LabelScan onFound={onPick} />
+            <div className="hint center">
+              Whole foods come from USDA FoodData Central; packaged foods from
+              Open Food Facts. Start with a store — <b>trader joe&apos;s</b>,{' '}
+              <b>costco</b>, <b>whole foods</b> — to search just its products, or
+              type the number under a barcode.
+            </div>
+          </>
         )}
       </div>
     </>
@@ -1212,7 +1217,7 @@ function OnlineLookup({ query, job, auto, onJob, onStart, onRefresh, onPick, onE
  * A label, a restaurant guess, a recipe: type the numbers in for one
  * serving, however you'd describe it. The weight is optional.
  */
-function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => Promise<void> }) {
+function ManualTab({ onLog, onScan }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => Promise<void>; onScan: (food: Food) => void }) {
   const [name, setName] = useState('')
   const [brand, setBrand] = useState('')
   const [serving, setServing] = useState('')
@@ -1260,6 +1265,7 @@ function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => P
   return (
     <>
       <div className="drawer-scroll" data-vaul-no-drag>
+        <LabelScan compact onFound={onScan} />
         <div className="field">
           <label htmlFor="manual-name">Name</label>
           <input id="manual-name" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Burrito bowl" />

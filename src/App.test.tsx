@@ -1984,4 +1984,40 @@ describe('App', () => {
       expect(screen.getByRole('button', { name: 'Previous month' })).toBeInTheDocument()
     })
   })
+  it('reads a photo of a label into a food and opens it on the amount screen', async () => {
+    const user = userEvent.setup()
+    const pb: Food = {
+      id: 'label:kirkland-peanut-butter', name: 'Crunchy Peanut Butter', brand: 'Kirkland', source: 'custom',
+      perServing: { label: '2 Tbsp', grams: 32, nutrients: { calories: 190, protein: 8, fat: 16, carbs: 7, fiber: 3 } },
+      per100g: { calories: 593.75, protein: 25, fat: 50, carbs: 21.88, fiber: 9.38 }, servings: [{ label: '2 Tbsp', grams: 32 }],
+    }
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/search': { usda: [], off: [], errors: [] },
+      'POST /api/label': { foods: [pb], note: 'The sodium line was blurry.', model: 'qwen/qwen3.8-27b', seconds: 6 },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    const photo = new File([new Uint8Array([0xff, 0xd8, 0xff, 0xe0])], 'label.jpg', { type: 'image/jpeg' })
+    await user.upload(screen.getByLabelText('Nutrition label photo'), photo)
+    expect(await screen.findByText('Crunchy Peanut Butter')).toBeInTheDocument()
+    expect(screen.getByLabelText('Amount')).toHaveValue('1')
+    expect(screen.getByRole('button', { name: '2 Tbsp' })).toBeInTheDocument()
+    const sent = calls.find((c) => c.url === '/api/label')!.body as { image: string }
+    expect(sent.image).toMatch(/^data:image\/jpeg;base64,/)
+  })
+
+  it('says when the photo holds no label', async () => {
+    const user = userEvent.setup()
+    stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/search': { usda: [], off: [], errors: [] },
+      'POST /api/label': { foods: [], note: 'A photo of a dog.', model: 'm', seconds: 3 },
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.upload(screen.getByLabelText('Nutrition label photo'), new File(['x'], 'dog.png', { type: 'image/png' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('No nutrition label there. A photo of a dog.')
+  })
+
 })

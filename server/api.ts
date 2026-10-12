@@ -6,6 +6,7 @@ import { Store, ValidationError } from './store.ts'
 import { TtlCache, searchFoods, usdaPortions } from './foods.ts'
 import { ResearchJobs, listLlms } from './research.ts'
 import { fingerprint, writeNotes } from './notes.ts'
+import { readLabel } from './intake.ts'
 import type { SearchResult } from './foods.ts'
 import type { RangeNotes, Serving } from '../src/types.ts'
 
@@ -25,12 +26,17 @@ function json(res: ServerResponse, code: number, body: unknown): void {
   res.end(JSON.stringify(body))
 }
 
-function readBody(req: IncomingMessage): Promise<unknown> {
+/** A label photo, scaled down by the page before it is sent; see src/lib/images.ts. */
+const MAX_IMAGE_BODY = 6_000_000
+/** A label read is one model turn with a picture: well under this, or something is wrong. */
+const LABEL_TIMEOUT_MS = 120_000
+
+function readBody(req: IncomingMessage, limit = 1_000_000): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = ''
     req.on('data', (chunk: Buffer | string) => {
       body += chunk
-      if (body.length > 1_000_000) {
+      if (body.length > limit) {
         req.destroy()
         reject(new ValidationError('request too large'))
       }
@@ -213,6 +219,23 @@ export function createApi(options: ApiOptions = {}) {
       }
       if (method === 'DELETE') return json(res, 200, { cancelled: research.cancel(id) })
     }
+
+    // A photo of a Nutrition Facts panel, read into a food.
+    if (p === '/api/label' && method === 'POST') {
+      const { image, hint } = await readBody(req, MAX_IMAGE_BODY) as { image?: unknown; hint?: unknown }
+      if (typeof image !== 'string' || !/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(image)) {
+        throw new ValidationError('send the photo as a JPEG, PNG or WebP data URL')
+      }
+      const words = typeof hint === 'string' ? hint.trim().slice(0, 120) : ''
+      const signal = AbortSignal.timeout(LABEL_TIMEOUT_MS)
+      try {
+        return json(res, 200, await readLabel({ dataUrl: image }, words, store.getSettings(), fetchImpl, signal))
+      } catch (err) {
+        const message = (err as Error).name === 'TimeoutError' ? 'Reading the label took too long and was stopped.' : (err as Error).message
+        return json(res, 502, { error: message })
+      }
+    }
+
 
     // /api/targets is what the app uses (blockers block "goals" URLs); /api/goals stays for anything else.
     if (p === '/api/targets' || p === '/api/goals') {
