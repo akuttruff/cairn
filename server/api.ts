@@ -6,6 +6,7 @@ import { Store, ValidationError } from './store.ts'
 import { TtlCache, searchFoods, usdaPortions } from './foods.ts'
 import { ResearchJobs, listLlms } from './research.ts'
 import { fingerprint, writeNotes } from './notes.ts'
+import { LABEL_MAX_BYTES, isImageDataUrl, readLabel } from './label.ts'
 import type { SearchResult } from './foods.ts'
 import type { RangeNotes, Serving } from '../src/types.ts'
 
@@ -25,12 +26,12 @@ function json(res: ServerResponse, code: number, body: unknown): void {
   res.end(JSON.stringify(body))
 }
 
-function readBody(req: IncomingMessage): Promise<unknown> {
+function readBody(req: IncomingMessage, limit = 1_000_000): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = ''
     req.on('data', (chunk: Buffer | string) => {
       body += chunk
-      if (body.length > 1_000_000) {
+      if (body.length > limit) {
         req.destroy()
         reject(new ValidationError('request too large'))
       }
@@ -265,6 +266,18 @@ export function createApi(options: ApiOptions = {}) {
         return json(res, 200, { notes: present() })
       } finally {
         writing.delete(key)
+      }
+    }
+
+    // A photographed nutrition label, read by a vision model into the fields
+    // of the Manual tab. Synchronous: seconds once the model is loaded.
+    if (p === '/api/label' && method === 'POST') {
+      const { image } = await readBody(req, LABEL_MAX_BYTES + 100) as { image?: unknown }
+      if (!isImageDataUrl(image)) throw new ValidationError('send the label as a JPEG, PNG or WebP data URL')
+      try {
+        return json(res, 200, { reading: await readLabel(image, store.getSettings(), fetchImpl) })
+      } catch (err) {
+        return json(res, 502, { error: (err as Error).message })
       }
     }
 

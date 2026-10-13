@@ -488,6 +488,8 @@ export interface Settings {
   researchModel: string
   /** Model that writes the week and month notes; blank uses the research model's choice. */
   notesModel: string
+  /** Vision model that reads a photographed nutrition label; blank uses whichever vision model is loaded. */
+  labelModel: string
   /** Start an online lookup by itself once you stop typing. */
   autoLookup: boolean
   appIcon: AppIcon
@@ -497,10 +499,11 @@ export interface Settings {
   workoutKinds: WorkoutKindDef[]
 }
 
-/** An LLM LM Studio has downloaded, and whether it's loaded right now. */
+/** An LLM LM Studio has downloaded, whether it's loaded right now, and whether it can see images. */
 export interface LmModelOption {
   key: string
   loaded: boolean
+  vision: boolean
 }
 
 /** What the browser may see of the settings: never a key or token itself. */
@@ -510,12 +513,28 @@ export interface PublicSettings {
   lmStudioUrl: string
   researchModel: string
   notesModel: string
+  labelModel: string
   autoLookup: boolean
   appIcon: AppIcon
   /** The daily charts to show in Week and Month, of CHARTABLE. */
   charts: ChartKey[]
   /** The workout activities, in the order the cards show them. */
   workoutKinds: WorkoutKindDef[]
+}
+
+/**
+ * What a vision model read off a photographed nutrition label: the fields
+ * of the Manual tab, filled in as far as the photo allowed. Null where the
+ * label did not say (a label rarely names the product), never a guess.
+ */
+export interface LabelReading {
+  name: string | null
+  brand: string | null
+  serving: { label: string; grams: number | null }
+  nutrients: Nutrients
+  /** Anything worth a second look: a value that was hard to read, a serving stated per container. */
+  note?: string
+  model: string
 }
 
 /**

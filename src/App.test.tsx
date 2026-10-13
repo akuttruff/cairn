@@ -9,6 +9,8 @@ import { DEFAULT_WORKOUT_KINDS } from './types.ts'
 import type { DayView, Entry, Food, Goals, RangeView } from './types.ts'
 
 vi.mock('./lib/chime.ts', () => ({ chime: vi.fn(), listenForChimeUnlock: vi.fn() }))
+// jsdom has no canvas: the shrink is faked, and the test checks what is sent and filled in.
+vi.mock('./lib/image.ts', () => ({ shrinkImage: vi.fn<() => Promise<string>>(async () => 'data:image/jpeg;base64,/9j/4AAQSkZJRg==') }))
 
 const TODAY = localDate()
 const RANGE = (n: number): { min: number; max: number } => ({ min: n, max: n })
@@ -483,6 +485,64 @@ describe('App', () => {
     expect(await screen.findByLabelText("Numbers don't add up", {}, { timeout: 2000 })).toBeInTheDocument()
     await user.click(screen.getByText('Granola'))
     expect(screen.getByRole('status')).toHaveTextContent(/may have a typo/)
+  })
+
+  it('fills the Manual tab in from a photographed label, ticked for My foods, and leaves the name to type', async () => {
+    const user = userEvent.setup()
+    const reading = {
+      name: null, brand: 'Kodiak', serving: { label: '1/2 cup (53g)', grams: 53 },
+      nutrients: { calories: 190, protein: 14, fat: 2.5, carbs: 30, fiber: 3 }, note: 'Serving is as mixed.', model: 'eyes',
+    }
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]), 'POST /api/label': { reading },
+      'POST /api/foods': { id: 'custom:1', name: 'Pancake mix', source: 'custom' }, 'POST /api/entries': entry(),
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.click(await screen.findByRole('tab', { name: 'Manual' }))
+    await user.click(screen.getByRole('button', { name: 'Scan a nutrition label' }))
+    await user.upload(screen.getByLabelText('Label picture'), new File(['x'], 'label.jpg', { type: 'image/jpeg' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/Filled in from the label by eyes.*Serving is as mixed.*gave no name/)
+    expect(calls.find((c) => c.url === '/api/label')!.body).toEqual({ image: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==' })
+    expect(screen.getByLabelText('Name')).toHaveValue('')
+    expect(screen.getByLabelText('Name')).toHaveFocus()
+    expect(screen.getByLabelText('Brand (optional)')).toHaveValue('Kodiak')
+    expect(screen.getByLabelText('Serving')).toHaveValue('1/2 cup (53g)')
+    expect(screen.getByLabelText('Weighs (g, optional)')).toHaveValue('53')
+    expect(screen.getByLabelText('Calories (kcal)')).toHaveValue('190') // the label's figure, not one from the macros
+    expect(screen.getByLabelText('Fiber (g)')).toHaveValue('3')
+    expect(screen.getByRole('checkbox', { name: 'Save to My foods' })).toBeChecked()
+    expect(chime).toHaveBeenCalledWith('done')
+
+    await user.type(screen.getByLabelText('Name'), 'Pancake mix')
+    await user.click(screen.getByRole('button', { name: 'Log 1/2 cup (53g)' }))
+    await waitFor(() => expect(calls.some((c) => c.url === '/api/entries' && c.method === 'POST')).toBe(true))
+    expect(calls.find((c) => c.url === '/api/foods' && c.method === 'POST')!.body).toMatchObject({
+      name: 'Pancake mix', brand: 'Kodiak', source: 'custom',
+      perServing: { label: '1/2 cup (53g)', grams: 53, nutrients: { calories: 190, protein: 14, fat: 2.5, carbs: 30, fiber: 3 } },
+      servings: [{ label: '1/2 cup (53g)', grams: 53 }],
+    })
+    expect(calls.find((c) => c.url === '/api/entries')!.body).toMatchObject({ name: 'Pancake mix', grams: 53, foodId: 'custom:1', source: 'custom' })
+  })
+
+  it('says why a label could not be read, and leaves the form as it was', async () => {
+    const user = userEvent.setup()
+    stubApi({ [`GET /api/day/${TODAY}`]: day([]) })
+    const rest = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation(async (url, init) => (url === '/api/label'
+      ? { ok: false, status: 502, json: async () => ({ error: "Couldn't read a nutrition label there: a cat" }) } as Response
+      : rest(url, init)))
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.click(await screen.findByRole('tab', { name: 'Manual' }))
+    await user.type(screen.getByLabelText('Name'), 'Oats')
+    await user.upload(screen.getByLabelText('Label picture'), new File(['x'], 'cat.jpg', { type: 'image/jpeg' }))
+    expect(await screen.findByText(/a cat/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Name')).toHaveValue('Oats')
+    expect(screen.getByRole('checkbox', { name: 'Save to My foods' })).not.toBeChecked()
+    expect(chime).toHaveBeenCalledWith('failed')
+    expect(screen.getByRole('button', { name: 'Scan a nutrition label' })).toBeInTheDocument()
   })
 
   it('computes calories live from protein, fat and carbs as they are typed', async () => {

@@ -244,6 +244,43 @@ describe('online lookup', () => {
   })
 })
 
+describe('reading a label', () => {
+  const JPEG = 'data:image/jpeg;base64,/9j/4AAQSkZJRg=='
+  const READING = { name: null, brand: 'Kodiak', serving: { label: '1/2 cup (53g)', grams: 53 }, nutrients: { calories: 190, protein: 14, fat: 2.5, carbs: 30, fiber: 3 }, note: null }
+  const vision = (reply: unknown) => {
+    upstream.mockImplementation(async (url: string) => {
+      if (url.endsWith('/api/v1/models')) {
+        return new Response(JSON.stringify({ models: [{ type: 'llm', key: 'eyes', loaded_instances: [{ id: 'eyes' }], capabilities: { vision: true } }] }))
+      }
+      const enc = new TextEncoder()
+      return new Response(new ReadableStream({
+        start(c) {
+          c.enqueue(enc.encode(`data: ${JSON.stringify({ type: 'message.delta', content: JSON.stringify(reply) })}\n\n`))
+          c.close()
+        },
+      }), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+    })
+  }
+
+  it('hands the picture to a vision model and returns what it read', async () => {
+    vision(READING)
+    const res = await call('POST', '/api/label', { image: JPEG })
+    expect(res.status).toBe(200)
+    expect(res.body.reading).toEqual({ ...READING, note: undefined, model: 'eyes' })
+    const chat = upstream.mock.calls.find(([u]) => String(u).endsWith('/api/v1/chat'))!
+    expect(JSON.parse(String((chat[1] as RequestInit).body)).input).toEqual([{ type: 'text', content: 'Read this nutrition label.' }, { type: 'image', data_url: JPEG }])
+  })
+
+  it('refuses anything but an image, and says when the model could not read one', async () => {
+    expect((await call('POST', '/api/label', { image: 'https://example.com/x.jpg' })).status).toBe(400)
+    expect((await call('POST', '/api/label', {})).status).toBe(400)
+    vision({ nutrients: {}, note: 'a cat' })
+    const res = await call('POST', '/api/label', { image: JPEG })
+    expect(res.status).toBe(502)
+    expect(res.body.error).toMatch(/a cat/)
+  })
+})
+
 describe('lm models', () => {
   it('lists the LLMs LM Studio has, without the token', async () => {
     upstream.mockImplementation(async () => ({
@@ -252,7 +289,7 @@ describe('lm models', () => {
     }))
     await call('PUT', '/api/settings', { lmStudioToken: 'sk-lm-SECRET' })
     const res = await call('GET', '/api/lm-models')
-    expect(res.body).toEqual({ models: [{ key: 'qwen/qwen3.8-27b', loaded: false }], error: null })
+    expect(res.body).toEqual({ models: [{ key: 'qwen/qwen3.8-27b', loaded: false, vision: false }], error: null })
     expect(JSON.stringify(res.body)).not.toMatch(/SECRET/)
   })
 

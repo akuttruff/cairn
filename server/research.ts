@@ -156,7 +156,7 @@ interface LmModel {
   type?: string
   key?: string
   loaded_instances?: { id?: string }[]
-  capabilities?: { reasoning?: { allowed_options?: string[] } }
+  capabilities?: { vision?: boolean; reasoning?: { allowed_options?: string[] } }
 }
 
 export const authHeaders = (settings: Settings): Record<string, string> =>
@@ -188,7 +188,7 @@ export async function listLlms(settings: Settings, fetchImpl: typeof fetch): Pro
   const models = await fetchLmModels(settings, fetchImpl)
   return models
     .filter((m) => m.type === 'llm' && m.key)
-    .map((m) => ({ key: m.key!, loaded: Boolean(m.loaded_instances?.length) }))
+    .map((m) => ({ key: m.key!, loaded: Boolean(m.loaded_instances?.length), vision: m.capabilities?.vision === true }))
     .sort((a, b) => Number(b.loaded) - Number(a.loaded) || a.key.localeCompare(b.key))
 }
 
@@ -197,6 +197,11 @@ export async function listLlms(settings: Settings, fetchImpl: typeof fetch): Pro
  * LLM LM Studio has loaded, so a lookup never makes it load a second copy --
  * and the cheapest reasoning it allows. Reasoning off made a lookup three
  * times faster (74 s vs 227 s) with an equally good answer.
+ *
+ * With `vision`, the job needs a model that can see images (reading a
+ * label): a chosen text-only model is passed over, and when nothing
+ * suitable is loaded, any downloaded vision model will do -- LM Studio
+ * loads it on the first call.
  */
 export async function chooseModel(
   settings: Settings,
@@ -204,13 +209,19 @@ export async function chooseModel(
   signal?: AbortSignal,
   /** A model to prefer over the research one (the notes model, when set). */
   preferred = '',
+  vision = false,
 ): Promise<{ model: string; reasoning: string | null }> {
   const models = await fetchLmModels(settings, fetchImpl, signal)
-  const wanted = preferred || settings.researchModel
-  const entry = wanted
+  const sees = (m: LmModel): boolean => m.type === 'llm' && m.capabilities?.vision === true
+  const wanted = vision ? preferred : preferred || settings.researchModel
+  let entry = wanted
     ? models.find((m) => m.key === wanted || m.loaded_instances?.some((i) => i.id === wanted))
     : models.find((m) => m.type === 'llm' && m.loaded_instances?.length)
-  const model = wanted || entry?.loaded_instances?.[0]?.id || entry?.key
+  if (vision && !(entry && sees(entry))) {
+    entry = models.find((m) => sees(m) && m.loaded_instances?.length) ?? models.find(sees)
+    if (!entry) throw new Error('No vision model in LM Studio. Download one that can read images (Gemma 3, Qwen3-VL), or choose one in Settings.')
+  }
+  const model = (vision ? '' : wanted) || entry?.loaded_instances?.[0]?.id || entry?.key
   if (!model) throw new Error('No model is loaded in LM Studio. Load one, or choose one in Settings.')
   const allowed = entry?.capabilities?.reasoning?.allowed_options ?? []
   const reasoning = ['off', 'minimal', 'low'].find((r) => allowed.includes(r)) ?? null

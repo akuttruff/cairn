@@ -4,7 +4,7 @@ import type { LookupStore } from './research.ts'
 import { DEFAULT_WORKOUT_KINDS } from '../src/types.ts'
 import type { Settings } from '../src/types.ts'
 
-const SETTINGS: Settings = { usdaApiKey: '', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: 'sk-lm-T', researchModel: '', notesModel: '', autoLookup: true, appIcon: 'ring', charts: ['calories', 'protein', 'fiber', 'water'], workoutKinds: DEFAULT_WORKOUT_KINDS }
+const SETTINGS: Settings = { usdaApiKey: '', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: 'sk-lm-T', researchModel: '', notesModel: '', labelModel: '', autoLookup: true, appIcon: 'ring', charts: ['calories', 'protein', 'fiber', 'water'], workoutKinds: DEFAULT_WORKOUT_KINDS }
 
 const BOWL_REPLY = {
   found: true,
@@ -132,6 +132,23 @@ describe('chooseModel', () => {
     expect((await chooseModel({ ...SETTINGS, researchModel: 'other/model' }, fetchImpl)).model).toBe('other/model')
   })
 
+  it('for a job that needs eyes, passes over the text models for one that can see', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ models: [
+      { type: 'llm', key: 'text/loaded', loaded_instances: [{ id: 'text/loaded' }], capabilities: { vision: false } },
+      { type: 'llm', key: 'eyes/unloaded', capabilities: { vision: true, reasoning: { allowed_options: ['off', 'on'] } } },
+      { type: 'llm', key: 'eyes/loaded', loaded_instances: [{ id: 'eyes/loaded' }], capabilities: { vision: true } },
+    ] }))) as unknown as typeof fetch
+    // The loaded vision model wins over the loaded text one and the unloaded vision one.
+    expect(await chooseModel({ ...SETTINGS, researchModel: 'text/loaded' }, fetchImpl, undefined, '', true)).toEqual({ model: 'eyes/loaded', reasoning: null })
+    // A chosen vision model is taken as is, even unloaded; a chosen text model is not.
+    expect(await chooseModel(SETTINGS, fetchImpl, undefined, 'eyes/unloaded', true)).toEqual({ model: 'eyes/unloaded', reasoning: 'off' })
+    expect((await chooseModel(SETTINGS, fetchImpl, undefined, 'text/loaded', true)).model).toBe('eyes/loaded')
+    const blind = vi.fn(async () => new Response(JSON.stringify({ models: [
+      { type: 'llm', key: 'text/loaded', loaded_instances: [{ id: 'text/loaded' }], capabilities: { vision: false } },
+    ] }))) as unknown as typeof fetch
+    await expect(chooseModel(SETTINGS, blind, undefined, '', true)).rejects.toThrow(/No vision model/)
+  })
+
   it('explains when nothing is loaded or LM Studio is down', async () => {
     const empty = vi.fn(async () => new Response(JSON.stringify({ models: [] }))) as unknown as typeof fetch
     await expect(chooseModel(SETTINGS, empty)).rejects.toThrow(/No model is loaded/)
@@ -149,9 +166,9 @@ describe('listLlms', () => {
       { type: 'llm', key: 'z/loaded', loaded_instances: [{ id: 'z/loaded' }] },
     ] }))) as unknown as typeof fetch
     expect(await listLlms(SETTINGS, fetchImpl)).toEqual([
-      { key: 'z/loaded', loaded: true },
-      { key: 'a/unloaded', loaded: false },
-      { key: 'b/unloaded', loaded: false },
+      { key: 'z/loaded', loaded: true, vision: false },
+      { key: 'a/unloaded', loaded: false, vision: false },
+      { key: 'b/unloaded', loaded: false, vision: false },
     ])
   })
 

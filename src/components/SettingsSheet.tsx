@@ -93,6 +93,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const [lmModel, setLmModel] = useState<string | null>(null)
   const [autoLookup, setAutoLookup] = useState<boolean | null>(null)
   const [notesModel, setNotesModel] = useState<string | null>(null)
+  const [labelModel, setLabelModel] = useState<string | null>(null)
   const [appIcon, setAppIcon] = useState<AppIcon | null>(null)
   // Which daily charts Week and Month draw; null until one is toggled.
   const [charts, setCharts] = useState<ChartKey[] | null>(null)
@@ -129,6 +130,8 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
 
   const chosenModel = lmModel ?? settings?.researchModel ?? ''
   const chosenNotesModel = notesModel ?? settings?.notesModel ?? ''
+  const chosenLabelModel = labelModel ?? settings?.labelModel ?? ''
+  const visionModels = models.filter((m) => m.vision)
 
   const setKind = (i: number, patch: Partial<KindRow>): void =>
     setKinds((rows) => rows && rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
@@ -175,6 +178,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       if (lmUrl != null && lmUrl.trim() !== settings?.lmStudioUrl) changes.lmStudioUrl = lmUrl.trim()
       if (lmModel != null && lmModel.trim() !== settings?.researchModel) changes.researchModel = lmModel.trim()
       if (notesModel != null && notesModel.trim() !== settings?.notesModel) changes.notesModel = notesModel.trim()
+      if (labelModel != null && labelModel.trim() !== settings?.labelModel) changes.labelModel = labelModel.trim()
       if (autoLookup != null && autoLookup !== settings?.autoLookup) changes.autoLookup = autoLookup
       const iconChanged = appIcon != null && appIcon !== settings?.appIcon
       if (iconChanged) changes.appIcon = appIcon
@@ -430,6 +434,19 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
               </select>
               <div className="hint">
                 Writes the notes on each week and month in Week and Month view. A small, fast model is plenty for this.
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="label-model">Label model</label>
+              <select id="label-model" value={chosenLabelModel} onChange={(e) => setLabelModel(e.target.value)}>
+                <option value="">Whichever vision model is loaded</option>
+                {chosenLabelModel && !visionModels.some((m) => m.key === chosenLabelModel) && <option value={chosenLabelModel}>{chosenLabelModel}</option>}
+                {visionModels.map((m) => <option key={m.key} value={m.key}>{m.key}{m.loaded ? ' (loaded)' : ''}</option>)}
+              </select>
+              <div className="hint">
+                Reads a photographed nutrition label into the Manual tab. Only models that can see images are listed
+                (Gemma 3, Qwen3-VL); a small one reads a label in seconds.
+                {!modelsError && models.length > 0 && visionModels.length === 0 ? ' LM Studio has none downloaded yet.' : ''}
               </div>
             </div>
           </div>

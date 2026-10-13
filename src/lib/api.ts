@@ -1,5 +1,5 @@
 import type {
-  DayType, DayView, Entry, Food, Goals, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeNotes, RangeView, Serving,
+  DayType, DayView, Entry, Food, Goals, LabelReading, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeNotes, RangeView, Serving,
   AlcoholKind, AlcoholLog, AppIcon, ChartKey, WaterLog, LmModelOption, MeditationLog, DogWalkLog, WorkoutKind, WorkoutKindDef, WorkoutLog, WorkoutPlan,
 } from '../types.ts'
 
@@ -95,8 +95,10 @@ export const api = {
   addDogWalk: (w: { date: string; miles?: number }) => request<DogWalkLog>('POST', '/api/dog-walks', w),
   deleteDogWalk: (id: string) => request<{ ok: true }>('DELETE', `/api/dog-walks/${encodeURIComponent(id)}`),
   settings: () => request<PublicSettings>('GET', '/api/settings'),
-  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; notesModel?: string; autoLookup?: boolean; appIcon?: AppIcon; charts?: ChartKey[]; workoutKinds?: WorkoutKindDef[] }) =>
+  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; notesModel?: string; labelModel?: string; autoLookup?: boolean; appIcon?: AppIcon; charts?: ChartKey[]; workoutKinds?: WorkoutKindDef[] }) =>
     request<PublicSettings>('PUT', '/api/settings', s),
+  /** Read a photographed nutrition label (a JPEG/PNG/WebP data URL) into the Manual tab's fields. Seconds, once the model is loaded. */
+  readLabel: (image: string) => request<{ reading: LabelReading }>('POST', '/api/label', { image }),
   /** LLMs LM Studio has downloaded, for the model picker. `error` says why the list is empty. */
   lmModels: () => request<{ models: LmModelOption[]; error: string | null }>('GET', '/api/lm-models'),
   /** `refresh` skips the cached answer and runs a fresh lookup. */

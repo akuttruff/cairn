@@ -389,6 +389,12 @@ function migrateSchema(db: DatabaseSync): void {
     if (!cols.some((c) => c.name === 'notes_model')) db.exec("ALTER TABLE settings ADD COLUMN notes_model TEXT NOT NULL DEFAULT ''")
     db.exec('PRAGMA user_version = 14')
   }
+  if (version < 15) {
+    // The vision model that reads a photographed nutrition label.
+    const cols = db.prepare('PRAGMA table_info(settings)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'label_model')) db.exec("ALTER TABLE settings ADD COLUMN label_model TEXT NOT NULL DEFAULT ''")
+    db.exec('PRAGMA user_version = 15')
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -708,12 +714,12 @@ const cleanNote = (input: unknown): string | undefined =>
   (typeof input === 'string' && input.trim() ? input.trim().slice(0, MAX_NAME) : undefined)
 interface SettingsRow {
   usda_api_key: string; lm_studio_url: string; lm_studio_token: string; research_model: string; auto_lookup: number
-  app_icon: string; charts: string | null; workout_kinds: string | null; notes_model: string | null
+  app_icon: string; charts: string | null; workout_kinds: string | null; notes_model: string | null; label_model: string | null
 }
 function settingsFromRow(row: SettingsRow): Settings {
   return {
     usdaApiKey: row.usda_api_key, lmStudioUrl: row.lm_studio_url, lmStudioToken: row.lm_studio_token,
-    researchModel: row.research_model, notesModel: row.notes_model ?? '', autoLookup: row.auto_lookup === 1,
+    researchModel: row.research_model, notesModel: row.notes_model ?? '', labelModel: row.label_model ?? '', autoLookup: row.auto_lookup === 1,
     appIcon: (APP_ICONS as readonly string[]).includes(row.app_icon) ? row.app_icon as AppIcon : 'ring',
     charts: parseCharts(row.charts),
     workoutKinds: parseWorkoutKinds(row.workout_kinds),
@@ -776,6 +782,7 @@ function migrateFromJson(paths: ReturnType<typeof locate>): void {
     lmStudioToken: typeof rawSettings.lmStudioToken === 'string' ? rawSettings.lmStudioToken : '',
     researchModel: typeof rawSettings.researchModel === 'string' ? rawSettings.researchModel : '',
     notesModel: '',
+    labelModel: '',
     autoLookup: typeof rawSettings.autoLookup === 'boolean' ? rawSettings.autoLookup : true,
     appIcon: 'ring',
     charts: [...DEFAULT_CHARTS],
@@ -1038,7 +1045,7 @@ export class Store {
       ),
       selectSettings: this.db.prepare('SELECT * FROM settings WHERE id = 1'),
       updateSettings: this.db.prepare(
-        'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=?, app_icon=?, charts=?, workout_kinds=?, notes_model=? WHERE id=1',
+        'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=?, app_icon=?, charts=?, workout_kinds=?, notes_model=?, label_model=? WHERE id=1',
       ),
       selectWaterByDate: this.db.prepare('SELECT * FROM water_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
       selectWaterBetween: this.db.prepare('SELECT * FROM water_logs WHERE date >= ? AND date <= ?'),
@@ -1959,6 +1966,7 @@ export class Store {
       lmStudioUrl: s.lmStudioUrl,
       researchModel: s.researchModel,
       notesModel: s.notesModel,
+      labelModel: s.labelModel,
       autoLookup: s.autoLookup,
       appIcon: s.appIcon,
       charts: s.charts,
@@ -1972,6 +1980,7 @@ export class Store {
     if (typeof input.lmStudioToken === 'string') next.lmStudioToken = input.lmStudioToken.trim().slice(0, 300)
     if (typeof input.researchModel === 'string') next.researchModel = input.researchModel.trim().slice(0, 200)
     if (typeof input.notesModel === 'string') next.notesModel = input.notesModel.trim().slice(0, 200)
+    if (typeof input.labelModel === 'string') next.labelModel = input.labelModel.trim().slice(0, 200)
     if (typeof input.autoLookup === 'boolean') next.autoLookup = input.autoLookup
     if (input.appIcon !== undefined) {
       if (!(APP_ICONS as readonly string[]).includes(input.appIcon)) throw new ValidationError(`appIcon must be one of ${APP_ICONS.join(', ')}`)
@@ -1996,7 +2005,7 @@ export class Store {
       }
       next.lmStudioUrl = url || 'http://127.0.0.1:1234'
     }
-    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon, JSON.stringify(next.charts), JSON.stringify(next.workoutKinds), next.notesModel)
+    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon, JSON.stringify(next.charts), JSON.stringify(next.workoutKinds), next.notesModel, next.labelModel)
     return this.getPublicSettings()
   }
 }
