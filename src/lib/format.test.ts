@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { emptyDraft, withAutoCalories } from './format.ts'
+import { emptyDraft, fmt, fmtGrams, withAutoCalories } from './format.ts'
 import type { NutrientDraft } from './format.ts'
 
 const draft = (over: Partial<NutrientDraft> = {}): NutrientDraft => ({ ...emptyDraft(), ...over })
@@ -85,5 +85,36 @@ describe('withAutoCalories', () => {
       draft({ calories: '400', fiber: '5' }),
     )
     expect(state.draft.calories).toBe('400')
+  })
+})
+
+describe('fmt', () => {
+  it('rounds macros up to whole grams', () => {
+    expect(fmt('protein', 7.8)).toBe('8')
+    expect(fmt('fat', 3.1)).toBe('4')
+    expect(fmt('fiber', 0.1)).toBe('1')
+    expect(fmt('carbs', 60)).toBe('60')
+    expect(fmt('carbs', 0)).toBe('0')
+  })
+
+  it('does not let float noise in a sum tip a whole number up', () => {
+    expect(fmt('protein', 0.1 + 0.2 + 0.7)).toBe('1')
+    expect(fmt('fat', 12.000000001)).toBe('12')
+  })
+
+  it('rounds calories to the nearest whole number', () => {
+    expect(fmt('calories', 294.4)).toBe('294')
+    expect(fmt('calories', 294.5)).toBe('295')
+  })
+
+  it('shows unknown as a dash', () => {
+    expect(fmt('protein', null)).toBe('—')
+  })
+})
+
+describe('fmtGrams', () => {
+  it('keeps one decimal for weights', () => {
+    expect(fmtGrams(118.04)).toBe('118')
+    expect(fmtGrams(28.35)).toBe('28.4')
   })
 })

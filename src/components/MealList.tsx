@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Check } from 'lucide-react'
 import { MEALS } from '../types.ts'
-import { MEAL_LABELS, fmt } from '../lib/format.ts'
+import { MEAL_LABELS, fmt, fmtGrams } from '../lib/format.ts'
 import { sumNutrients } from '../lib/nutrition.ts'
 import { describeAmount } from '../lib/units.ts'
 import type { Entry, Meal } from '../types.ts'
@@ -67,10 +67,12 @@ export default function MealList({ entries, onOpen, onAdd, onDeleteMany }: MealL
             <div className="meal-head">
               <h2>{MEAL_LABELS[meal]}</h2>
               {items.length > 0 && (
-                <span className="meal-kcal" aria-label={`${MEAL_LABELS[meal]} totals`}>
-                  {fmt('calories', total.calories)} kcal
-                  <span className="meal-macros"> · P {fmt('protein', total.protein)} · F {fmt('fat', total.fat)} · C {fmt('carbs', total.carbs)} · Fib {fmt('fiber', total.fiber)}</span>
-                </span>
+                <>
+                  <span className="meal-kcal" aria-label={`${MEAL_LABELS[meal]} calories`}>{fmt('calories', total.calories)} kcal</span>
+                  <span className="meal-macros" aria-label={`${MEAL_LABELS[meal]} macros`}>
+                    P {fmt('protein', total.protein)} · F {fmt('fat', total.fat)} · C {fmt('carbs', total.carbs)} · Fib {fmt('fiber', total.fiber)}
+                  </span>
+                </>
               )}
               {!selecting && (
                 <button type="button" className="meal-add" onClick={() => onAdd(meal)} aria-label={`Add to ${MEAL_LABELS[meal]}`}>
@@ -97,7 +99,7 @@ export default function MealList({ entries, onOpen, onAdd, onDeleteMany }: MealL
                     {[
                       e.brand,
                       // As measured ("1.5 cup"), else the weight.
-                      e.amount ? describeAmount(e.amount) : e.grams != null ? `${fmt('protein', e.grams)} g` : null,
+                      e.amount ? describeAmount(e.amount) : e.grams != null ? `${fmtGrams(e.grams)} g` : null,
                     ].filter(Boolean).join(' · ')}
                   </span>
                 </div>

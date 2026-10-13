@@ -4,9 +4,10 @@ import { ArrowLeft, Check, Globe, Pencil, Search, Star, Trash2, TriangleAlert, U
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import type { ResearchJob, SearchResult } from '../lib/api.ts'
+import { chime } from '../lib/chime.ts'
 import { calorieMismatch, sumNutrients } from '../lib/nutrition.ts'
 import { amountOf, describeAmount, entryFor, foodFromItem, gramsFor, headline, nutrientsFor, resolveNutrients, unitsFor } from '../lib/units.ts'
-import { MEAL_LABELS, draftHasJunk, draftOf, fmt, nutrientsOf, parseNum } from '../lib/format.ts'
+import { MEAL_LABELS, draftHasJunk, draftOf, fmt, fmtGrams, nutrientsOf, parseNum } from '../lib/format.ts'
 import { MEALS, NUTRIENTS } from '../types.ts'
 import type { Food, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, Serving } from '../types.ts'
 import NutrientFields from './NutrientFields.tsx'
@@ -51,7 +52,7 @@ export default function AddSheet({ open, session, onClose, ...rest }: AddSheetPr
 }
 
 function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddSheetProps, 'session'>) {
-  const [tab, setTab] = useState<Tab>('search')
+  const [tab, setTab] = useState<Tab>('mine')
   const [meal, setMeal] = useState<Meal>(initialMeal)
   const [picked, setPicked] = useState<Food | null>(null)
 
@@ -96,7 +97,7 @@ function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddS
             : (
               <>
                 <div className="tabs" role="tablist">
-                  {(['search', 'mine', 'manual'] as const).map((t) => (
+                  {(['mine', 'search', 'manual'] as const).map((t) => (
                     <button
                       key={t}
                       type="button"
@@ -1030,13 +1031,13 @@ function Amount({ food, onChange, onLog }: {
             >
               {units.map((u) => (
                 <option key={u.key} value={u.key}>
-                  {u.label}{u.grams != null && u.key !== 'g' && u.key !== 'oz' ? ` (${fmt('protein', u.grams)} g)` : ''}
+                  {u.label}{u.grams != null && u.key !== 'g' && u.key !== 'oz' ? ` (${fmtGrams(u.grams)} g)` : ''}
                 </option>
               ))}
             </select>
           </div>
         </div>
-        {valid && grams != null && unit?.key !== 'g' && <div className="hint">= {fmt('protein', grams)} g</div>}
+        {valid && grams != null && unit?.key !== 'g' && <div className="hint">= {fmtGrams(grams)} g</div>}
 
         {nutrients ? <Preview nutrients={nutrients} /> : <div className="hint bad">Enter an amount greater than 0.</div>}
         <AddToMeal item={valid && unit && q != null ? entryFor(food, unit, q) : null} disabled={busy} />
@@ -1127,6 +1128,9 @@ function OnlineLookup({ query, job, auto, onJob, onStart, onRefresh, onPick, onE
 
   useEffect(() => {
     if (!running || !jobId) return
+    // Cleared once this job stops being watched (settled, replaced or
+    // cancelled here), so a poll answering late can't chime for it.
+    let watching = true
     const tick = setInterval(() => setNow(Date.now()), 1000)
     const poll = setInterval(() => {
       api.research(jobId)
@@ -1134,12 +1138,18 @@ function OnlineLookup({ query, job, auto, onJob, onStart, onRefresh, onPick, onE
         .then((j) => {
           if (!isJob(j) || j.id !== jobId) return
           // Settled: nothing left to come back to.
-          if (j.status !== 'running') forgetJob()
+          if (j.status !== 'running') {
+            forgetJob()
+            // The write-up is ready (or gave up): worth a sound, since it
+            // takes a minute or two and you've likely looked away.
+            if (watching && j.error !== 'Cancelled.') chime(j.status === 'done' ? 'done' : 'failed')
+            watching = false
+          }
           onJob(j)
         })
         .catch(() => { forgetJob(); onJob(null) })
     }, POLL_MS)
-    return () => { clearInterval(tick); clearInterval(poll) }
+    return () => { watching = false; clearInterval(tick); clearInterval(poll) }
   }, [running, jobId, onJob])
 
   const mine = job && job.query.toLowerCase() === query.toLowerCase() ? job : null

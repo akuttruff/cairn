@@ -3,9 +3,12 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { dayLabel } from './lib/format.ts'
 import App from './App.tsx'
+import { chime } from './lib/chime.ts'
 import { addDays, localDate, startOfWeek } from './lib/nutrition.ts'
 import { DEFAULT_WORKOUT_KINDS } from './types.ts'
 import type { DayView, Entry, Food, Goals, RangeView } from './types.ts'
+
+vi.mock('./lib/chime.ts', () => ({ chime: vi.fn(), listenForChimeUnlock: vi.fn() }))
 
 const TODAY = localDate()
 const RANGE = (n: number): { min: number; max: number } => ({ min: n, max: n })
@@ -75,6 +78,12 @@ const range = (over: Partial<RangeView> = {}, start = startOfWeek(TODAY)): Range
 interface Call { url: string; method: string; body?: unknown }
 
 /** A fake server; `routes` maps "METHOD /path-prefix" to a response body. */
+/** The add sheet opens on My foods; switch to Search and hand back its box. */
+async function searchBox(user: ReturnType<typeof userEvent.setup>): Promise<HTMLElement> {
+  await user.click(await screen.findByRole('tab', { name: 'Search' }))
+  return screen.findByLabelText('Search foods')
+}
+
 function stubApi(routes: Record<string, unknown>) {
   const calls: Call[] = []
   vi.stubGlobal('fetch', vi.fn<(url: string, init?: RequestInit) => Promise<unknown>>(async (url, init) => {
@@ -90,7 +99,7 @@ function stubApi(routes: Record<string, unknown>) {
   return calls
 }
 
-beforeEach(() => { vi.unstubAllGlobals() })
+beforeEach(() => { vi.unstubAllGlobals(); vi.mocked(chime).mockClear() })
 
 describe('App', () => {
   it('shows the day totals against goals, and entries under their meal', async () => {
@@ -107,9 +116,8 @@ describe('App', () => {
     const two = [entry(), entry({ id: 'e2', name: 'Banana', nutrients: { calories: 105, protein: 1.3, fat: 0.4, carbs: 27, fiber: 3.1 } })]
     stubApi({ [`GET /api/day/${TODAY}`]: day(two) })
     render(<App />)
-    const totals = await screen.findByLabelText('Breakfast totals')
-    expect(totals).toHaveTextContent('295 kcal')
-    expect(totals).toHaveTextContent('P 7.8 · F 3.8 · C 60 · Fib 8.1')
+    expect(await screen.findByLabelText('Breakfast calories')).toHaveTextContent('295 kcal')
+    expect(screen.getByLabelText('Breakfast macros')).toHaveTextContent('P 8 · F 4 · C 60 · Fib 9')
   })
 
   it('lists the goals to reach (protein, fat, fiber) before the one to stay under (carbs)', async () => {
@@ -242,13 +250,13 @@ describe('App', () => {
     stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/search': { usda: [banana], off: [], errors: [] } })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    const box = await screen.findByLabelText('Search foods')
+    const box = await searchBox(user)
     expect(box).toHaveAttribute('autocomplete', 'off')
     await user.type(box, 'banana')
     await user.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByLabelText('Search foods')).not.toBeInTheDocument())
     await user.click(screen.getByRole('button', { name: 'Add food' }))
-    expect(await screen.findByLabelText('Search foods')).toHaveValue('')
+    expect(await searchBox(user)).toHaveValue('')
   })
 
   it('clears the search box with its button, and puts the cursor back', async () => {
@@ -256,7 +264,7 @@ describe('App', () => {
     stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/search': { usda: [banana], off: [], errors: [] } })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    const box = await screen.findByLabelText('Search foods')
+    const box = await searchBox(user)
     expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument()
     await user.type(box, 'banana')
     expect(await screen.findByText('Bananas, raw')).toBeInTheDocument()
@@ -282,7 +290,7 @@ describe('App', () => {
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    const box = await screen.findByLabelText('Search foods')
+    const box = await searchBox(user)
     await waitFor(() => expect(calls.some((c) => c.url === '/api/research/j1')).toBe(true))
     expect(box).toHaveValue('')
     expect(screen.queryByRole('region', { name: 'Online' })).not.toBeInTheDocument()
@@ -299,7 +307,7 @@ describe('App', () => {
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    expect(await screen.findByLabelText('Search foods')).toHaveValue('pad thai')
+    expect(await searchBox(user)).toHaveValue('pad thai')
     expect(await screen.findByText(/Looking it up/)).toBeInTheDocument()
   })
 
@@ -315,7 +323,7 @@ describe('App', () => {
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    await user.type(await screen.findByLabelText('Search foods'), 'banana')
+    await user.type(await searchBox(user), 'banana')
     await user.click(await screen.findByText('Bananas, raw', {}, { timeout: 2000 }))
     await user.clear(await screen.findByLabelText('Amount'))
     await user.type(screen.getByLabelText('Amount'), '150')
@@ -363,7 +371,7 @@ describe('App', () => {
     render(<App />)
     await screen.findByText('Today')
     await user.click(screen.getByRole('button', { name: 'Add to Lunch' }))
-    await user.type(await screen.findByLabelText('Search foods'), 'banana')
+    await user.type(await searchBox(user), 'banana')
     await user.click(await screen.findByText('Bananas, raw', {}, { timeout: 2000 }))
 
     // The household measure replaces the 100 g default once it arrives.
@@ -395,7 +403,7 @@ describe('App', () => {
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    await user.type(await screen.findByLabelText('Search foods'), 'banana')
+    await user.type(await searchBox(user), 'banana')
     await user.click(await screen.findByText('Bananas, raw', {}, { timeout: 2000 }))
     await user.selectOptions(screen.getByLabelText('Unit'), 'oz')
     await user.click(screen.getByRole('button', { name: /^Log 1 oz/ }))
@@ -413,7 +421,7 @@ describe('App', () => {
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    await user.type(await screen.findByLabelText('Search foods'), 'banana')
+    await user.type(await searchBox(user), 'banana')
     await screen.findByText('Bananas, raw', {}, { timeout: 2000 })
 
     await user.click(screen.getByRole('button', { name: 'Save Bananas, raw to My foods' }))
@@ -441,7 +449,7 @@ describe('App', () => {
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    await user.type(await screen.findByLabelText('Search foods'), 'banana')
+    await user.type(await searchBox(user), 'banana')
     expect(await screen.findByText(/rate limited/, {}, { timeout: 2000 })).toBeInTheDocument()
     expect(screen.getByText('Banana chips')).toBeInTheDocument()
   })
@@ -456,7 +464,7 @@ describe('App', () => {
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    await user.type(await screen.findByLabelText('Search foods'), 'tjs hummus')
+    await user.type(await searchBox(user), 'tjs hummus')
     expect(await screen.findByRole('region', { name: 'Yours' })).toHaveTextContent('Hummus')
     const group = await screen.findByRole('region', { name: "Trader Joe's" }, { timeout: 2000 })
     expect(within(group).getByText('Mandarin Orange Chicken')).toBeInTheDocument()
@@ -471,7 +479,7 @@ describe('App', () => {
     stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/search': { usda: [], off: [typo], errors: [] } })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    await user.type(await screen.findByLabelText('Search foods'), 'granola')
+    await user.type(await searchBox(user), 'granola')
     expect(await screen.findByLabelText("Numbers don't add up", {}, { timeout: 2000 })).toBeInTheDocument()
     await user.click(screen.getByText('Granola'))
     expect(screen.getByRole('status')).toHaveTextContent(/may have a typo/)
@@ -669,7 +677,7 @@ describe('App', () => {
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    await user.type(await screen.findByLabelText('Search foods'), 'banana')
+    await user.type(await searchBox(user), 'banana')
     await user.click(await screen.findByRole('button', { name: 'Edit Bananas, raw' }))
     await user.clear(screen.getByLabelText('Fiber (g)'))
     await user.type(screen.getByLabelText('Fiber (g)'), '9')
@@ -1292,13 +1300,16 @@ describe('App', () => {
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    await user.type(await screen.findByLabelText('Search foods'), 'chipotle chicken bowl')
+    await user.type(await searchBox(user), 'chipotle chicken bowl')
     // No button to catch: it starts by itself once typing pauses.
     await waitFor(() => expect(calls.some((c) => c.url === '/api/research')).toBe(true), { timeout: 4000 })
     expect(calls.find((c) => c.url === '/api/research')!.body).toEqual({ q: 'chipotle chicken bowl' })
 
     expect(await screen.findByText(/reading chipotle\.com/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(chime).not.toHaveBeenCalled()
     await user.click(await screen.findByText('Chicken Burrito Bowl', {}, { timeout: 5000 }))
+    // A sound once the write-up is ready, since it takes a while.
+    expect(chime).toHaveBeenCalledExactlyOnceWith('done')
 
     // Per serving, with where the numbers came from.
     expect(screen.getByLabelText('Unit')).toHaveDisplayValue('1 bowl')
@@ -1336,7 +1347,7 @@ describe('App', () => {
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    await user.type(await screen.findByLabelText('Search foods'), 'chipotle chicken bowl')
+    await user.type(await searchBox(user), 'chipotle chicken bowl')
     await user.click(await screen.findByText('Chicken Burrito Bowl', {}, { timeout: 5000 }))
 
     await user.click(screen.getByRole('button', { name: 'Edit nutrition numbers' }))
@@ -1377,7 +1388,7 @@ describe('App', () => {
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    await user.type(await screen.findByLabelText('Search foods'), 'chipotle chicken bowl')
+    await user.type(await searchBox(user), 'chipotle chicken bowl')
     await waitFor(() => expect(calls.some((c) => c.url === '/api/research')).toBe(true), { timeout: 4000 })
     await screen.findByText('Chicken Burrito Bowl', {}, { timeout: 5000 })
 
@@ -1403,7 +1414,7 @@ describe('App', () => {
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    await user.type(await screen.findByLabelText('Search foods'), 'chipotle chicken bowl')
+    await user.type(await searchBox(user), 'chipotle chicken bowl')
     await screen.findByText('Chicken Burrito Bowl', {}, { timeout: 5000 })
 
     await user.click(screen.getByRole('button', { name: 'Look up again' }))
@@ -1422,7 +1433,7 @@ describe('App', () => {
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Add food' }))
-    await user.type(await screen.findByLabelText('Search foods'), 'banana')
+    await user.type(await searchBox(user), 'banana')
     // It matches both "Yours" (already saved) and the USDA results for the
     // same query; the USDA copy should read as saved too, by id.
     const usda = await screen.findByRole('region', { name: 'Whole foods' }, { timeout: 2000 })
@@ -1636,7 +1647,7 @@ describe('App', () => {
       })
       render(<App />)
       await user.click(await screen.findByRole('button', { name: 'Add food' }))
-      await user.type(await screen.findByLabelText('Search foods'), 'pad thai{Enter}')
+      await user.type(await searchBox(user), 'pad thai{Enter}')
       await waitFor(() => expect(calls.filter((c) => c.url === '/api/research')).toHaveLength(1), { timeout: 500 })
       expect(await screen.findByText(/Looking it up/)).toBeInTheDocument()
       // Placed above the database results, so they can't push it away.
@@ -1656,7 +1667,7 @@ describe('App', () => {
       })
       render(<App />)
       await user.click(await screen.findByRole('button', { name: 'Add food' }))
-      const box = await screen.findByLabelText('Search foods')
+      const box = await searchBox(user)
       await user.type(box, 'pad{Enter}')
       await waitFor(() => expect(calls.some((c) => c.url === '/api/research')).toBe(true))
       await user.type(box, ' thai{Enter}')
@@ -1674,7 +1685,7 @@ describe('App', () => {
       })
       render(<App />)
       await user.click(await screen.findByRole('button', { name: 'Add food' }))
-      await user.type(await screen.findByLabelText('Search foods'), 'pad thai')
+      await user.type(await searchBox(user), 'pad thai')
       const button = await screen.findByRole('button', { name: /Look up “pad thai” online/ })
       await new Promise((r) => setTimeout(r, 2300))
       expect(calls.some((c) => c.url === '/api/research')).toBe(false)
@@ -1687,7 +1698,7 @@ describe('App', () => {
       const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/search': { usda: [], off: [], errors: [], barcode: true } })
       render(<App />)
       await user.click(await screen.findByRole('button', { name: 'Add food' }))
-      await user.type(await screen.findByLabelText('Search foods'), '012345678905{Enter}')
+      await user.type(await searchBox(user), '012345678905{Enter}')
       expect(screen.queryByRole('region', { name: 'Online' })).not.toBeInTheDocument()
       expect(calls.some((c) => c.url === '/api/research')).toBe(false)
     })

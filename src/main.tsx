@@ -1,6 +1,10 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
+import { listenForChimeUnlock } from './lib/chime.ts'
+
+// Taps keep the "done" chime allowed to play later; see lib/chime.ts.
+listenForChimeUnlock()
 
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('#root is missing from index.html')

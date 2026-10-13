@@ -2,12 +2,17 @@ import { UNITS, addDays, impliedCalories, localDate } from './nutrition.ts'
 import { NUTRIENTS } from '../types.ts'
 import type { Meal, NutrientKey, Nutrients } from '../types.ts'
 
-/** Whole numbers for calories, one decimal for grams (dropping a trailing .0). */
+/** Whole numbers throughout: calories to the nearest, macros always rounded
+ *  up (so 12.1 g reads as 13 g). The tiny allowance keeps float noise in a
+ *  sum, like 12.000000001, from tipping a whole number up by one. */
 export function fmt(key: NutrientKey, v: number | null | undefined): string {
   if (v == null) return '—'
   if (key === 'calories') return String(Math.round(v))
-  return String(Math.round(v * 10) / 10)
+  return String(Math.ceil(v - 1e-9))
 }
+
+/** A weight in grams, to one decimal (dropping a trailing .0). */
+export const fmtGrams = (v: number): string => String(Math.round(v * 10) / 10)
 
 export const withUnit = (key: NutrientKey, v: number | null | undefined): string =>
   v == null ? '—' : `${fmt(key, v)}${key === 'calories' ? ' kcal' : ` ${UNITS[key]}`}`
