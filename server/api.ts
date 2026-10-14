@@ -181,7 +181,10 @@ export function createApi(options: ApiOptions = {}) {
       const q = (url.searchParams.get('q') || '').trim()
       if (q.length < 2) throw new ValidationError('search needs at least 2 characters')
       if (q.length > 100) throw new ValidationError('search is too long')
-      return json(res, 200, await searchFoods(q, store.getSettings().usdaApiKey, searchCache, fetchImpl))
+      const found = await searchFoods(q, store.getSettings().usdaApiKey, searchCache, fetchImpl)
+      // Shown in the sheet and otherwise lost: keep a trace of what failed and when.
+      for (const e of found.errors) console.log(`[macros] ${new Date().toISOString()} search ${e.source} failed for "${q}": ${e.message}`)
+      return json(res, 200, found)
     }
 
     if ((m = /^\/api\/portions\/(\d+)$/.exec(p)) && method === 'GET') {

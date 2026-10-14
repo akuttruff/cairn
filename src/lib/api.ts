@@ -25,7 +25,7 @@ export interface SearchResult {
 
 export class ApiError extends Error {}
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   // A request that gets no reply at all is tried again, when trying again is
   // safe (a read changes nothing). It happens for a moment while the server
   // restarts, and in Firefox, whose Local Network Access check can fail the
@@ -38,12 +38,16 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
         method,
         headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal,
       })
-    } catch {
+    } catch (err) {
+      // Cancelled by the caller (a search overtaken by more typing): not a failure.
+      if (signal?.aborted) throw err
       const wait = waits[attempt]
       // Out of tries: say which request, so a repeat can be traced.
       if (wait === undefined) throw new ApiError(`Couldn't reach Cairn (${method} ${path.split('?')[0]}). Check the connection and try again.`)
       await new Promise((r) => setTimeout(r, wait))
+      signal?.throwIfAborted()
     }
   }
   const data = await res.json().catch(() => ({})) as { error?: string }
@@ -63,12 +67,7 @@ export const api = {
   foods: () => request<{ saved: Food[]; recent: Food[] }>('GET', '/api/foods'),
   saveFood: (food: Food) => request<Food>('POST', '/api/foods', food),
   deleteFood: (id: string) => request<{ ok: true }>('DELETE', `/api/foods/${encodeURIComponent(id)}`),
-  search: (q: string, signal?: AbortSignal) =>
-    fetch(`/api/search?q=${encodeURIComponent(q)}`, { signal }).then(async (res) => {
-      const data = await res.json() as SearchResult & { error?: string }
-      if (!res.ok) throw new ApiError(data.error || 'Search failed')
-      return data
-    }),
+  search: (q: string, signal?: AbortSignal) => request<SearchResult>('GET', `/api/search?q=${encodeURIComponent(q)}`, undefined, signal),
   portions: (fdcId: string) => request<Serving[]>('GET', `/api/portions/${encodeURIComponent(fdcId)}`),
   // "targets", not "goals": privacy blockers (Firefox's, uBlock's lists) block URLs with "goals" in them,
   // since analytics tools use the word. /api/goals still answers for anything else.
