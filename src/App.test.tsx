@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { TIMING } from './lib/timing.ts'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { dayLabel } from './lib/format.ts'
 import App from './App.tsx'
@@ -544,6 +544,57 @@ describe('App', () => {
     expect(screen.getByRole('checkbox', { name: 'Save to My foods' })).not.toBeChecked()
     expect(chime).toHaveBeenCalledWith('failed')
     expect(screen.getByRole('button', { name: 'Scan a nutrition label' })).toBeInTheDocument()
+  })
+
+  it('scans a screenshot pasted anywhere on the page, and leaves a text paste alone', async () => {
+    const user = userEvent.setup()
+    const reading = {
+      name: 'Oat bar', brand: null, serving: { label: '1 bar (40g)', grams: 40 },
+      nutrients: { calories: 180, protein: 5, fat: 7, carbs: 26, fiber: 3 }, note: undefined, model: 'eyes',
+    }
+    const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'POST /api/label': { reading } })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.click(await screen.findByRole('tab', { name: 'Manual' }))
+    expect(screen.getByText('Or paste a screenshot, or drop a picture here.')).toBeInTheDocument()
+    // Pasting words into a field is still just typing.
+    fireEvent.paste(screen.getByLabelText('Name'), { clipboardData: { items: [{ kind: 'string', type: 'text/plain', getAsFile: () => null }], files: [] } })
+    expect(calls.some((c) => c.url === '/api/label')).toBe(false)
+    // A screenshot on the clipboard, pasted with nothing focused, scans.
+    const shot = new File(['x'], 'shot.png', { type: 'image/png' })
+    fireEvent.paste(document.body, { clipboardData: { items: [{ kind: 'file', type: 'image/png', getAsFile: () => shot }], files: [shot] } })
+    expect(await screen.findByText(/Filled in from the label by eyes/)).toBeInTheDocument()
+    expect(calls.find((c) => c.url === '/api/label')!.body).toEqual({ image: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==' })
+    expect(screen.getByLabelText('Name')).toHaveValue('Oat bar')
+    expect(screen.getByLabelText('Calories (kcal)')).toHaveValue('180')
+    expect(screen.queryByText('Or paste a screenshot, or drop a picture here.')).not.toBeInTheDocument()
+  })
+
+  it('scans a picture dropped anywhere on the page, lighting the button up while it is dragged over', async () => {
+    const user = userEvent.setup()
+    const reading = {
+      name: 'Oat bar', brand: null, serving: { label: '1 bar', grams: null },
+      nutrients: { calories: 180, protein: 5, fat: 7, carbs: 26, fiber: null }, note: undefined, model: 'eyes',
+    }
+    const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'POST /api/label': { reading } })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.click(await screen.findByRole('tab', { name: 'Manual' }))
+    const shot = new File(['x'], 'shot.png', { type: 'image/png' })
+    const carrying = { items: [{ kind: 'file', type: 'image/png', getAsFile: () => shot }], files: [shot], dropEffect: 'none' }
+    // A text drag is not a picture: nothing lights up.
+    fireEvent.dragOver(document.body, { dataTransfer: { items: [{ kind: 'string', type: 'text/plain', getAsFile: () => null }], files: [] } })
+    expect(screen.getByRole('button', { name: 'Scan a nutrition label' })).not.toHaveClass('dragging')
+    fireEvent.dragOver(document.body, { dataTransfer: carrying })
+    expect(screen.getByRole('button', { name: 'Drop the picture to scan it' })).toHaveClass('dragging')
+    fireEvent.dragLeave(document.body, { relatedTarget: null })
+    expect(screen.getByRole('button', { name: 'Scan a nutrition label' })).not.toHaveClass('dragging')
+    fireEvent.dragOver(document.body, { dataTransfer: carrying })
+    fireEvent.drop(document.body, { dataTransfer: carrying })
+    expect(await screen.findByText(/Filled in from the label by eyes/)).toBeInTheDocument()
+    expect(calls.filter((c) => c.url === '/api/label')).toHaveLength(1)
+    expect(screen.getByLabelText('Name')).toHaveValue('Oat bar')
+    expect(screen.getByRole('button', { name: 'Scan another label' })).not.toHaveClass('dragging')
   })
 
   it('computes calories live from protein, fat and carbs as they are typed', async () => {

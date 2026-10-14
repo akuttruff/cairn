@@ -731,6 +731,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   color: var(--moss); font-size: 14px; text-align: left; cursor: pointer;
 }
 .lookup-btn:disabled { opacity: 0.5; cursor: default; }
+.lookup-btn.dragging { border-style: solid; border-color: var(--moss); background: color-mix(in srgb, var(--moss) 14%, var(--bg-raised)); }
 .lookup-status { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--paper-dim); padding: 10px 0; }
 .lookup-status span:nth-child(2) { flex: 1; min-width: 0; }
 .link-btn { background: none; border: none; color: var(--rust); font-size: 13px; padding: 4px; cursor: pointer; }

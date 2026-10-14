@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Camera, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api.ts'
 import { chime } from '../../lib/chime.ts'
 import { shrinkImage } from '../../lib/image.ts'
+import { carriesPicture, pictureOf } from '../../lib/pictures.ts'
 import { calorieMismatch } from '../../lib/nutrition.ts'
 import { draftOf, emptyDraft, fmtGrams, nutrientsOf, parseNum } from '../../lib/format.ts'
 import { NUTRIENTS } from '../../types.ts'
@@ -14,9 +15,10 @@ import { useElapsed } from '../../hooks/useElapsed.ts'
 
 /**
  * Type a food in, or scan its label: a photo (or a screenshot) goes to a
- * vision model in LM Studio, which fills these fields in for checking. A
- * scanned food is ticked for My foods, since a label worth photographing is
- * one you'll log again.
+ * vision model in LM Studio, which fills these fields in for checking. The
+ * picture can be chosen, pasted from the clipboard, or dropped anywhere on
+ * the page. A scanned food is ticked for My foods, since a label worth
+ * photographing is one you'll log again.
  */
 export function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => Promise<void> }) {
   const [name, setName] = useState('')
@@ -30,6 +32,8 @@ export function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'
   const [scanStarted, setScanStarted] = useState<number | null>(null)
   const scanning = scanStarted != null
   const [scanned, setScanned] = useState<{ note?: string; model: string } | null>(null)
+  /** A picture is being dragged over the page. */
+  const [dragging, setDragging] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
   const nameRef = useRef<HTMLInputElement>(null)
   const scanSeconds = useElapsed(scanStarted)
@@ -57,6 +61,49 @@ export function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'
       setScanStarted(null)
     }
   }
+  const scanRef = useRef(scan)
+  scanRef.current = scan
+
+  // A pasted screenshot or a dropped picture scans too, from anywhere on
+  // the page: a label dragged in from the desktop shouldn't have to land on
+  // the button exactly. Without preventDefault on dragover the browser
+  // refuses the drop (and would open the picture as a page instead); a
+  // dragleave to outside the window (relatedTarget null) clears the
+  // highlight. Text pastes go through untouched.
+  useEffect(() => {
+    if (scanning) return
+    const paste = (e: ClipboardEvent): void => {
+      const file = pictureOf(e.clipboardData)
+      if (!file) return
+      e.preventDefault()
+      void scanRef.current(file)
+    }
+    const over = (e: DragEvent): void => {
+      if (!carriesPicture(e.dataTransfer)) return
+      e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+      setDragging(true)
+    }
+    const leave = (e: DragEvent): void => { if (e.relatedTarget == null) setDragging(false) }
+    const drop = (e: DragEvent): void => {
+      setDragging(false)
+      const file = pictureOf(e.dataTransfer)
+      if (!file) return
+      e.preventDefault()
+      void scanRef.current(file)
+    }
+    document.addEventListener('paste', paste)
+    window.addEventListener('dragover', over)
+    window.addEventListener('dragleave', leave)
+    window.addEventListener('drop', drop)
+    return () => {
+      document.removeEventListener('paste', paste)
+      window.removeEventListener('dragover', over)
+      window.removeEventListener('dragleave', leave)
+      window.removeEventListener('drop', drop)
+      setDragging(false)
+    }
+  }, [scanning])
 
   const n = nutrientsOf(draft)
   const g = parseNum(grams)
@@ -118,11 +165,12 @@ export function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'
             </div>
           )
           : (
-            <button type="button" className="lookup-btn" onClick={() => fileRef.current?.click()}>
+            <button type="button" className={`lookup-btn${dragging ? ' dragging' : ''}`} onClick={() => fileRef.current?.click()}>
               <Camera size={16} aria-hidden="true" />
-              {scanned ? 'Scan another label' : 'Scan a nutrition label'}
+              {dragging ? 'Drop the picture to scan it' : scanned ? 'Scan another label' : 'Scan a nutrition label'}
             </button>
           )}
+        {!scanning && !scanned && <div className="hint">Or paste a screenshot, or drop a picture here.</div>}
         {scanned && !scanning && (
           <div className="hint warn" role="status">
             <TriangleAlert size={13} aria-hidden="true" />
