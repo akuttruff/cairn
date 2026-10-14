@@ -48,6 +48,14 @@ if (!window.matchMedia) {
 import { cleanup } from '@testing-library/react'
 import { toast } from 'sonner'
 import { afterEach, beforeEach, vi } from 'vitest'
+import { TIMING } from '../lib/timing.ts'
+
+// The app's waits, cut to a few ticks: a test that sits through a two-second
+// pause before an online lookup, and two more per poll, learns nothing from
+// the wait itself.
+TIMING.autoLookupMs = 40
+TIMING.pollMs = 40
+TIMING.retryWaitsMs = [10, 20, 30]
 
 beforeEach(() => {
   localStorage.clear()

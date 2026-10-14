@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { TIMING } from './lib/timing.ts'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { dayLabel } from './lib/format.ts'
@@ -388,7 +389,7 @@ describe('App', () => {
     expect(screen.getByText('= 236 g')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Log 2 medium/ }))
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/entries')).toBe(true))
-    const post = calls.find((c) => c.method === 'POST')!
+    const post = calls.find((c) => c.method === 'POST' && c.url === '/api/entries')!
     expect(post.body).toMatchObject({
       date: TODAY, meal: 'lunch', name: 'Bananas, raw', grams: 236, per100g: banana.per100g, source: 'usda',
       amount: { quantity: 2, unit: '1 medium', unitGrams: 118 },
@@ -409,8 +410,8 @@ describe('App', () => {
     await user.click(await screen.findByText('Bananas, raw', {}, { timeout: 2000 }))
     await user.selectOptions(screen.getByLabelText('Unit'), 'oz')
     await user.click(screen.getByRole('button', { name: /^Log 1 oz/ }))
-    await waitFor(() => expect(calls.some((c) => c.method === 'POST')).toBe(true))
-    expect(calls.find((c) => c.method === 'POST')!.body).toMatchObject({
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/entries')).toBe(true))
+    expect(calls.find((c) => c.method === 'POST' && c.url === '/api/entries')!.body).toMatchObject({
       grams: 28.3, amount: { quantity: 1, unit: 'oz' },
     })
   })
@@ -1747,7 +1748,7 @@ describe('App', () => {
       await user.click(await screen.findByRole('button', { name: 'Add food' }))
       await user.type(await searchBox(user), 'pad thai')
       const button = await screen.findByRole('button', { name: /Look up “pad thai” online/ })
-      await new Promise((r) => setTimeout(r, 2300))
+      await new Promise((r) => setTimeout(r, TIMING.autoLookupMs * 4))
       expect(calls.some((c) => c.url === '/api/research')).toBe(false)
       await user.click(button)
       await waitFor(() => expect(calls.some((c) => c.url === '/api/research')).toBe(true))

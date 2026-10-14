@@ -2,6 +2,7 @@ import type {
   DayType, DayView, Entry, Food, Goals, LabelReading, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeNotes, RangeView, Serving,
   AlcoholKind, AlcoholLog, AppIcon, ChartKey, WaterLog, LmModelOption, MeditationLog, DogWalkLog, WorkoutKind, WorkoutKindDef, WorkoutLog, WorkoutPlan,
 } from '../types.ts'
+import { TIMING } from './timing.ts'
 
 /** An online lookup in progress or finished; see server/research.ts. */
 export interface ResearchJob {
@@ -24,15 +25,12 @@ export interface SearchResult {
 
 export class ApiError extends Error {}
 
-/** How long to wait before each further try of a read that got no reply. */
-const RETRY_WAITS_MS = [200, 500, 1200]
-
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   // A request that gets no reply at all is tried again, when trying again is
   // safe (a read changes nothing). It happens for a moment while the server
   // restarts, and in Firefox, whose Local Network Access check can fail the
   // first request to a Tailscale address while it decides to allow it.
-  const waits = method === 'GET' ? RETRY_WAITS_MS : []
+  const waits = method === 'GET' ? TIMING.retryWaitsMs : []
   let res: Response | undefined
   for (let attempt = 0; !res; attempt++) {
     try {
