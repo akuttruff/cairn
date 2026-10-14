@@ -597,6 +597,41 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Scan another label' })).not.toHaveClass('dragging')
   })
 
+  it('saves a typed food to My foods without logging it, and shows it there', async () => {
+    const user = userEvent.setup()
+    const saved = {
+      id: 'custom:7', name: 'Oat bar', brand: 'Bobo', source: 'custom',
+      perServing: { label: '1 bar', grams: 40, nutrients: { calories: 180, protein: 5, fat: 7, carbs: 26, fiber: null } },
+      per100g: { calories: 450, protein: 12.5, fat: 17.5, carbs: 65, fiber: null }, servings: [{ label: '1 bar', grams: 40 }],
+    }
+    let foods: unknown[] = []
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]), 'POST /api/foods': saved, 'GET /api/foods': () => ({ saved: foods, recent: [] }),
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Add food' }))
+    await user.click(await screen.findByRole('tab', { name: 'Manual' }))
+    expect(screen.getByRole('button', { name: 'Save without logging' })).toBeDisabled()
+    await user.type(screen.getByLabelText('Name'), 'Oat bar')
+    await user.type(screen.getByLabelText('Brand (optional)'), 'Bobo')
+    await user.type(screen.getByLabelText('Serving'), '1 bar')
+    await user.type(screen.getByLabelText('Weighs (g, optional)'), '40')
+    await user.type(screen.getByLabelText(/^Calories \(kcal\)/), '180')
+    await user.type(screen.getByLabelText('Protein (g)'), '5')
+    foods = [saved]
+    await user.click(screen.getByRole('button', { name: 'Save without logging' }))
+    expect(await screen.findByText('Saved Oat bar to My foods')).toBeInTheDocument()
+    expect(calls.find((c) => c.url === '/api/foods' && c.method === 'POST')!.body).toMatchObject({
+      name: 'Oat bar', brand: 'Bobo', source: 'custom',
+      perServing: { label: '1 bar', grams: 40, nutrients: { calories: 180, protein: 5 } },
+      per100g: { calories: 450, protein: 12.5 }, servings: [{ label: '1 bar', grams: 40 }],
+    })
+    expect(calls.some((c) => c.url === '/api/entries')).toBe(false)
+    // The sheet stays open on My foods, where it now is.
+    expect(screen.getByRole('tab', { name: 'My foods' })).toHaveAttribute('aria-selected', 'true')
+    expect(await screen.findByText('Oat bar')).toBeInTheDocument()
+  })
+
   it('computes calories live from protein, fat and carbs as they are typed', async () => {
     const user = userEvent.setup()
     const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'POST /api/entries': entry() })

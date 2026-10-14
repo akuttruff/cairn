@@ -18,9 +18,14 @@ import { useElapsed } from '../../hooks/useElapsed.ts'
  * vision model in LM Studio, which fills these fields in for checking. The
  * picture can be chosen, pasted from the clipboard, or dropped anywhere on
  * the page. A scanned food is ticked for My foods, since a label worth
- * photographing is one you'll log again.
+ * photographing is one you'll log again. A food can also be saved there
+ * without logging it, for one you're stocking up on rather than eating now.
  */
-export function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => Promise<void> }) {
+export function ManualTab({ onLog, onSaved }: {
+  onLog: (e: Omit<NewEntry, 'date' | 'meal'>) => Promise<void>
+  /** A food was saved to My foods without being logged. */
+  onSaved?: (food: Food) => void
+}) {
   const [name, setName] = useState('')
   const [brand, setBrand] = useState('')
   const [serving, setServing] = useState('')
@@ -113,6 +118,21 @@ export function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'
   const valid = name.trim() !== '' && n.calories != null && !badNumber && !badGrams
   const mismatch = calorieMismatch(n)
 
+  /** The form as a food for My foods. */
+  const foodOf = (): Food => {
+    const food: Food = {
+      id: '', name: name.trim(), brand: brand.trim() || undefined, source: 'custom',
+      perServing: { label, grams: g, nutrients: n },
+    }
+    if (g) {
+      const per100g = {} as Nutrients
+      for (const k of NUTRIENTS) per100g[k] = n[k] == null ? null : Math.round((n[k]! * 1000) / g) / 10
+      food.per100g = per100g
+      food.servings = [{ label, grams: g }]
+    }
+    return food
+  }
+
   const submit = async (): Promise<void> => {
     if (!valid) return
     setBusy(true)
@@ -121,24 +141,28 @@ export function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'
     const amount = { quantity: 1, unit: label, unitGrams: g }
     let foodId: string | undefined
     if (save) {
-      const food: Food = {
-        id: '', name: trimmed, brand: b, source: 'custom',
-        perServing: { label, grams: g, nutrients: n },
-      }
-      if (g) {
-        const per100g = {} as Nutrients
-        for (const k of NUTRIENTS) per100g[k] = n[k] == null ? null : Math.round((n[k]! * 1000) / g) / 10
-        food.per100g = per100g
-        food.servings = [{ label, grams: g }]
-      }
       try {
-        foodId = (await api.saveFood(food)).id
+        foodId = (await api.saveFood(foodOf())).id
       } catch (err) {
         toast.error(`Couldn't save to My foods: ${(err as Error).message}`)
       }
     }
     await onLog({ name: trimmed, brand: b, grams: g, perUnit: n, amount, foodId, source: 'custom' })
     setBusy(false)
+  }
+
+  const saveOnly = async (): Promise<void> => {
+    if (!valid) return
+    setBusy(true)
+    try {
+      const saved = await api.saveFood(foodOf())
+      toast.success(`Saved ${saved.name} to My foods`)
+      onSaved?.(saved)
+    } catch (err) {
+      toast.error(`Couldn't save to My foods: ${(err as Error).message}`)
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -216,6 +240,7 @@ export function ManualTab({ onLog }: { onLog: (e: Omit<NewEntry, 'date' | 'meal'
       </div>
       <div className="drawer-actions">
         <div className="row">
+          <button type="button" disabled={!valid || busy} onClick={() => void saveOnly()}>Save without logging</button>
           <button type="button" className="primary" disabled={!valid || busy} onClick={() => void submit()}>Log {label}</button>
         </div>
       </div>

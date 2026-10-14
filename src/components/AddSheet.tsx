@@ -98,7 +98,7 @@ function AddBody({ open, date, meal: initialMeal, onClose, onLogged }: Omit<AddS
                 </div>
                 {tab === 'search' && <SearchTab open={open} onPick={setPicked} />}
                 {tab === 'mine' && <MineTab onPick={setPicked} onApplyMeal={applyMeal} />}
-                {tab === 'manual' && <ManualTab onLog={log} />}
+                {tab === 'manual' && <ManualTab onLog={log} onSaved={() => setTab('mine')} />}
               </>
             )}
     </>
