@@ -364,7 +364,7 @@ describe('blendGoals', () => {
   })
 
   it('refuses an empty list rather than returning something meaningless', () => {
-    expect(() => blendGoals([] as ResolvedGoals[])).toThrow()
+    expect(() => blendGoals([] as ResolvedGoals[])).toThrow('blendGoals needs at least one day')
   })
 })
 

@@ -107,3 +107,6 @@ export function weekLabel(start: string, end: string): string {
 export function monthLabel(date: string): string {
   return parseLocal(date).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
 }
+
+/** "1 mile", "1.5 miles". */
+export const milesLabel = (miles: number): string => `${Number(miles.toFixed(1))} ${miles === 1 ? 'mile' : 'miles'}`

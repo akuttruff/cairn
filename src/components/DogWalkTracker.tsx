@@ -1,4 +1,5 @@
 import { Dog, PawPrint, Undo2 } from 'lucide-react'
+import { milesLabel } from '../lib/format.ts'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import type { DayView } from '../types.ts'
@@ -9,8 +10,6 @@ interface DogWalkTrackerProps {
   onLogged: () => void
 }
 
-/** "1 mile", "1.5 miles". */
-export const milesLabel = (miles: number): string => `${Number(miles.toFixed(1))} ${miles === 1 ? 'mile' : 'miles'}`
 
 /**
  * The dog's walks today against the walks-per-day goal, one tap a walk --

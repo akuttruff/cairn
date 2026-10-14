@@ -115,7 +115,7 @@ export default function App() {
                       action: {
                         label: 'Undo',
                         onClick: () => {
-                          void Promise.all(chosen.map(({ id, createdAt, ...rest }) => api.addEntry(rest)))
+                          void Promise.all(chosen.map(({ id: _id, createdAt: _createdAt, ...rest }) => api.addEntry(rest)))
                             .then(refresh, (err: Error) => toast.error(err.message))
                         },
                       },

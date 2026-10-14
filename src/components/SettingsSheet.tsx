@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { Drawer } from 'vaul'
 import { Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
@@ -98,7 +98,8 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   // Which daily charts Week and Month draw; null until one is toggled.
   const [charts, setCharts] = useState<ChartKey[] | null>(null)
   // The activities, each with its sessions a week; built once goals and settings are both here.
-  const [kinds, setKinds] = useState<KindRow[] | null>(null)
+  // The rows as edited here; until the first edit, the ones Settings and the plan give (see `kinds`).
+  const [edits, setEdits] = useState<KindRow[] | null>(null)
   const [goals, setGoals] = useState<Goals | null>(null)
   const [settings, setSettings] = useState<PublicSettings | null>(null)
   const [models, setModels] = useState<LmModelOption[]>([])
@@ -122,11 +123,13 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   }, [])
 
   // The activity rows: the ones in Settings (or the built-in six, if the settings never arrive) with the plan's counts.
-  useEffect(() => {
-    if (kinds || !goals || !settings) return
+  const initialKinds = useMemo((): KindRow[] | null => {
+    if (!goals || !settings) return null
     const source = settings.workoutKinds ?? DEFAULT_WORKOUT_KINDS
-    setKinds(source.map((k) => ({ ...k, perWeek: String(goals.workoutPlan[k.id] ?? 0) })))
-  }, [kinds, goals, settings])
+    return source.map((k) => ({ ...k, perWeek: String(goals.workoutPlan[k.id] ?? 0) }))
+  }, [goals, settings])
+  const kinds = edits ?? initialKinds
+  const setKinds = (change: (rows: KindRow[] | null) => KindRow[] | null): void => setEdits((rows) => change(rows ?? initialKinds))
 
   const chosenModel = lmModel ?? settings?.researchModel ?? ''
   const chosenNotesModel = notesModel ?? settings?.notesModel ?? ''

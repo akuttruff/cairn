@@ -88,7 +88,8 @@ async function auth() {
       res.writeHead(ok ? 200 : 400, { 'Content-Type': 'text/plain; charset=utf-8' })
       res.end(ok ? 'Signed in to Withings. You can close this tab and go back to the terminal.' : 'Sign-in failed or was cancelled.')
       server.close()
-      ok ? resolve(got.searchParams.get('code')) : reject(new Error(got.searchParams.get('error') || 'no code returned'))
+      if (ok) resolve(got.searchParams.get('code'))
+      else reject(new Error(got.searchParams.get('error') || 'no code returned'))
     })
     server.listen(Number(redirect.port || 80), redirect.hostname === 'localhost' ? '127.0.0.1' : redirect.hostname, () => {
       console.log('Opening Withings in your browser to sign in and allow access...')
