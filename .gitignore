@@ -5,3 +5,5 @@ coverage
 .DS_Store
 *.log
 .data-dev
+.qwen
+Screenshot*.png
