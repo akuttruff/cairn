@@ -1,7 +1,7 @@
 # Cairn
 
-A daily log that runs on your own machine: what you ate, drank, weighed and
-did, with the numbers worked out for you. It is a web app you add to your
+A daily log that runs on your own machine: what you ate, drank and did,
+with the numbers worked out for you. It is a web app you add to your
 phone's home screen, served from a desktop over your own network and backed
 by one SQLite file. No accounts, no cloud.
 
@@ -15,7 +15,7 @@ by one SQLite file. No accounts, no cloud.
   </tr>
   <tr>
     <td><b>A day.</b> Calories and macros against the day's goals, then water, alcohol, workouts and the rest, each a card.</td>
-    <td><b>Meals.</b> The scale's latest readings, then every food logged, with its macros, grouped by meal.</td>
+    <td><b>Meals.</b> Every food logged, with its macros, grouped by meal. Tap one to edit it.</td>
     <td><b>Adding food.</b> Your saved foods for one tap, a search of the USDA and Open Food Facts databases, or type it in.</td>
   </tr>
   <tr>
@@ -45,7 +45,6 @@ npm run screenshots                # another; needs Google Chrome
 - **Food lookup**, three ways. Search the USDA FoodData Central and Open Food Facts databases. Scan a nutrition label from a photo, which a local vision model reads. Or ask for an online lookup, where a local model with a web-research tool reads the restaurant's or brand's own page.
 - **My foods.** Anything you have typed or confirmed, for one-tap logging. Saved meals log several at once.
 - **Water, alcohol, workouts, dog walks and meditation**, each its own tracker.
-- **Body.** Weight and composition, from Apple Health or a Withings import.
 - **Notes.** Two or three short paragraphs on a week or a month, written from your own numbers against your goals.
 
 Every lookup and scan produces candidates for you to check. Nothing a model
@@ -74,13 +73,6 @@ limited) and the LM Studio address and token the model features use.
 that runs `npm run preview` from this directory with `KeepAlive` on. To
 reach it from a phone, put :8210 behind Tailscale Serve and open the
 `.ts.net` address.
-
-### Withings, optional
-
-`node scripts/withings.mjs auth` signs in once and stores tokens outside the
-repo, in `~/.config/cairn/withings.json`. `probe` lists the measurements
-your account returns. Put your Withings client id and secret in that file
-first.
 
 ## Local models
 
@@ -122,6 +114,6 @@ Tests run under vitest; lint is oxlint.
 server/   api.ts (routes), store.ts (SQLite), foods.ts (USDA + Open Food Facts),
           label.ts (vision model), research.ts (online lookup), notes.ts
 src/      App.tsx, components/ (trackers, sheets, the Add flow in add/), lib/
-scripts/  deploy.sh, withings.mjs, seed-demo.ts, screenshots.mjs
+scripts/  deploy.sh, seed-demo.ts, screenshots.mjs
 docs/     screenshots/ for this README
 ```

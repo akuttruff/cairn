@@ -332,9 +332,8 @@ export interface DayView extends DayTotals {
 }
 
 /**
- * Body measurements, as Apple Health carries them from the scale (Withings
- * syncs there; an iOS Shortcut posts them to /api/body). Stored in kg and
- * percent; shown in lb.
+ * Body measurements, as Apple Health carries them (an iOS Shortcut posts
+ * them to /api/body). Stored in kg and percent; shown in lb.
  */
 export const BODY_METRICS = ['weight', 'bodyFat', 'leanMass', 'bmi'] as const
 export type BodyMetric = (typeof BODY_METRICS)[number]

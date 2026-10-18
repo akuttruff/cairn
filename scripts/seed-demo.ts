@@ -8,8 +8,7 @@ import type { Meal, Nutrients } from '../src/types.ts'
 /**
  * Fills the development database (.data-dev, the one `npm run dev` uses)
  * with a week of demo data so the app can be screenshotted with something
- * on screen: meals with their macros, water, workouts, a few body readings
- * and some saved foods. Run with `npm run seed:demo`; it starts from an
+ * on screen: meals with their macros, water, workouts and some saved foods. Run with `npm run seed:demo`; it starts from an
  * empty database every time. Nothing here is anyone's real log.
  */
 
@@ -80,17 +79,6 @@ for (const [back, miles] of [[0, 1.4], [1, 2.1], [2, 1.2], [3, 1.8], [5, 2.4], [
 store.addAlcohol(day(2), 'wine')
 store.addAlcohol(day(5), 'beer')
 
-// The scale, as Apple Health would send it: a reading most mornings.
-store.addBodySamples([
-  { type: 'Weight', value: 151.2, unit: 'lb', date: `${day(6)}T07:02:00` },
-  { type: 'Weight', value: 150.8, unit: 'lb', date: `${day(4)}T07:10:00` },
-  { type: 'Weight', value: 150.4, unit: 'lb', date: `${day(2)}T06:58:00` },
-  { type: 'Weight', value: 150.0, unit: 'lb', date: `${day(0)}T07:05:00` },
-  { type: 'Body Fat Percentage', value: 0.252, date: `${day(2)}T06:58:00` },
-  { type: 'Body Fat Percentage', value: 0.25, date: `${day(0)}T07:05:00` },
-  { type: 'Lean Body Mass', value: 51, unit: 'kg', date: `${day(0)}T07:05:00` },
-])
-
 // A few foods saved for one-tap logging.
 for (const name of ['Rolled oats', 'Greek yogurt, plain', 'Chicken breast, grilled', 'Almonds']) {
   const f = FOODS[name]!
@@ -105,5 +93,5 @@ const note = (start: string, end: string, text: string): void => store.saveNotes
 const sunday = addDays(today, -new Date(`${today}T12:00:00`).getDay())
 note(addDays(sunday, -7), addDays(sunday, -1), 'A steady week: protein landed within a few grams of the goal every day, and fiber cleared it on all seven. Calories ran under the ceiling on the rest days and right at it on the two lifting days, which is the shape you want.\n\nWater was the weak spot, with three days under 80 oz. The dog walks and the two yoga sessions kept the rest days from being sedentary.')
 note(sunday, addDays(sunday, 6), 'One day in, and it is a good one: a training day with the carbs spent before the lift, protein three grams short, fiber met. Keep the second bottle of water earlier in the afternoon.')
-note(`${today.slice(0, 7)}-01`, addDays(`${today.slice(0, 7)}-01`, 30), 'Fourteen days logged this month. The pattern is clear and worth keeping: protein on target, fiber comfortably over, calories under on rest days. The lifting days are the only ones that press the calorie ceiling, and they should.\n\nWeight is drifting down slowly, about a pound over the two weeks, with body fat a shade lower. Nothing to change.')
+note(`${today.slice(0, 7)}-01`, addDays(`${today.slice(0, 7)}-01`, 30), 'Fourteen days logged this month. The pattern is clear and worth keeping: protein on target, fiber comfortably over, calories under on rest days. The lifting days are the only ones that press the calorie ceiling, and they should.')
 console.log(`seeded ${dir} for ${day(6)} to ${today}`)
