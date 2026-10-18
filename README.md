@@ -41,6 +41,39 @@ scanning and online lookup, and an optional USDA API key (the free
 `DEMO_KEY` works but is rate-limited). Nothing is required for plain food
 search and manual logging.
 
+## Local models
+
+Three things in Cairn use a model, all through [LM Studio](https://lmstudio.ai)
+on this machine (its `/api/v1/chat` endpoint, so LM Studio 0.4 or newer).
+Nothing leaves your network, and none of it is needed for logging by hand.
+
+1. **Start LM Studio's server** in its **Developer** tab. The default
+   address, `http://127.0.0.1:1234`, is what Settings starts with. If
+   **Require Authentication** is on, create a token under **Manage Tokens**
+   and paste it into Settings; it stays on the server. Authentication is
+   required for the online lookup, which uses an MCP tool.
+2. **Online lookup** (the *Model* field in Settings) runs a chat model with
+   the `deep-research` MCP server enabled, so it can read a restaurant's or
+   brand's own nutrition page. Install
+   [minimal-mcp-deep-research](https://github.com/akuttruff/minimal-mcp-deep-research),
+   add it to `~/.lmstudio/mcp.json` as `deep-research` (Cairn asks LM
+   Studio for the plugin `mcp/deep-research`), and enable **Allow calling
+   servers from mcp.json** in LM Studio's Developer settings. A model with
+   good tool calling matters more than size here; `qwen/qwen3.8-27b` is what
+   this is tested with.
+3. **Label scanning** (the *Label model* field) needs a model that can see
+   images; Settings lists only those. A photo or screenshot of a nutrition
+   label is downscaled and sent as the only input, and the numbers come back
+   into the Manual tab for you to check. Cold, a vision model takes a while
+   to load; warm, a label reads in seconds.
+4. **Week and month notes** (the *Notes model* field) are two or three
+   short paragraphs on a period, written from your own numbers against your
+   goals. A small model does this well (`qwen/qwen3.5-9b`, say); leave the
+   field blank to use the lookup model.
+
+Every lookup and scan produces candidates for you to confirm; nothing a
+model read or saw is logged on its own.
+
 ## Running it all the time
 
 `npm run deploy` rebuilds and restarts a launchd job named `com.amie.cairn`
