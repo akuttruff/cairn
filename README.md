@@ -58,47 +58,70 @@ read or saw is logged on its own.
 
 ## Before you start
 
-Cairn is a Node server that you run on one computer, the one that keeps the
-data, and open from any browser on your network. Logging by hand needs only
-the first item below. Each model feature needs a model served on the same
-computer; without one, those buttons just report that no model is set.
+### How it fits together
 
-| You want to | You need |
+```
+your phone or desktop browser
+        │  http, over your own network
+        ▼
+Cairn ── one Node process on one computer ── .data/cairn.sqlite
+        │
+        ├──▶ a model server on the same computer   (label scanning, online lookups, notes)
+        └──▶ USDA and Open Food Facts              (food search, over the internet)
+```
+
+Cairn is one Node process that does two jobs: it serves the app to any
+browser on your network, and it keeps your log in a single SQLite file on
+that computer. Your phone talks only to Cairn. For the model features, Cairn
+talks to a model server running beside it, so no model, token or data ever
+reaches the browser. Logging by hand needs nothing but Node.
+
+### What you need
+
+| For | You need |
 |---|---|
-| Log food, water, workouts and the rest by hand | Node 24 or newer |
-| Search the USDA and Open Food Facts databases | Internet access; optionally a free [USDA API key](https://fdc.nal.usda.gov/api-key-signup) (the built-in `DEMO_KEY` is rate limited) |
-| Scan a nutrition label from a photo | LM Studio serving a model that can see images (LM Studio marks these with a vision badge) |
-| Look a restaurant or brand item up online | LM Studio serving a chat model that calls tools well, plus the `deep-research` MCP server (below) |
-| Week and month notes | LM Studio serving any chat model; a small one such as `qwen/qwen3.5-9b` is enough |
-| Open it on your phone | The phone on the same Wi-Fi, or [Tailscale](https://tailscale.com) on both devices (see *Keeping it running*) |
+| Logging food, water, workouts and the rest by hand | Node 24 or newer, on the computer that will keep the data |
+| Food search | Internet access. A free [USDA API key](https://fdc.nal.usda.gov/api-key-signup) is optional; the built-in `DEMO_KEY` is rate limited |
+| Scanning a nutrition label from a photo | A model server with a model that can see images |
+| Looking a restaurant or brand item up online | A model server with a chat model that calls tools well, plus the `deep-research` MCP server (below) |
+| Week and month notes | A model server with any chat model; a small one is enough |
+| Opening it on your phone | The phone on the same Wi-Fi, or [Tailscale](https://tailscale.com) on both devices (see *Keeping it running*) |
 
-**Node.** Cairn stores its data with `node:sqlite`, which arrived in Node
-24. Check with `node --version`.
+Node 24 is the floor because the log is stored with `node:sqlite`, which
+arrived in that version. Check with `node --version`.
 
-**Serving a model.** Every model feature talks to
-[LM Studio](https://lmstudio.ai) on the same computer, through its
-`/api/v1/chat` endpoint, which needs LM Studio 0.4 or newer. Nothing leaves
-your network.
+### A model server
 
-1. Install LM Studio and download the models you want (the Discover tab).
-2. In the **Developer** tab, start the server. Its default address,
-   `http://127.0.0.1:1234`, is what Cairn's Settings start with.
-3. If **Require Authentication** is on, create a token under **Manage
-   Tokens** and paste it into Cairn's Settings. It is kept on the server and
-   never sent to the browser. Authentication is required for the online
-   lookup, which uses an MCP tool.
-4. Load a model, or let LM Studio load it on the first request. In Cairn's
-   Settings, pick the model for each feature: *Model* for the online lookup,
-   *Label model* for scanning (only models that can see images are listed),
-   and *Notes model* for the notes, which falls back to the lookup model
-   when blank.
+Cairn sends its requests to a model server's `/api/v1/chat` endpoint, the
+API that [LM Studio](https://lmstudio.ai) 0.4 introduced, because it
+carries tool calls, images and streamed replies in one request. LM Studio
+is the server these steps use. Any other server that implements that same
+API works the same way; one that offers only the OpenAI chat API does not,
+yet. The server runs on the same computer as Cairn, and nothing leaves your
+network.
 
-**The online lookup's tool.** Install
-[minimal-mcp-deep-research](https://github.com/akuttruff/minimal-mcp-deep-research),
-add it to `~/.lmstudio/mcp.json` under the name `deep-research`, and enable
-**Allow calling servers from mcp.json** in LM Studio's Developer settings.
-Good tool calling matters more than size here. `qwen/qwen3.8-27b` is what
-this is tested with.
+1. Install the server and download the models you want. In LM Studio that
+   is the Discover tab. For label scanning pick a model that can see images
+   (LM Studio marks these with a vision badge). For online lookups pick one
+   that calls tools well; `qwen/qwen3.8-27b` is what this is tested with.
+   For notes, a small model such as `qwen/qwen3.5-9b` is enough.
+2. Start the server. In LM Studio that is the **Developer** tab. Its
+   default address, `http://127.0.0.1:1234`, is what Cairn's Settings start
+   with; change it there if your server listens elsewhere.
+3. If the server asks for a token (in LM Studio, **Require Authentication**
+   under **Manage Tokens**), paste it into Cairn's Settings. It is kept on
+   the server and never sent to the browser. LM Studio requires
+   authentication for the online lookup, which uses an MCP tool.
+4. In Cairn's Settings, pick the model for each feature: *Model* for the
+   online lookup, *Label model* for scanning, and *Notes model* for the
+   notes, which falls back to the lookup model when blank.
+
+**The online lookup's tool.** The lookup gives the model a web-research
+tool so it can read a restaurant's or brand's own nutrition page. Install
+[minimal-mcp-deep-research](https://github.com/akuttruff/minimal-mcp-deep-research)
+and register it with your model server under the name `deep-research`. In
+LM Studio that means an entry in `~/.lmstudio/mcp.json` and **Allow calling
+servers from mcp.json** in the Developer settings.
 
 ## Run
 
