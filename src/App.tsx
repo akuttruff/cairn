@@ -15,6 +15,7 @@ import RangeSummary from './components/RangeSummary.tsx'
 import AddSheet from './components/AddSheet.tsx'
 import EntrySheet from './components/EntrySheet.tsx'
 import SettingsSheet from './components/SettingsSheet.tsx'
+import Unreachable from './components/Unreachable.tsx'
 import useDay from './hooks/useDay.ts'
 import useRange from './hooks/useRange.ts'
 import { addDays, alcoholCaloriesLogged, localDate, mealForHour } from './lib/nutrition.ts'
@@ -49,6 +50,8 @@ export default function App() {
   }
   const close = (): void => setSheet(null)
   const refresh = (): void => { void day.refresh() }
+  /** The server is answering again: whatever is on screen fetches afresh. */
+  const refreshAll = (): void => { refresh(); void range?.refresh() }
   const setDayType = (type: DayType): void => { void api.setDayType(day.date, type).then(refresh) }
 
   /** A range chart's bar was tapped: go look at that day. */
@@ -77,6 +80,7 @@ export default function App() {
   return (
     <div className="app">
       <Toaster position="top-center" theme="dark" />
+      <Unreachable app="Cairn" onBack={refreshAll} />
       <Header mode={mode} onModeChange={setMode} onSettings={() => open('settings')} {...header} />
 
       <main className="scroll">

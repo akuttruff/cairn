@@ -2,7 +2,7 @@ import type {
   DayType, DayView, Entry, Food, Goals, LabelReading, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeNotes, RangeView, Serving,
   AlcoholKind, AlcoholLog, AppIcon, ChartKey, WaterLog, LmModelOption, MeditationLog, DogWalkLog, WorkoutKind, WorkoutKindDef, WorkoutLog, WorkoutPlan,
 } from '../types.ts'
-import { TIMING } from './timing.ts'
+import { noReply, reachFetch } from './reach.ts'
 
 /** An online lookup in progress or finished; see server/research.ts. */
 export interface ResearchJob {
@@ -26,29 +26,23 @@ export interface SearchResult {
 export class ApiError extends Error {}
 
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
-  // A request that gets no reply at all is tried again, when trying again is
-  // safe (a read changes nothing). It happens for a moment while the server
-  // restarts, and in Firefox, whose Local Network Access check can fail the
-  // first request to a Tailscale address while it decides to allow it.
-  const waits = method === 'GET' ? TIMING.retryWaitsMs : []
-  let res: Response | undefined
-  for (let attempt = 0; !res; attempt++) {
-    try {
-      res = await fetch(path, {
-        method,
-        headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-        body: body === undefined ? undefined : JSON.stringify(body),
-        signal,
-      })
-    } catch (err) {
-      // Cancelled by the caller (a search overtaken by more typing): not a failure.
-      if (signal?.aborted) throw err
-      const wait = waits[attempt]
-      // Out of tries: say which request, so a repeat can be traced.
-      if (wait === undefined) throw new ApiError(`Couldn't reach Cairn (${method} ${path.split('?')[0]}). Check the connection and try again.`)
-      await new Promise((r) => setTimeout(r, wait))
-      signal?.throwIfAborted()
-    }
+  // A read that gets no reply at all is given a few seconds and tried again
+  // (see lib/reach.ts). That happens for a moment while the server restarts,
+  // on a phone whose tunnel is still waking up, and in Firefox, whose Local
+  // Network Access check can fail the first request to a Tailscale address.
+  let res: Response
+  try {
+    res = await reachFetch(path, {
+      method,
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal,
+    })
+  } catch (err) {
+    // Cancelled by the caller (a search overtaken by more typing): not a failure.
+    if (signal?.aborted || !noReply(err)) throw err
+    // Out of tries: say which request, so a repeat can be traced.
+    throw new ApiError(`Couldn't reach Cairn (${method} ${path.split('?')[0]}). Check the connection and try again.`)
   }
   const data = await res.json().catch(() => ({})) as { error?: string }
   if (!res.ok) throw new ApiError(data.error || `Request failed (${res.status})`)

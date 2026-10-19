@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
+import { registerAppShell } from './lib/appShell.ts'
 import { listenForChimeUnlock } from './lib/chime.ts'
 
 // Taps keep the "done" chime allowed to play later; see lib/chime.ts.
@@ -15,8 +16,5 @@ createRoot(rootEl).render(
   </StrictMode>,
 )
 
-// Service workers only register on HTTPS or localhost; over a LAN address
-// the app still installs to the home screen, it just won't work offline.
-if ('serviceWorker' in navigator && window.isSecureContext && import.meta.env.PROD) {
-  void navigator.serviceWorker.register('/sw.js')
-}
+// The page from the cache on later launches, so it paints before the network answers.
+registerAppShell()

@@ -55,7 +55,10 @@ import { TIMING } from '../lib/timing.ts'
 // the wait itself.
 TIMING.autoLookupMs = 40
 TIMING.pollMs = 40
+TIMING.readTimeoutMs = 200
 TIMING.retryWaitsMs = [10, 20, 30]
+TIMING.unreachableAfterMs = 40
+TIMING.probeMs = 40
 
 beforeEach(() => {
   localStorage.clear()
