@@ -35,6 +35,7 @@ const scenarios = [
   { name: 'add-phone', view: PHONE, steps: [['aria', 'Add food'], ['wait', 1000]] },
   { name: 'settings-phone', view: PHONE, steps: [['aria', 'Settings'], ['wait', 900]] },
   { name: 'desktop', view: DESKTOP, steps: [['click', 'Week'], ['wait', 800], ['aria', 'Previous week'], ['wait', 1500]] },
+  { name: 'desktop-day', view: DESKTOP, steps: [['wait', 800]] },
 ]
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
