@@ -1,4 +1,4 @@
-# <img src="public/icons/ring-180.png" width="36" align="absmiddle" alt=""> Cairn
+# <img src="public/icons/ring-180.png" width="32" alt=""> Cairn
 
 A daily log that runs on your own machine: what you ate, drank and did,
 with the numbers worked out for you. It is a web app you add to your
