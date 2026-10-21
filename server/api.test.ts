@@ -442,3 +442,13 @@ describe('routing', () => {
     expect((await call('GET', '/api/nope')).status).toBe(404)
   })
 })
+
+describe('health', () => {
+  it('reports the process, its data file, what is busy and whether the model server answers', async () => {
+    const { status, body } = await call('GET', '/api/health')
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ ok: true, app: 'cairn', busy: { notes: 0, research: 0 }, deps: { model: 'ok' }, errors: [] })
+    expect(body.data).toMatchObject({ file: 'macros.sqlite' })
+    expect(typeof body.version).toBe('string')
+  })
+})

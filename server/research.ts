@@ -378,6 +378,9 @@ export class ResearchJobs {
   private getSettings: () => Settings
   private fetchImpl: typeof fetch
 
+  /** How many lookups are running right now. */
+  get running(): number { return [...this.jobs.values()].filter((j) => j.status === 'running').length }
+
   /** `cache`: where finished lookups are kept; omit to keep them in memory only. */
   constructor(getSettings: () => Settings, fetchImpl: typeof fetch = fetch, cache: LookupStore = new MemoryLookupCache()) {
     this.getSettings = getSettings

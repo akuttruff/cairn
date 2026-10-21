@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Plugin } from 'vite'
 import { Store, ValidationError } from './store.ts'
+import { HealthCheck } from './health.ts'
 import { TtlCache, searchFoods, usdaPortions } from './foods.ts'
 import { ResearchJobs, listLlms } from './research.ts'
 import { fingerprint, writeNotes } from './notes.ts'
@@ -71,6 +72,13 @@ export function createApi(options: ApiOptions = {}) {
   const research = new ResearchJobs(() => store.getSettings(), fetchImpl, {
     get: (key) => store.getLookup(key),
     set: (key, result) => store.setLookup(key, result),
+  })
+  /** `GET /api/health`: the process, its data file and the model server. */
+  const health = new HealthCheck({
+    app: 'cairn',
+    dataFile: path.join(path.resolve(options.dir ?? '.data'), 'macros.sqlite'),
+    busy: () => ({ notes: writing.size, research: research.running }),
+    deps: { model: () => listLlms(store.getSettings(), fetchImpl) },
   })
 
   const route = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -283,6 +291,8 @@ export function createApi(options: ApiOptions = {}) {
         return json(res, 502, { error: (err as Error).message })
       }
     }
+
+    if (p === '/api/health' && method === 'GET') return json(res, 200, await health.report())
 
     if (p === '/api/lm-models' && method === 'GET') {
       try {
