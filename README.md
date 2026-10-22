@@ -9,42 +9,20 @@ by one SQLite file. No accounts, no cloud.
 
 <img src="docs/screenshots/demo-desktop.gif" alt="Cairn in use on a desktop" />
 
-<p>On a desktop, the week opens, then the month, then a day with its meals, then the Add sheet.</p>
-
-<p align="center"><img src="docs/screenshots/demo-phone.gif" width="300" alt="Cairn in use on a phone" /></p>
-
-<p align="center">The same flow on a phone.</p>
+<sub>On a desktop: the week, the month, a day with its meals, then the Add sheet.</sub>
 
 <table>
   <tr>
-    <td width="260"><img width="260" src="docs/screenshots/day-phone.png" alt="The day view" /></td>
-    <td>A day shows calories and macros against its goals, then water, alcohol, workouts and the rest, each on a card.</td>
+    <td align="center" width="33%"><img src="docs/screenshots/day-phone.png" width="200" alt="The day view" /><br /><b>Day</b><br /><sub>Calories and macros against your goals</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/meals-phone.png" width="200" alt="The meals of a day" /><br /><b>Meals</b><br /><sub>Every food with its macros; tap to edit</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/add-phone.png" width="200" alt="The Add sheet" /><br /><b>Add</b><br /><sub>Saved foods, a database search, or type it in</sub></td>
   </tr>
   <tr>
-    <td width="260"><img width="260" src="docs/screenshots/meals-phone.png" alt="The meals of a day" /></td>
-    <td>Every food logged appears with its macros, grouped by meal; tap one to edit it.</td>
-  </tr>
-  <tr>
-    <td width="260"><img width="260" src="docs/screenshots/add-phone.png" alt="The Add sheet" /></td>
-    <td>Adding food takes one tap on a saved food, a search of the USDA and Open Food Facts databases, or typing it in.</td>
-  </tr>
-  <tr>
-    <td width="260"><img width="260" src="docs/screenshots/week-phone.png" alt="The week view" /></td>
-    <td>A week sets each day against its own goal, since training days get more carbs and water, with notes written by a local model.</td>
-  </tr>
-  <tr>
-    <td width="260"><img width="260" src="docs/screenshots/month-phone.png" alt="The month view" /></td>
-    <td>A month draws the same numbers as a line; tap a day to see it, tap again to open it.</td>
-  </tr>
-  <tr>
-    <td width="260"><img width="260" src="docs/screenshots/settings-phone.png" alt="Settings" /></td>
-    <td>Goals set protein, fat, carbs and fiber per day, what a training day adds, water, and the weekly alcohol cap.</td>
+    <td align="center" width="33%"><img src="docs/screenshots/week-phone.png" width="200" alt="The week view" /><br /><b>Week</b><br /><sub>Each day against its own goal, with notes</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/month-phone.png" width="200" alt="The month view" /><br /><b>Month</b><br /><sub>The same numbers as a line</sub></td>
+    <td align="center" width="33%"><img src="docs/screenshots/settings-phone.png" width="200" alt="Goals" /><br /><b>Goals</b><br /><sub>Macros per day, and what a training day adds</sub></td>
   </tr>
 </table>
-
-<img src="docs/screenshots/desktop.png" alt="The week view on a desktop" />
-
-On a desktop the week view has room for every chart.
 
 The screenshots use demo data. To regenerate them:
 
