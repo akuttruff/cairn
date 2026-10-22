@@ -17,27 +17,27 @@ by one SQLite file. No accounts, no cloud.
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/day-phone.png" alt="The day view" /></td>
-    <td width="50%"><img src="docs/screenshots/meals-phone.png" alt="The meals of a day" /></td>
+    <td width="260"><img width="260" src="docs/screenshots/day-phone.png" alt="The day view" /></td>
+    <td>A day shows calories and macros against its goals, then water, alcohol, workouts and the rest, each on a card.</td>
   </tr>
   <tr>
-    <td>A day shows calories and macros against its goals, then water, alcohol, workouts and the rest, each on a card.</td>
+    <td width="260"><img width="260" src="docs/screenshots/meals-phone.png" alt="The meals of a day" /></td>
     <td>Every food logged appears with its macros, grouped by meal; tap one to edit it.</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/add-phone.png" alt="The Add sheet" /></td>
-    <td><img src="docs/screenshots/week-phone.png" alt="The week view" /></td>
+    <td width="260"><img width="260" src="docs/screenshots/add-phone.png" alt="The Add sheet" /></td>
+    <td>Adding food takes one tap on a saved food, a search of the USDA and Open Food Facts databases, or typing it in.</td>
   </tr>
   <tr>
-    <td>Adding food takes one tap on a saved food, a search of the USDA and Open Food Facts databases, or typing it in.</td>
+    <td width="260"><img width="260" src="docs/screenshots/week-phone.png" alt="The week view" /></td>
     <td>A week sets each day against its own goal, since training days get more carbs and water, with notes written by a local model.</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/month-phone.png" alt="The month view" /></td>
-    <td><img src="docs/screenshots/settings-phone.png" alt="Settings" /></td>
+    <td width="260"><img width="260" src="docs/screenshots/month-phone.png" alt="The month view" /></td>
+    <td>A month draws the same numbers as a line; tap a day to see it, tap again to open it.</td>
   </tr>
   <tr>
-    <td>A month draws the same numbers as a line; tap a day to see it, tap again to open it.</td>
+    <td width="260"><img width="260" src="docs/screenshots/settings-phone.png" alt="Settings" /></td>
     <td>Goals set protein, fat, carbs and fiber per day, what a training day adds, water, and the weekly alcohol cap.</td>
   </tr>
 </table>
