@@ -35,10 +35,11 @@ const scenarios = [
   { name: 'month-phone', view: PHONE, steps: [['click', 'Month'], ['wait', 1200]] },
   { name: 'add-phone', view: PHONE, steps: [['aria', 'Add food'], ['wait', 1000]] },
   { name: 'settings-phone', view: PHONE, steps: [['aria', 'Settings'], ['wait', 900]] },
-  // A walkthrough, recorded: the day, the week and the month, then the day's meals and the Add sheet.
-  { name: 'demo-phone', view: PHONE, record: true, steps: [['wait', 900], ['click', 'Week'], ['wait', 1200], ['aria', 'Previous week'], ['wait', 1400], ['click', 'Month'], ['wait', 1500], ['click', 'Day'], ['wait', 1200], ['glide', '.scroll', 1000, 1500], ['wait', 800], ['aria', 'Add food'], ['wait', 1800]] },
   { name: 'desktop', view: DESKTOP, steps: [['click', 'Week'], ['wait', 800], ['aria', 'Previous week'], ['wait', 1500]] },
   { name: 'desktop-day', view: DESKTOP, steps: [['wait', 800]] },
+  // Walkthroughs, recorded (see recording.mjs): the phone's and the desktop's.
+  { name: 'demo-phone', view: PHONE, record: true, steps: [['wait', 1000], ['click', 'Week'], ['wait', 1400], ['aria', 'Previous week'], ['wait', 1500], ['click', 'Month'], ['wait', 1700], ['click', 'Day'], ['wait', 1300], ['glide', '.scroll', 1000, 2200], ['wait', 900], ['aria', 'Add food'], ['wait', 2000]] },
+  { name: 'demo-desktop', view: DESKTOP, record: true, steps: [['wait', 1000], ['click', 'Week'], ['wait', 1400], ['aria', 'Previous week'], ['wait', 1500], ['click', 'Month'], ['wait', 1700], ['click', 'Day'], ['wait', 1300], ['glide', '.scroll', 700, 2000], ['wait', 900], ['aria', 'Add food'], ['wait', 2000]] },
 ]
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -97,7 +98,7 @@ async function run(scenario) {
     }
     if (recording) {
       const frames = await recording.stop()
-      const made = encodeRecording(frames, { out: OUT, name: scenario.name })
+      const made = encodeRecording(frames, { out: OUT, name: scenario.name, wide: !scenario.view.mobile })
       console.log(`wrote ${made.gif} and ${made.mp4} (${made.seconds} s, ${made.frames} frames)`)
       return
     }

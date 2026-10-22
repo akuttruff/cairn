@@ -7,9 +7,13 @@ by one SQLite file. No accounts, no cloud.
 
 ## What it looks like
 
-<p align="center"><img src="docs/screenshots/demo-phone.gif" width="300" alt="Cairn in use" /></p>
+<img src="docs/screenshots/demo-desktop.gif" alt="Cairn in use on a desktop" />
 
-<p align="center"><b>In use.</b> The week, the month, the day and its meals, then the Add sheet.</p>
+<p><b>In use.</b> On a desktop: the week, the month, the day and its meals, then the Add sheet.</p>
+
+<p align="center"><img src="docs/screenshots/demo-phone.gif" width="300" alt="Cairn in use on a phone" /></p>
+
+<p align="center">The same, on a phone.</p>
 
 <table>
   <tr>
