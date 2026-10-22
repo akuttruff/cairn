@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { encodeRecording, glide, startRecording } from './recording.mjs'
 
 const URL = process.env.CAIRN_URL ?? 'http://127.0.0.1:8200'
 const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
@@ -34,6 +35,8 @@ const scenarios = [
   { name: 'month-phone', view: PHONE, steps: [['click', 'Month'], ['wait', 1200]] },
   { name: 'add-phone', view: PHONE, steps: [['aria', 'Add food'], ['wait', 1000]] },
   { name: 'settings-phone', view: PHONE, steps: [['aria', 'Settings'], ['wait', 900]] },
+  // A walkthrough, recorded: the day, the week and the month, then the day's meals and the Add sheet.
+  { name: 'demo-phone', view: PHONE, record: true, steps: [['wait', 900], ['click', 'Week'], ['wait', 1200], ['aria', 'Previous week'], ['wait', 1400], ['click', 'Month'], ['wait', 1500], ['click', 'Day'], ['wait', 1200], ['glide', '.scroll', 1000, 1500], ['wait', 800], ['aria', 'Add food'], ['wait', 1800]] },
   { name: 'desktop', view: DESKTOP, steps: [['click', 'Week'], ['wait', 800], ['aria', 'Previous week'], ['wait', 1500]] },
   { name: 'desktop-day', view: DESKTOP, steps: [['wait', 800]] },
 ]
@@ -57,12 +60,14 @@ async function withChrome(view, fn) {
     await new Promise((r) => (ws.onopen = r))
     let id = 0
     const pending = new Map()
-    ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id) } }
+    const listeners = new Map()
+    const on = (method, fn) => listeners.set(method, fn)
+    ws.onmessage = (ev) => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id) } else if (m.method && listeners.has(m.method)) listeners.get(m.method)(m.params) }
     const send = (method, params = {}) => new Promise((r) => { const i = ++id; pending.set(i, r); ws.send(JSON.stringify({ id: i, method, params })) })
     const evaluate = async (expression) => (await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })).result?.result?.value
     await send('Page.enable')
     await send('Emulation.setDeviceMetricsOverride', { width: view.width, height: view.height, deviceScaleFactor: view.scale, mobile: view.mobile })
-    await fn({ send, evaluate })
+    await fn({ send, evaluate, on })
     ws.close()
   } finally {
     chrome.kill()
@@ -75,18 +80,26 @@ const clickText = (text, sel = 'button, div, span, h2, h3, h4, b, strong, em, p,
   `(() => { const t = ${JSON.stringify(text)}; const all = [...document.querySelectorAll(${JSON.stringify(sel)})].filter((e) => e.textContent.includes(t)); const el = all.find((e) => !all.some((o) => o !== e && e.contains(o))); if (!el) return 'missing ' + t; (el.closest('button, a, summary, li') ?? el).click(); return 'clicked' })()`
 
 async function run(scenario) {
-  await withChrome(scenario.view, async ({ send, evaluate }) => {
+  await withChrome(scenario.view, async ({ send, evaluate, on }) => {
     await send('Page.navigate', { url: URL + (scenario.path ?? '') })
     await sleep(2500)
-    for (const [op, a, b] of scenario.steps) {
+    const recording = scenario.record ? startRecording({ send, on }) : null
+    for (const [op, a, b, c] of scenario.steps) {
       let result = ''
       if (op === 'click') result = await evaluate(clickText(a))
+      else if (op === 'glide') result = await glide(evaluate, a, b, c)
       else if (op === 'sel') result = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(a)}); if (!el) return 'missing ' + ${JSON.stringify(a)}; el.click(); return 'clicked' })()`)
       else if (op === 'aria') result = await evaluate(`(() => { const el = document.querySelector('[aria-label=' + ${JSON.stringify(JSON.stringify(a))} + ']'); if (!el) return 'missing ' + ${JSON.stringify(a)}; el.click(); return 'clicked' })()`)
       else if (op === 'wait') { await sleep(a); continue }
       else if (op === 'scroll') result = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(a)}); if (el && el.scrollHeight > el.clientHeight) { el.scrollTop = ${b}; return 'scrolled' } window.scrollTo(0, ${b}); return 'scrolled window' })()`)
       if (String(result).startsWith('missing')) throw new Error(`${scenario.name}: ${result}`)
       await sleep(700)
+    }
+    if (recording) {
+      const frames = await recording.stop()
+      const made = encodeRecording(frames, { out: OUT, name: scenario.name })
+      console.log(`wrote ${made.gif} and ${made.mp4} (${made.seconds} s, ${made.frames} frames)`)
+      return
     }
     const shot = await send('Page.captureScreenshot', { format: 'png' })
     writeFileSync(`${OUT}/${scenario.name}.png`, Buffer.from(shot.result.data, 'base64'))

@@ -7,6 +7,10 @@ by one SQLite file. No accounts, no cloud.
 
 ## What it looks like
 
+<p align="center"><img src="docs/screenshots/demo-phone.gif" width="300" alt="Cairn in use" /></p>
+
+<p align="center"><b>In use.</b> The week, the month, the day and its meals, then the Add sheet.</p>
+
 <table>
   <tr>
     <td width="50%"><img src="docs/screenshots/day-phone.png" alt="The day view" /></td>
