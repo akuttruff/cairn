@@ -13,14 +13,14 @@ by one SQLite file. No accounts, no cloud.
 
 <table>
   <tr>
-    <td align="center" width="33%"><img src="docs/screenshots/day-phone.png" width="200" alt="The day view" /><br /><b>Day</b><br /><sub>Calories and macros against your goals</sub></td>
-    <td align="center" width="33%"><img src="docs/screenshots/meals-phone.png" width="200" alt="The meals of a day" /><br /><b>Meals</b><br /><sub>Every food with its macros; tap to edit</sub></td>
-    <td align="center" width="33%"><img src="docs/screenshots/add-phone.png" width="200" alt="The Add sheet" /><br /><b>Add</b><br /><sub>Saved foods, a database search, or type it in</sub></td>
+    <td align="center" valign="top" width="33%"><img src="docs/screenshots/day-phone.png" width="200" alt="The day view" /><br /><b>Day</b><br /><sub>Calories and macros against your goals</sub></td>
+    <td align="center" valign="top" width="33%"><img src="docs/screenshots/meals-phone.png" width="200" alt="The meals of a day" /><br /><b>Meals</b><br /><sub>Every food with its macros; tap to edit</sub></td>
+    <td align="center" valign="top" width="33%"><img src="docs/screenshots/add-phone.png" width="200" alt="The Add sheet" /><br /><b>Add</b><br /><sub>Saved foods, a database search, or type it in</sub></td>
   </tr>
   <tr>
-    <td align="center" width="33%"><img src="docs/screenshots/week-phone.png" width="200" alt="The week view" /><br /><b>Week</b><br /><sub>Each day against its own goal, with notes</sub></td>
-    <td align="center" width="33%"><img src="docs/screenshots/month-phone.png" width="200" alt="The month view" /><br /><b>Month</b><br /><sub>The same numbers as a line</sub></td>
-    <td align="center" width="33%"><img src="docs/screenshots/settings-phone.png" width="200" alt="Goals" /><br /><b>Goals</b><br /><sub>Macros per day, and what a training day adds</sub></td>
+    <td align="center" valign="top" width="33%"><img src="docs/screenshots/week-phone.png" width="200" alt="The week view" /><br /><b>Week</b><br /><sub>Each day against its own goal, with notes</sub></td>
+    <td align="center" valign="top" width="33%"><img src="docs/screenshots/month-phone.png" width="200" alt="The month view" /><br /><b>Month</b><br /><sub>The same numbers as a line</sub></td>
+    <td align="center" valign="top" width="33%"><img src="docs/screenshots/settings-phone.png" width="200" alt="Goals" /><br /><b>Goals</b><br /><sub>Macros per day, and what a training day adds</sub></td>
   </tr>
 </table>
 
