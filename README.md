@@ -9,11 +9,11 @@ by one SQLite file. No accounts, no cloud.
 
 <img src="docs/screenshots/demo-desktop.gif" alt="Cairn in use on a desktop" />
 
-<p><b>In use.</b> On a desktop: the week, the month, the day and its meals, then the Add sheet.</p>
+<p>On a desktop, the week opens, then the month, then a day with its meals, then the Add sheet.</p>
 
 <p align="center"><img src="docs/screenshots/demo-phone.gif" width="300" alt="Cairn in use on a phone" /></p>
 
-<p align="center">The same, on a phone.</p>
+<p align="center">The same flow on a phone.</p>
 
 <table>
   <tr>
@@ -21,30 +21,30 @@ by one SQLite file. No accounts, no cloud.
     <td width="50%"><img src="docs/screenshots/meals-phone.png" alt="The meals of a day" /></td>
   </tr>
   <tr>
-    <td><b>A day.</b> Calories and macros against the day's goals, then water, alcohol, workouts and the rest, each a card.</td>
-    <td><b>Meals.</b> Every food logged, with its macros, grouped by meal. Tap one to edit it.</td>
+    <td>A day shows calories and macros against its goals, then water, alcohol, workouts and the rest, each on a card.</td>
+    <td>Every food logged appears with its macros, grouped by meal; tap one to edit it.</td>
   </tr>
   <tr>
     <td><img src="docs/screenshots/add-phone.png" alt="The Add sheet" /></td>
     <td><img src="docs/screenshots/week-phone.png" alt="The week view" /></td>
   </tr>
   <tr>
-    <td><b>Adding food.</b> Your saved foods for one tap, a search of the USDA and Open Food Facts databases, or type it in.</td>
-    <td><b>A week.</b> Each day against its own goal, since training days get more carbs and water, with notes written by a local model.</td>
+    <td>Adding food takes one tap on a saved food, a search of the USDA and Open Food Facts databases, or typing it in.</td>
+    <td>A week sets each day against its own goal, since training days get more carbs and water, with notes written by a local model.</td>
   </tr>
   <tr>
     <td><img src="docs/screenshots/month-phone.png" alt="The month view" /></td>
     <td><img src="docs/screenshots/settings-phone.png" alt="Settings" /></td>
   </tr>
   <tr>
-    <td><b>A month.</b> The same numbers as a line; tap a day to see it, tap again to open it.</td>
-    <td><b>Goals.</b> Protein, fat, carbs and fiber per day, what a training day adds, water, and the weekly alcohol cap.</td>
+    <td>A month draws the same numbers as a line; tap a day to see it, tap again to open it.</td>
+    <td>Goals set protein, fat, carbs and fiber per day, what a training day adds, water, and the weekly alcohol cap.</td>
   </tr>
 </table>
 
 <img src="docs/screenshots/desktop.png" alt="The week view on a desktop" />
 
-**On a desktop.** The week view, with room for every chart.
+On a desktop the week view has room for every chart.
 
 The screenshots use demo data. To regenerate them:
 
@@ -55,11 +55,11 @@ npm run screenshots                # another; needs Google Chrome
 
 ## What it tracks
 
-- **Meals and macros.** Calories, protein, carbs, fat and fiber per entry, with daily targets and a day, week and month view.
-- **Food lookup**, three ways. Search the USDA FoodData Central and Open Food Facts databases. Scan a nutrition label from a photo, which a local vision model reads. Or ask for an online lookup, where a local model with a web-research tool reads the restaurant's or brand's own page.
-- **My foods.** Anything you have typed or confirmed, for one-tap logging. Saved meals log several at once.
-- **Water, alcohol, workouts, dog walks and meditation**, each its own tracker.
-- **Notes.** Two or three short paragraphs on a week or a month, written from your own numbers against your goals.
+- **Meals** log calories, protein, carbs, fat and fiber per entry, against daily targets, in a day, week and month view.
+- **Food lookup** works three ways. Search the USDA FoodData Central and Open Food Facts databases, scan a nutrition label from a photo for a local vision model to read, or ask for an online lookup, where a local model with a web-research tool reads the restaurant's or brand's own page.
+- **My foods** keeps anything you have typed or confirmed, for one-tap logging, and saved meals log several at once.
+- **Water, alcohol, workouts, dog walks and meditation** each have their own tracker.
+- **Notes** are two or three short paragraphs on a week or a month, written from your own numbers against your goals.
 
 Every lookup and scan produces candidates for you to check. Nothing a model
 read or saw is logged on its own.
