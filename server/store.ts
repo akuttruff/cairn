@@ -2,7 +2,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import type { StatementSync } from 'node:sqlite'
 import { ALCOHOL_KINDS, APP_ICONS, BODY_METRICS, CHARTABLE, MEALS, NUTRIENTS } from '../src/types.ts'
 import type {
   AlcoholKind, AlcoholLog, DaySummary, DayType, DayView, Entry, Food, Goals,
@@ -13,17 +12,19 @@ import {
   addDays, alcoholCalories, blendGoals, DEFAULT_GOALS, daysBetween, isDateString, localDate, resolveGoals, round1, scale,
   scoreDays, scoreDogWalks, scoreMeditation, scoreWater, startOfWeek, streakThrough, sumDay, isTrainingKind,
 } from '../src/lib/nutrition.ts'
-import { LOOKUP_MAX, LOOKUP_TTL_MS, normalizeQuery } from './research.ts'
+import { LOOKUP_TTL_MS, normalizeQuery } from './research.ts'
 import type { ResearchResult } from './research.ts'
 import { gramsFor, multiply } from '../src/lib/units.ts'
 import { ensureSchema, locate } from './store/schema.ts'
+import { prepareStatements } from './store/statements.ts'
+import type { Stmts } from './store/statements.ts'
 import { migrateFromJson } from './store/legacy.ts'
 import {
   cleanAmount, cleanBodySample, cleanDayType, cleanGoalNumber, cleanGrams, cleanMinutes, cleanName, cleanNote, cleanNutrients,
   cleanPerServing, cleanPlan, cleanSource, cleanSources, cleanWorkoutKinds, MAX_NAME, ValidationError,
 } from './store/clean.ts'
 import {
-  countByKind, entryColumnParams, entryFromRow, foodColumnParams, foodFromRow, GOALS_ASSIGNMENTS, GOALS_COLUMNS, GOALS_PLACEHOLDERS,
+  countByKind, entryColumnParams, entryFromRow, foodColumnParams, foodFromRow, GOALS_COLUMNS, GOALS_PLACEHOLDERS,
   goalsFromRow, goalsParams, groupBy, meditationFromRow, dogWalkFromRow, parsePlan, planTotal, presetItemColumnParams, presetItemFromRow,
   settingsFromRow, workoutFromRow, zeroByKind,
 } from './store/rows.ts'
@@ -43,76 +44,6 @@ const BACKUP_KEEP = 20
 
 export interface StoreOptions {
   dir?: string
-}
-
-interface Stmts {
-  selectEntry: StatementSync
-  selectEntriesByDate: StatementSync
-  selectEntriesBetween: StatementSync
-  selectRecentPerFood: StatementSync
-  selectAllFoodServings: StatementSync
-  selectAllFoodSources: StatementSync
-  selectAllPresetItems: StatementSync
-  selectAllLookups: StatementSync
-  updateLookupResult: StatementSync
-  insertEntry: StatementSync
-  updateEntry: StatementSync
-  deleteEntry: StatementSync
-  selectAllFoods: StatementSync
-  selectFood: StatementSync
-  selectFoodServings: StatementSync
-  selectFoodSources: StatementSync
-  upsertFood: StatementSync
-  deleteFoodServings: StatementSync
-  deleteFoodSources: StatementSync
-  insertFoodServing: StatementSync
-  insertFoodSource: StatementSync
-  deleteFood: StatementSync
-  selectAllPresets: StatementSync
-  selectPresetById: StatementSync
-  selectPresetItems: StatementSync
-  upsertPreset: StatementSync
-  deletePresetItems: StatementSync
-  insertPresetItem: StatementSync
-  deletePreset: StatementSync
-  selectGoals: StatementSync
-  updateGoals: StatementSync
-  selectDayType: StatementSync
-  selectDayTypesBetween: StatementSync
-  upsertDayType: StatementSync
-  selectSettings: StatementSync
-  updateSettings: StatementSync
-  selectWaterByDate: StatementSync
-  selectWaterBetween: StatementSync
-  insertWater: StatementSync
-  deleteWater: StatementSync
-  selectAlcoholByDate: StatementSync
-  selectAlcoholBetween: StatementSync
-  insertAlcohol: StatementSync
-  deleteAlcohol: StatementSync
-  selectWorkoutsByDate: StatementSync
-  selectWorkoutsBetween: StatementSync
-  insertWorkout: StatementSync
-  deleteWorkout: StatementSync
-  selectWeekPlan: StatementSync
-  upsertWeekPlan: StatementSync
-  deleteWeekPlan: StatementSync
-  selectMeditationByDate: StatementSync
-  selectMeditationBetween: StatementSync
-  insertMeditation: StatementSync
-  deleteMeditation: StatementSync
-  selectDogWalksByDate: StatementSync
-  selectDogWalksBetween: StatementSync
-  insertDogWalk: StatementSync
-  deleteDogWalk: StatementSync
-  insertBody: StatementSync
-  selectBodyUpTo: StatementSync
-  selectBodyBetween: StatementSync
-  selectLookup: StatementSync
-  upsertLookup: StatementSync
-  selectNotes: StatementSync
-  upsertNotes: StatementSync
-  pruneLookups: StatementSync
 }
 
 export class Store {
@@ -139,135 +70,7 @@ export class Store {
     ensureSchema(this.db)
     try { fs.chmodSync(this.paths.sqlite, 0o600) } catch { /* not ours to change */ }
 
-    this.stmts = {
-      selectEntry: this.db.prepare('SELECT * FROM entries WHERE id = ?'),
-      selectEntriesByDate: this.db.prepare('SELECT * FROM entries WHERE date = ?'),
-      selectEntriesBetween: this.db.prepare('SELECT * FROM entries WHERE date >= ? AND date <= ?'),
-      // The latest entry of each distinct food that can be logged again (it
-      // has a per-100g or per-serving basis) -- deduplicated in SQL so this
-      // never reads the whole log, however long it gets.
-      selectRecentPerFood: this.db.prepare(`
-        SELECT * FROM (
-          SELECT *, rowid AS rid, ROW_NUMBER() OVER (
-            PARTITION BY COALESCE(NULLIF(food_id, ''), name || '|' || COALESCE(brand, ''))
-            ORDER BY created_at DESC, rowid DESC
-          ) AS rn
-          FROM entries
-          WHERE has_per100g = 1 OR (has_per_unit = 1 AND amount_quantity IS NOT NULL)
-        ) WHERE rn = 1 ORDER BY created_at DESC, rid DESC LIMIT ?`),
-      selectAllFoodServings: this.db.prepare('SELECT * FROM food_servings ORDER BY food_id, position'),
-      selectAllFoodSources: this.db.prepare('SELECT * FROM food_sources ORDER BY food_id, position'),
-      selectAllPresetItems: this.db.prepare('SELECT * FROM meal_preset_items ORDER BY preset_id, position'),
-      selectAllLookups: this.db.prepare('SELECT key, result FROM lookup_cache'),
-      updateLookupResult: this.db.prepare('UPDATE lookup_cache SET result = ? WHERE key = ?'),
-      insertEntry: this.db.prepare(
-        `INSERT INTO entries (id,date,meal,name,brand,grams,amount_quantity,amount_unit,amount_unit_grams,
-          nutrients_calories,nutrients_protein,nutrients_fat,nutrients_carbs,nutrients_fiber,
-          has_per100g,per100g_calories,per100g_protein,per100g_fat,per100g_carbs,per100g_fiber,
-          has_per_unit,per_unit_calories,per_unit_protein,per_unit_fat,per_unit_carbs,per_unit_fiber,
-          food_id,source,created_at) VALUES (${Array(29).fill('?').join(',')})`,
-      ),
-      updateEntry: this.db.prepare(
-        `UPDATE entries SET date=?,meal=?,name=?,brand=?,grams=?,amount_quantity=?,amount_unit=?,amount_unit_grams=?,
-          nutrients_calories=?,nutrients_protein=?,nutrients_fat=?,nutrients_carbs=?,nutrients_fiber=?,
-          has_per100g=?,per100g_calories=?,per100g_protein=?,per100g_fat=?,per100g_carbs=?,per100g_fiber=?,
-          has_per_unit=?,per_unit_calories=?,per_unit_protein=?,per_unit_fat=?,per_unit_carbs=?,per_unit_fiber=?,
-          food_id=?,source=?,created_at=? WHERE id=?`,
-      ),
-      deleteEntry: this.db.prepare('DELETE FROM entries WHERE id = ?'),
-      selectAllFoods: this.db.prepare('SELECT * FROM foods'),
-      selectFood: this.db.prepare('SELECT * FROM foods WHERE id = ?'),
-      selectFoodServings: this.db.prepare('SELECT * FROM food_servings WHERE food_id = ? ORDER BY position'),
-      selectFoodSources: this.db.prepare('SELECT * FROM food_sources WHERE food_id = ? ORDER BY position'),
-      upsertFood: this.db.prepare(
-        `INSERT INTO foods (id,name,brand,source,source_id,has_per100g,per100g_calories,per100g_protein,per100g_fat,
-          per100g_carbs,per100g_fiber,has_per_serving,per_serving_label,per_serving_grams,
-          per_serving_nutrients_calories,per_serving_nutrients_protein,per_serving_nutrients_fat,
-          per_serving_nutrients_carbs,per_serving_nutrients_fiber,note) VALUES (${Array(20).fill('?').join(',')})
-          ON CONFLICT(id) DO UPDATE SET name=excluded.name, brand=excluded.brand, source=excluded.source,
-          source_id=excluded.source_id, has_per100g=excluded.has_per100g,
-          per100g_calories=excluded.per100g_calories, per100g_protein=excluded.per100g_protein,
-          per100g_fat=excluded.per100g_fat, per100g_carbs=excluded.per100g_carbs, per100g_fiber=excluded.per100g_fiber,
-          has_per_serving=excluded.has_per_serving, per_serving_label=excluded.per_serving_label,
-          per_serving_grams=excluded.per_serving_grams,
-          per_serving_nutrients_calories=excluded.per_serving_nutrients_calories,
-          per_serving_nutrients_protein=excluded.per_serving_nutrients_protein,
-          per_serving_nutrients_fat=excluded.per_serving_nutrients_fat,
-          per_serving_nutrients_carbs=excluded.per_serving_nutrients_carbs,
-          per_serving_nutrients_fiber=excluded.per_serving_nutrients_fiber, note=excluded.note`,
-      ),
-      deleteFoodServings: this.db.prepare('DELETE FROM food_servings WHERE food_id = ?'),
-      deleteFoodSources: this.db.prepare('DELETE FROM food_sources WHERE food_id = ?'),
-      insertFoodServing: this.db.prepare('INSERT INTO food_servings (food_id,position,label,grams) VALUES (?,?,?,?)'),
-      insertFoodSource: this.db.prepare('INSERT INTO food_sources (food_id,position,title,url) VALUES (?,?,?,?)'),
-      deleteFood: this.db.prepare('DELETE FROM foods WHERE id = ?'),
-      selectAllPresets: this.db.prepare('SELECT * FROM meal_presets'),
-      selectPresetById: this.db.prepare('SELECT * FROM meal_presets WHERE id = ?'),
-      selectPresetItems: this.db.prepare('SELECT * FROM meal_preset_items WHERE preset_id = ? ORDER BY position'),
-      upsertPreset: this.db.prepare(
-        `INSERT INTO meal_presets (id,name,created_at) VALUES (?,?,?)
-         ON CONFLICT(id) DO UPDATE SET name=excluded.name, created_at=excluded.created_at`,
-      ),
-      deletePresetItems: this.db.prepare('DELETE FROM meal_preset_items WHERE preset_id = ?'),
-      insertPresetItem: this.db.prepare(
-        `INSERT INTO meal_preset_items (preset_id,position,name,brand,grams,amount_quantity,amount_unit,amount_unit_grams,
-          has_per100g,per100g_calories,per100g_protein,per100g_fat,per100g_carbs,per100g_fiber,
-          has_per_unit,per_unit_calories,per_unit_protein,per_unit_fat,per_unit_carbs,per_unit_fiber,
-          has_nutrients,nutrients_calories,nutrients_protein,nutrients_fat,nutrients_carbs,nutrients_fiber,
-          food_id,source) VALUES (${Array(28).fill('?').join(',')})`,
-      ),
-      deletePreset: this.db.prepare('DELETE FROM meal_presets WHERE id = ?'),
-      selectGoals: this.db.prepare('SELECT * FROM goals WHERE id = 1'),
-      updateGoals: this.db.prepare(`UPDATE goals SET ${GOALS_ASSIGNMENTS} WHERE id=1`),
-      selectDayType: this.db.prepare('SELECT * FROM day_types WHERE date = ?'),
-      selectDayTypesBetween: this.db.prepare('SELECT * FROM day_types WHERE date >= ? AND date <= ?'),
-      upsertDayType: this.db.prepare(
-        'INSERT INTO day_types (date, type) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET type=excluded.type',
-      ),
-      selectSettings: this.db.prepare('SELECT * FROM settings WHERE id = 1'),
-      updateSettings: this.db.prepare(
-        'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=?, app_icon=?, charts=?, workout_kinds=?, notes_model=?, label_model=? WHERE id=1',
-      ),
-      selectWaterByDate: this.db.prepare('SELECT * FROM water_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
-      selectWaterBetween: this.db.prepare('SELECT * FROM water_logs WHERE date >= ? AND date <= ?'),
-      insertWater: this.db.prepare('INSERT INTO water_logs (id,date,ounces,created_at) VALUES (?,?,?,?)'),
-      deleteWater: this.db.prepare('DELETE FROM water_logs WHERE id = ?'),
-      selectAlcoholByDate: this.db.prepare('SELECT * FROM alcohol_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
-      selectAlcoholBetween: this.db.prepare('SELECT * FROM alcohol_logs WHERE date >= ? AND date <= ?'),
-      insertAlcohol: this.db.prepare('INSERT INTO alcohol_logs (id,date,kind,created_at) VALUES (?,?,?,?)'),
-      deleteAlcohol: this.db.prepare('DELETE FROM alcohol_logs WHERE id = ?'),
-      selectWorkoutsByDate: this.db.prepare('SELECT * FROM workout_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
-      selectWorkoutsBetween: this.db.prepare('SELECT * FROM workout_logs WHERE date >= ? AND date <= ?'),
-      insertWorkout: this.db.prepare('INSERT INTO workout_logs (id,date,kind,minutes,note,created_at) VALUES (?,?,?,?,?,?)'),
-      deleteWorkout: this.db.prepare('DELETE FROM workout_logs WHERE id = ?'),
-      selectWeekPlan: this.db.prepare('SELECT plan FROM workout_plans WHERE week_start = ?'),
-      upsertWeekPlan: this.db.prepare('INSERT INTO workout_plans (week_start, plan) VALUES (?, ?) ON CONFLICT(week_start) DO UPDATE SET plan=excluded.plan'),
-      deleteWeekPlan: this.db.prepare('DELETE FROM workout_plans WHERE week_start = ?'),
-      selectMeditationByDate: this.db.prepare('SELECT * FROM meditation_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
-      selectMeditationBetween: this.db.prepare('SELECT * FROM meditation_logs WHERE date >= ? AND date <= ?'),
-      insertMeditation: this.db.prepare('INSERT INTO meditation_logs (id,date,minutes,note,created_at) VALUES (?,?,?,?,?)'),
-      deleteMeditation: this.db.prepare('DELETE FROM meditation_logs WHERE id = ?'),
-      selectDogWalksByDate: this.db.prepare('SELECT * FROM dog_walk_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
-      selectDogWalksBetween: this.db.prepare('SELECT * FROM dog_walk_logs WHERE date >= ? AND date <= ?'),
-      insertDogWalk: this.db.prepare('INSERT INTO dog_walk_logs (id,date,miles,created_at) VALUES (?,?,?,?)'),
-      deleteDogWalk: this.db.prepare('DELETE FROM dog_walk_logs WHERE id = ?'),
-      insertBody: this.db.prepare('INSERT OR IGNORE INTO body_measurements (metric, measured_at, date, value, created_at) VALUES (?,?,?,?,?)'),
-      // The two latest readings of a kind on or before a day: the current one, and the one it changed from.
-      selectBodyUpTo: this.db.prepare('SELECT * FROM body_measurements WHERE metric = ? AND date <= ? ORDER BY measured_at DESC LIMIT 2'),
-      selectBodyBetween: this.db.prepare('SELECT * FROM body_measurements WHERE date >= ? AND date <= ? ORDER BY measured_at'),
-      selectNotes: this.db.prepare('SELECT start_date AS start, end_date AS end, fingerprint, text, model, at FROM range_notes WHERE key = ?'),
-      upsertNotes: this.db.prepare(
-        'INSERT INTO range_notes (key,start_date,end_date,fingerprint,text,model,at) VALUES (?,?,?,?,?,?,?) '
-        + 'ON CONFLICT(key) DO UPDATE SET fingerprint=excluded.fingerprint, text=excluded.text, model=excluded.model, at=excluded.at',
-      ),
-      selectLookup: this.db.prepare('SELECT at, result FROM lookup_cache WHERE key = ?'),
-      upsertLookup: this.db.prepare(
-        'INSERT INTO lookup_cache (key,at,result) VALUES (?,?,?) ON CONFLICT(key) DO UPDATE SET at=excluded.at, result=excluded.result',
-      ),
-      pruneLookups: this.db.prepare(
-        `DELETE FROM lookup_cache WHERE at < ? OR key NOT IN (SELECT key FROM lookup_cache ORDER BY at DESC LIMIT ${LOOKUP_MAX})`,
-      ),
-    }
+    this.stmts = prepareStatements(this.db)
 
     if (!this.stmts.selectGoals.get()) {
       this.db.prepare(`INSERT INTO goals (id,${GOALS_COLUMNS}) VALUES (1,${GOALS_PLACEHOLDERS})`)
