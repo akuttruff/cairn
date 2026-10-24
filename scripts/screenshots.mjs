@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { encodeRecording, glide, startRecording } from './recording.mjs'
+import { encodeRecording, glide, startRecording, typeInto, waitUntil } from './recording.mjs'
 
 const URL = process.env.CAIRN_URL ?? 'http://127.0.0.1:8200'
 const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
@@ -27,7 +27,15 @@ const DESKTOP = { width: 1280, height: 840, scale: 2, mobile: false }
  *  aria <label>          click the element with that aria-label
  *  wait <ms>             pause (animations, lazy chunks)
  *  scroll <css> <px>     scroll an element, or the window when the selector matches nothing
+ *  glide <css> <px> <ms> scroll it smoothly, for a recording
+ *  type <css> <text>     type into a field a few characters at a time
+ *  until <js> <ms>       wait until the expression is true in the page
  */
+/** The Add sheet's search box; a match among your own foods; the sheet gone again once it is logged. */
+const SEARCH = '[aria-label="Search foods"]'
+const FOUND = `!!document.querySelector('[aria-label="Yours"] .food-row')`
+const CLOSED = `!document.querySelector('.drawer-actions')`
+
 const scenarios = [
   { name: 'day-phone', view: PHONE, steps: [] },
   { name: 'meals-phone', view: PHONE, steps: [['scroll', '.scroll', 1400]] },
@@ -38,8 +46,9 @@ const scenarios = [
   { name: 'desktop', view: DESKTOP, steps: [['click', 'Week'], ['wait', 800], ['aria', 'Previous week'], ['wait', 1500]] },
   { name: 'desktop-day', view: DESKTOP, steps: [['wait', 800]] },
   // Walkthroughs, recorded (see recording.mjs): the phone's and the desktop's.
-  { name: 'demo-phone', view: PHONE, record: true, steps: [['wait', 1000], ['click', 'Week'], ['wait', 1400], ['aria', 'Previous week'], ['wait', 1500], ['click', 'Month'], ['wait', 1700], ['click', 'Day'], ['wait', 1300], ['glide', '.scroll', 1000, 2200], ['wait', 900], ['aria', 'Add food'], ['wait', 2000]] },
-  { name: 'demo-desktop', view: DESKTOP, record: true, steps: [['wait', 1000], ['click', 'Week'], ['wait', 1400], ['aria', 'Previous week'], ['wait', 1500], ['click', 'Month'], ['wait', 1700], ['click', 'Day'], ['wait', 1300], ['glide', '.scroll', 700, 2000], ['wait', 900], ['aria', 'Add food'], ['wait', 2000]] },
+  // A food searched for, picked and logged, then the day with it in; then the week and the month.
+  { name: 'demo-phone', view: PHONE, record: true, speed: 1.2, steps: [['wait', 900], ['aria', 'Add food'], ['wait', 900], ['click', 'Search'], ['wait', 600], ['type', SEARCH, 'blueberries'], ['until', FOUND, 10000], ['wait', 900], ['sel', '[aria-label="Yours"] .food-row'], ['wait', 1300], ['sel', '.drawer-actions .primary'], ['until', CLOSED, 5000], ['wait', 700], ['glide', '.scroll', 99999, 1600], ['wait', 1400], ['click', 'Week'], ['wait', 1600], ['click', 'Month'], ['wait', 1800]] },
+  { name: 'demo-desktop', view: DESKTOP, record: true, speed: 1.2, steps: [['wait', 900], ['aria', 'Add food'], ['wait', 900], ['click', 'Search'], ['wait', 600], ['type', SEARCH, 'blueberries'], ['until', FOUND, 10000], ['wait', 900], ['sel', '[aria-label="Yours"] .food-row'], ['wait', 1300], ['sel', '.drawer-actions .primary'], ['until', CLOSED, 5000], ['wait', 700], ['glide', '.scroll', 99999, 1600], ['wait', 1400], ['click', 'Week'], ['wait', 1600], ['click', 'Month'], ['wait', 1800]] },
 ]
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -89,6 +98,8 @@ async function run(scenario) {
       let result = ''
       if (op === 'click') result = await evaluate(clickText(a))
       else if (op === 'glide') result = await glide(evaluate, a, b, c)
+      else if (op === 'type') result = await typeInto(send, evaluate, a, b, 70)
+      else if (op === 'until') { result = await waitUntil(evaluate, a, b); if (result === 'timeout') throw new Error(`${scenario.name}: gave up waiting for ${a}`) }
       else if (op === 'sel') result = await evaluate(`(() => { const el = document.querySelector(${JSON.stringify(a)}); if (!el) return 'missing ' + ${JSON.stringify(a)}; el.click(); return 'clicked' })()`)
       else if (op === 'aria') result = await evaluate(`(() => { const el = document.querySelector('[aria-label=' + ${JSON.stringify(JSON.stringify(a))} + ']'); if (!el) return 'missing ' + ${JSON.stringify(a)}; el.click(); return 'clicked' })()`)
       else if (op === 'wait') { await sleep(a); continue }
@@ -98,7 +109,7 @@ async function run(scenario) {
     }
     if (recording) {
       const frames = await recording.stop()
-      const made = encodeRecording(frames, { out: OUT, name: scenario.name, wide: !scenario.view.mobile })
+      const made = encodeRecording(frames, { out: OUT, name: scenario.name, wide: !scenario.view.mobile, speed: scenario.speed ?? 1 })
       console.log(`wrote ${made.gif} and ${made.mp4} (${made.seconds} s, ${made.frames} frames)`)
       return
     }

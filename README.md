@@ -9,7 +9,11 @@ by one SQLite file. No accounts, no cloud.
 
 <img src="docs/screenshots/demo-desktop.gif" alt="Cairn in use on a desktop" />
 
-<sub>On a desktop: the week, the month, a day with its meals, then the Add sheet.</sub>
+<p>On a desktop, a food is searched for, picked and logged, the day takes it in, then the week and the month.</p>
+
+<p align="center"><img src="docs/screenshots/demo-phone.gif" width="300" alt="Cairn in use on a phone" /></p>
+
+<p align="center">The same flow on a phone.</p>
 
 <table>
   <tr>
