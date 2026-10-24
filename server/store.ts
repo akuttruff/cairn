@@ -16,7 +16,7 @@ import {
 import { DAY_TYPES } from '../src/types.ts'
 import { LOOKUP_MAX, LOOKUP_TTL_MS, normalizeQuery } from './research.ts'
 import type { ResearchResult } from './research.ts'
-import { multiply } from '../src/lib/units.ts'
+import { gramsFor, multiply } from '../src/lib/units.ts'
 
 /**
  * Everything is kept on the machine running the server, so the log is shared
@@ -1605,7 +1605,7 @@ export class Store {
       nutrients = scale(item.per100g, grams!)
     } else if (item.perUnit) {
       nutrients = multiply(item.perUnit, item.amount!.quantity)
-      grams = item.amount!.unitGrams == null ? null : Math.round(item.amount!.unitGrams * item.amount!.quantity * 10) / 10
+      grams = gramsFor({ grams: item.amount!.unitGrams }, item.amount!.quantity)
     } else {
       nutrients = item.nutrients!
     }
@@ -1658,7 +1658,7 @@ export class Store {
       if (!entry.amount) throw new ValidationError('this entry has no serving to count')
       const amount = cleanAmount({ ...entry.amount, quantity: patch.quantity })
       entry.amount = amount
-      const grams = amount.unitGrams == null ? null : Math.round(amount.unitGrams * amount.quantity * 10) / 10
+      const grams = gramsFor({ grams: amount.unitGrams }, amount.quantity)
       if (entry.perUnit) {
         entry.nutrients = multiply(entry.perUnit, amount.quantity)
         entry.grams = grams

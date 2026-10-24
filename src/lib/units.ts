@@ -71,7 +71,7 @@ export function multiply(n: Nutrients, factor: number): Nutrients {
 }
 
 /** Grams eaten, when the unit's weight is known. */
-export function gramsFor(unit: Unit, quantity: number): number | null {
+export function gramsFor(unit: Pick<Unit, 'grams'>, quantity: number): number | null {
   return unit.grams == null ? null : round1(unit.grams * quantity)
 }
 
