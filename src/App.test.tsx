@@ -314,6 +314,53 @@ describe('App', () => {
     expect(await screen.findByText(/Looking it up/)).toBeInTheDocument()
   })
 
+  describe('polling a running lookup', () => {
+    const running = { id: 'j1', query: 'pad thai', status: 'running', step: 'reading', startedAt: Date.now() - 20_000 }
+    /** The resumed lookup j1, with its polls answered by `poll` (n counts from 1). */
+    const resume = (poll: (n: number) => Promise<Response>) => {
+      localStorage.setItem('macros.research', 'j1')
+      const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/search': { usda: [], off: [], errors: [] } })
+      const rest = vi.mocked(fetch).getMockImplementation()!
+      let n = 0
+      vi.mocked(fetch).mockImplementation(async (url, init) => (url === '/api/research/j1' ? poll(++n) : rest(url, init)))
+      return { calls, polls: () => n }
+    }
+    const reply = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as Response
+
+    it('keeps asking through a failed poll', async () => {
+      const user = userEvent.setup()
+      resume(async (n) => (n === 1 ? reply(200, running) : n === 2 ? Promise.reject(new TypeError('Failed to fetch')) : n === 3
+        ? reply(502, { error: 'bad gateway' })
+        : reply(200, { ...running, status: 'done', step: 'done', result: { query: 'pad thai', foods: [], note: '', model: 'm', seconds: 70 } })))
+      render(<App />)
+      await user.click(await screen.findByRole('button', { name: 'Add food' }))
+      await searchBox(user)
+      expect(await screen.findByText(/Nothing reliable found/, {}, { timeout: 3000 })).toBeInTheDocument()
+    })
+
+    it('forgets the lookup once the server no longer has it', async () => {
+      const user = userEvent.setup()
+      resume(async (n) => (n === 1 ? reply(200, running) : reply(404, { error: 'no such lookup' })))
+      render(<App />)
+      await user.click(await screen.findByRole('button', { name: 'Add food' }))
+      await searchBox(user)
+      await waitFor(() => expect(localStorage.getItem('macros.research')).toBeNull())
+      expect(screen.queryByText(/Looking it up/)).not.toBeInTheDocument()
+    })
+
+    it('asks again only once the last ask has answered', async () => {
+      const user = userEvent.setup()
+      const r = resume(async (n) => (n === 1 ? reply(200, running) : new Promise<Response>(() => {}))) // the second never answers
+      render(<App />)
+      await user.click(await screen.findByRole('button', { name: 'Add food' }))
+      await searchBox(user)
+      expect(await screen.findByText(/Looking it up/)).toBeInTheDocument()
+      await waitFor(() => expect(r.polls()).toBe(2))
+      await new Promise((done) => setTimeout(done, TIMING.pollMs * 6))
+      expect(r.polls()).toBe(2)
+    })
+  })
+
   it('adds a picked food, at the amount shown, to a saved meal from the pick screen', async () => {
     const user = userEvent.setup()
     const breakfast = { id: 'meal:m1', name: 'Breakfast', createdAt: 0, items: [{ name: 'Eggs', grams: 100, per100g: { calories: 155, protein: 13, fat: 11, carbs: 1.1, fiber: 0 }, source: 'usda' }] }

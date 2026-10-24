@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Globe } from 'lucide-react'
-import { api } from '../../lib/api.ts'
+import { ApiError, api } from '../../lib/api.ts'
 import { TIMING } from '../../lib/timing.ts'
 import type { ResearchJob } from '../../lib/api.ts'
 import { chime } from '../../lib/chime.ts'
@@ -58,24 +58,40 @@ export function OnlineLookup({ query, job, auto, onJob, onStart, onRefresh, onPi
     // cancelled here), so a poll answering late can't chime for it.
     let watching = true
     const tick = setInterval(() => setNow(Date.now()), 1000)
-    const poll = setInterval(() => {
+    let poll: ReturnType<typeof setTimeout> | undefined
+    // The next ask waits for this one's answer, so a slow server is never
+    // sent a pile of them.
+    const ask = (): void => {
       api.research(jobId)
         // Only if it's still the current job: a replaced one may answer late.
         .then((j) => {
-          if (!isJob(j) || j.id !== jobId) return
-          // Settled: nothing left to come back to.
-          if (j.status !== 'running') {
-            forgetJob()
-            // The write-up is ready (or gave up): worth a sound, since it
-            // takes a minute or two and you've likely looked away.
-            if (watching && j.error !== 'Cancelled.') chime(j.status === 'done' ? 'done' : 'failed')
-            watching = false
+          if (isJob(j) && j.id === jobId) {
+            // Settled: nothing left to come back to.
+            if (j.status !== 'running') {
+              forgetJob()
+              // The write-up is ready (or gave up): worth a sound, since it
+              // takes a minute or two and you've likely looked away.
+              if (watching && j.error !== 'Cancelled.') chime(j.status === 'done' ? 'done' : 'failed')
+              watching = false
+            }
+            onJob(j)
           }
-          onJob(j)
+          if (watching) poll = setTimeout(ask, TIMING.pollMs)
         })
-        .catch(() => { forgetJob(); onJob(null) })
-    }, TIMING.pollMs)
-    return () => { watching = false; clearInterval(tick); clearInterval(poll) }
+        .catch((err: unknown) => {
+          // Only the server saying it has no such lookup ends it; a dropped
+          // connection or a restart in progress is worth asking again.
+          if (!watching) return
+          if (err instanceof ApiError && err.status === 404) {
+            forgetJob()
+            onJob(null)
+          } else {
+            poll = setTimeout(ask, TIMING.pollMs)
+          }
+        })
+    }
+    poll = setTimeout(ask, TIMING.pollMs)
+    return () => { watching = false; clearInterval(tick); clearTimeout(poll) }
   }, [running, jobId, onJob])
 
   const mine = job && job.query.toLowerCase() === query.toLowerCase() ? job : null
@@ -110,7 +126,7 @@ export function OnlineLookup({ query, job, auto, onJob, onStart, onRefresh, onPi
           <button
             type="button"
             className="link-btn"
-            onClick={() => { void api.cancelResearch(mine.id); forgetJob(); onJob({ ...mine, status: 'error', error: 'Cancelled.' }) }}
+            onClick={() => { void api.cancelResearch(mine.id).catch(() => {}); forgetJob(); onJob({ ...mine, status: 'error', error: 'Cancelled.' }) }}
           >
             Cancel
           </button>

@@ -23,7 +23,14 @@ export interface SearchResult {
   barcode?: boolean
 }
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  /** The HTTP status the server answered with; none when it never answered. */
+  readonly status?: number
+  constructor(message: string, status?: number) {
+    super(message)
+    this.status = status
+  }
+}
 
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   // A read that gets no reply at all is given a few seconds and tried again
@@ -45,7 +52,7 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     throw new ApiError(`Couldn't reach Cairn (${method} ${path.split('?')[0]}). Check the connection and try again.`)
   }
   const data = await res.json().catch(() => ({})) as { error?: string }
-  if (!res.ok) throw new ApiError(data.error || `Request failed (${res.status})`)
+  if (!res.ok) throw new ApiError(data.error || `Request failed (${res.status})`, res.status)
   return data as T
 }
 
