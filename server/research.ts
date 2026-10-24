@@ -241,6 +241,43 @@ export async function describeError(res: Response): Promise<string> {
   return detail || `LM Studio returned HTTP ${res.status}.`
 }
 
+/** One event of LM Studio's streamed chat, as far as anything here reads it. */
+export interface LmEvent {
+  type?: string
+  content?: string
+  tool_name?: string
+  arguments?: { url?: string }
+  error?: { message?: string }
+}
+
+/**
+ * The `data:` events of an LM Studio chat stream, one at a time. However the
+ * caller stops -- the stream ends, it throws on an error event, it is aborted
+ * -- the reader is cancelled, so the connection is not left half-read.
+ */
+export async function* lmEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<LmEvent> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue
+        let evt: LmEvent
+        try { evt = JSON.parse(line.slice(5).trim()) as LmEvent } catch { continue }
+        yield evt
+      }
+    }
+  } finally {
+    reader.cancel().catch(() => { /* already closed or errored */ })
+  }
+}
+
 export interface ResearchOptions {
   fetchImpl?: typeof fetch
   signal?: AbortSignal
@@ -274,39 +311,26 @@ export async function researchFood(query: string, settings: Settings, options: R
   if (!res.ok) throw new Error(await describeError(res))
   if (!res.body) throw new Error('LM Studio returned no stream.')
 
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buf = ''
   let text = ''
   let usedTools = false
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    const lines = buf.split('\n')
-    buf = lines.pop() ?? ''
-    for (const line of lines) {
-      if (!line.startsWith('data:')) continue
-      let evt: { type?: string; content?: string; tool_name?: string; arguments?: { url?: string }; error?: { message?: string } }
-      try { evt = JSON.parse(line.slice(5).trim()) } catch { continue }
-      switch (evt.type) {
-        case 'model_load.start': step('loading the model'); break
-        // After a tool call, the "prompt" being processed is what the tool returned.
-        case 'prompt_processing.start': step(usedTools ? 'reading what it found' : 'reading the request'); break
-        case 'tool_call.name':
-          usedTools = true
-          step(evt.tool_name === 'fetch_page' ? 'reading a page' : 'searching the web')
-          break
-        case 'tool_call.arguments': {
-          const host = (() => { try { return new URL(evt.arguments?.url ?? '').hostname.replace(/^www\./, '') } catch { return '' } })()
-          if (host) step(`reading ${host}`)
-          break
-        }
-        case 'message.start': step('writing up'); break
-        case 'message.delta': text += evt.content ?? ''; break
-        case 'error': throw new Error(evt.error?.message || 'LM Studio reported an error.')
-        default: break
+  for await (const evt of lmEvents(res.body)) {
+    switch (evt.type) {
+      case 'model_load.start': step('loading the model'); break
+      // After a tool call, the "prompt" being processed is what the tool returned.
+      case 'prompt_processing.start': step(usedTools ? 'reading what it found' : 'reading the request'); break
+      case 'tool_call.name':
+        usedTools = true
+        step(evt.tool_name === 'fetch_page' ? 'reading a page' : 'searching the web')
+        break
+      case 'tool_call.arguments': {
+        const host = (() => { try { return new URL(evt.arguments?.url ?? '').hostname.replace(/^www\./, '') } catch { return '' } })()
+        if (host) step(`reading ${host}`)
+        break
       }
+      case 'message.start': step('writing up'); break
+      case 'message.delta': text += evt.content ?? ''; break
+      case 'error': throw new Error(evt.error?.message || 'LM Studio reported an error.')
+      default: break
     }
   }
 
@@ -476,23 +500,10 @@ export async function chatText(
   })
   if (!res.ok) throw new Error(await describeError(res))
   if (!res.body) throw new Error('LM Studio returned no stream.')
-  const reader = res.body.getReader()
-  const decoder = new TextDecoder()
-  let buf = ''
   let text = ''
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (done) break
-    buf += decoder.decode(value, { stream: true })
-    const lines = buf.split('\n')
-    buf = lines.pop() ?? ''
-    for (const line of lines) {
-      if (!line.startsWith('data:')) continue
-      let evt: { type?: string; content?: string; error?: { message?: string } }
-      try { evt = JSON.parse(line.slice(5).trim()) } catch { continue }
-      if (evt.type === 'message.delta') text += evt.content ?? ''
-      else if (evt.type === 'error') throw new Error(evt.error?.message || 'LM Studio reported an error.')
-    }
+  for await (const evt of lmEvents(res.body)) {
+    if (evt.type === 'message.delta') text += evt.content ?? ''
+    else if (evt.type === 'error') throw new Error(evt.error?.message || 'LM Studio reported an error.')
   }
   return text.trim()
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { RESEARCH_PLUGIN, ResearchJobs, chooseModel, extractJson, listLlms, normalizeQuery, researchFood, toFoods } from './research.ts'
+import { RESEARCH_PLUGIN, ResearchJobs, chooseModel, extractJson, listLlms, lmEvents, normalizeQuery, researchFood, toFoods } from './research.ts'
 import type { LookupStore } from './research.ts'
 import { DEFAULT_WORKOUT_KINDS } from '../src/types.ts'
 import type { Settings } from '../src/types.ts'
@@ -56,6 +56,33 @@ function lmStudio(reply: string, extra: object[] = []) {
   }) as unknown as typeof fetch
   return { fetchImpl, calls }
 }
+
+describe('lmEvents', () => {
+  const stream = (chunks: string[], onCancel: () => void): ReadableStream<Uint8Array> => {
+    const enc = new TextEncoder()
+    let i = 0
+    return new ReadableStream({
+      pull(c) { if (i < chunks.length) c.enqueue(enc.encode(chunks[i++])); else c.close() },
+      cancel: onCancel,
+    })
+  }
+
+  it('yields data events across chunk boundaries, skipping anything else', async () => {
+    const seen: unknown[] = []
+    const body = stream(['event: x\ndata: {"type":"a"}\nda', 'ta: {"type":"b"}\ndata: not json\n'], () => {})
+    for await (const evt of lmEvents(body)) seen.push(evt.type)
+    expect(seen).toEqual(['a', 'b'])
+  })
+
+  it('cancels the stream when the reader stops early', async () => {
+    const onCancel = vi.fn()
+    const body = stream(['data: {"type":"error"}\n', 'data: {"type":"never"}\n'], onCancel)
+    await expect((async () => {
+      for await (const evt of lmEvents(body)) if (evt.type === 'error') throw new Error('stop')
+    })()).rejects.toThrow('stop')
+    expect(onCancel).toHaveBeenCalled()
+  })
+})
 
 describe('normalizeQuery', () => {
   it('ignores case, punctuation, order and repeats', () => {
