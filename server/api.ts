@@ -27,17 +27,25 @@ function json(res: ServerResponse, code: number, body: unknown): void {
   res.end(JSON.stringify(body))
 }
 
-function readBody(req: IncomingMessage, limit = 1_000_000): Promise<unknown> {
+export function readBody(req: IncomingMessage, limit = 1_000_000): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    let body = ''
+    // Bytes, decoded once at the end: a character split across two chunks
+    // would otherwise turn into two replacement marks, and the limit is in
+    // bytes, not UTF-16 units.
+    const chunks: Buffer[] = []
+    let size = 0
     req.on('data', (chunk: Buffer | string) => {
-      body += chunk
-      if (body.length > limit) {
+      const buf = typeof chunk === 'string' ? Buffer.from(chunk) : chunk
+      size += buf.byteLength
+      if (size > limit) {
         req.destroy()
         reject(new ValidationError('request too large'))
+        return
       }
+      chunks.push(buf)
     })
     req.on('end', () => {
+      const body = Buffer.concat(chunks).toString('utf8')
       if (!body) return resolve({})
       try { resolve(JSON.parse(body)) } catch { reject(new ValidationError('invalid JSON')) }
     })

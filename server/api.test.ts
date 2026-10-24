@@ -4,7 +4,9 @@ import type { Server } from 'node:http'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import api, { createApi } from './api.ts'
+import { PassThrough } from 'node:stream'
+import type { IncomingMessage } from 'node:http'
+import api, { createApi, readBody } from './api.ts'
 import type { DayView, Entry } from '../src/types.ts'
 
 let server: Server
@@ -447,6 +449,26 @@ describe('cross-origin protection', () => {
   it('allows reads from anywhere', async () => {
     const res = await call('GET', `/api/day/${DAY}`, undefined, { Origin: 'https://evil.example' })
     expect(res.status).toBe(200)
+  })
+})
+
+describe('readBody', () => {
+  const request = (chunks: Buffer[]): IncomingMessage => {
+    const req = new PassThrough()
+    queueMicrotask(() => { for (const c of chunks) req.write(c); req.end() })
+    return req as unknown as IncomingMessage
+  }
+
+  it('decodes a character split across two chunks', async () => {
+    const bytes = Buffer.from(JSON.stringify({ name: 'Crème brûlée 🍮' }))
+    const at = bytes.indexOf(Buffer.from('🍮')) + 2 // half-way through the emoji
+    expect(await readBody(request([bytes.subarray(0, at), bytes.subarray(at)]))).toEqual({ name: 'Crème brûlée 🍮' })
+  })
+
+  it('counts the limit in bytes', async () => {
+    const body = Buffer.from(JSON.stringify({ name: 'é'.repeat(6) })) // 23 bytes, 17 characters
+    await expect(readBody(request([body]), 20)).rejects.toThrow(/too large/)
+    expect(await readBody(request([body]), 23)).toEqual({ name: 'éééééé' })
   })
 })
 
