@@ -67,8 +67,9 @@ export function toReading(data: unknown, model: string): LabelReading | null {
 }
 
 /** Read one label image with the label model (else whichever vision model LM Studio has). */
-export async function readLabel(image: string, settings: Settings, fetchImpl: typeof fetch): Promise<LabelReading> {
-  const signal = AbortSignal.timeout(LABEL_TIMEOUT_MS)
+export async function readLabel(image: string, settings: Settings, fetchImpl: typeof fetch, abort?: AbortSignal): Promise<LabelReading> {
+  // Given up on after the timeout, or as soon as `abort` says nobody is waiting for the answer.
+  const signal = AbortSignal.any([AbortSignal.timeout(LABEL_TIMEOUT_MS), ...(abort ? [abort] : [])])
   const { model, reasoning } = await chooseModel(settings, fetchImpl, signal, settings.labelModel, true)
   const body: Record<string, unknown> = {
     model,

@@ -71,8 +71,9 @@ export function tidyNotes(text: string): string {
 }
 
 /** Write the notes for a range with the notes model (else the research one), and say which model wrote them. */
-export async function writeNotes(view: RangeView, settings: Settings, fetchImpl: typeof fetch): Promise<{ text: string; model: string }> {
-  const signal = AbortSignal.timeout(NOTES_TIMEOUT_MS)
+export async function writeNotes(view: RangeView, settings: Settings, fetchImpl: typeof fetch, abort?: AbortSignal): Promise<{ text: string; model: string }> {
+  // Given up on after the timeout, or as soon as `abort` says nobody is waiting for the answer.
+  const signal = AbortSignal.any([AbortSignal.timeout(NOTES_TIMEOUT_MS), ...(abort ? [abort] : [])])
   const { model, reasoning } = await chooseModel(settings, fetchImpl, signal, settings.notesModel)
   const body: Record<string, unknown> = { model, system_prompt: NOTES_PROMPT, input: notesInput(view), max_output_tokens: NOTES_MAX_TOKENS }
   if (reasoning) body.reasoning = reasoning

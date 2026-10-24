@@ -46,6 +46,16 @@ function readBody(req: IncomingMessage, limit = 1_000_000): Promise<unknown> {
 }
 
 /**
+ * Aborted when the client goes away before its answer is sent, so a model
+ * is not kept busy writing for nobody.
+ */
+function clientGone(res: ServerResponse): AbortSignal {
+  const ac = new AbortController()
+  res.on('close', () => { if (!res.writableFinished) ac.abort() })
+  return ac.signal
+}
+
+/**
  * A state-changing request must come from this app's own page. The server is
  * reachable from any tab on a device on your network, so without this a web
  * page you happened to visit could write to your food log.
@@ -67,6 +77,8 @@ export function createApi(options: ApiOptions = {}) {
   const fetchImpl = options.fetchImpl ?? fetch
   /** Ranges whose notes are being written right now, so a double tap does not write twice. */
   const writing = new Set<string>()
+  /** A label is being read: one picture at a time, since each occupies the vision model. */
+  let readingLabel = false
   const searchCache = new TtlCache<SearchResult>(DAY_MS)
   const portionCache = new TtlCache<Serving[]>(7 * DAY_MS)
   const research = new ResearchJobs(() => store.getSettings(), fetchImpl, {
@@ -272,7 +284,7 @@ export function createApi(options: ApiOptions = {}) {
       if (writing.has(key)) return json(res, 409, { error: 'Already writing notes for this period.' })
       writing.add(key)
       try {
-        const { text, model } = await writeNotes(view, store.getSettings(), fetchImpl)
+        const { text, model } = await writeNotes(view, store.getSettings(), fetchImpl, clientGone(res))
         store.saveNotes(start, end, now, text, model)
         return json(res, 200, { notes: present() })
       } finally {
@@ -285,10 +297,14 @@ export function createApi(options: ApiOptions = {}) {
     if (p === '/api/label' && method === 'POST') {
       const { image } = await readBody(req, LABEL_MAX_BYTES + 100) as { image?: unknown }
       if (!isImageDataUrl(image)) throw new ValidationError('send the label as a JPEG, PNG or WebP data URL')
+      if (readingLabel) return json(res, 409, { error: 'Already reading a label.' })
+      readingLabel = true
       try {
-        return json(res, 200, { reading: await readLabel(image, store.getSettings(), fetchImpl) })
+        return json(res, 200, { reading: await readLabel(image, store.getSettings(), fetchImpl, clientGone(res)) })
       } catch (err) {
         return json(res, 502, { error: (err as Error).message })
+      } finally {
+        readingLabel = false
       }
     }
 

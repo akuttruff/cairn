@@ -39,7 +39,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-  await new Promise<void>((r) => server.close(() => r()))
+  await new Promise<void>((r) => { server.close(() => r()); server.closeAllConnections() })
   fs.rmSync(dir, { recursive: true, force: true })
 })
 
@@ -278,6 +278,24 @@ describe('reading a label', () => {
     const res = await call('POST', '/api/label', { image: JPEG })
     expect(res.status).toBe(502)
     expect(res.body.error).toMatch(/a cat/)
+  })
+
+  it('reads one label at a time, and stops the model when the phone gives up', async () => {
+    let chatSignal: AbortSignal | undefined
+    upstream.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/api/v1/models')) {
+        return new Response(JSON.stringify({ models: [{ type: 'llm', key: 'eyes', loaded_instances: [{ id: 'eyes' }], capabilities: { vision: true } }] }))
+      }
+      chatSignal = init?.signal ?? undefined
+      return new Promise<Response>((_, reject) => chatSignal?.addEventListener('abort', () => reject(new Error('aborted'))))
+    })
+    const phone = new AbortController()
+    const first = fetch(`${base}/api/label`, { method: 'POST', body: JSON.stringify({ image: JPEG }), signal: phone.signal }).catch(() => null)
+    await vi.waitFor(() => expect(chatSignal).toBeDefined())
+    expect((await call('POST', '/api/label', { image: JPEG })).status).toBe(409)
+    phone.abort()
+    await first
+    await vi.waitFor(() => expect(chatSignal!.aborted).toBe(true))
   })
 })
 
