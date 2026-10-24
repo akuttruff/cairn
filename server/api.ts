@@ -334,6 +334,11 @@ export function createApi(options: ApiOptions = {}) {
     if (req.method === 'GET' && serveIcon((req.url || '').split('?')[0]!, res)) return undefined
     if (!(req.url || '').startsWith('/api/')) return next()
     if (!sameOrigin(req)) return json(res, 403, { error: 'cross-origin write refused' })
+    // Before the first write of a new day, so a long-running service still
+    // snapshots daily (cheap otherwise: one date comparison).
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      try { store.backupOncePerDay() } catch (err) { console.log(`[macros] ${new Date().toISOString()} backup failed: ${(err as Error).message}`) }
+    }
     route(req, res).catch((err: unknown) => {
       if (err instanceof ValidationError) return json(res, 400, { error: err.message })
       console.log(`[macros] ${req.method} ${req.url}: ${(err as Error)?.message}`)

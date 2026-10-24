@@ -322,6 +322,30 @@ describe('safety', () => {
     }
   })
 
+  it('snapshots again on a new local day without a restart, named by the local date', () => {
+    const freshDir = fs.mkdtempSync(path.join(os.tmpdir(), 'macros-store-'))
+    try {
+      // Late evening, local time: in UTC this may already be tomorrow.
+      vi.setSystemTime(new Date(2026, 8, 26, 23, 30))
+      const running = new Store({ dir: freshDir })
+      running.addEntry(banana())
+      const backups = (): string[] => fs.readdirSync(path.join(freshDir, 'backups')).sort()
+      expect(backups()).toEqual(['macros.2026-09-26.sqlite'])
+
+      running.backupOncePerDay(new Date(2026, 8, 26, 23, 59)) // same day: nothing new
+      expect(backups()).toHaveLength(1)
+      running.backupOncePerDay(new Date(2026, 8, 27, 0, 5))
+      expect(backups()).toEqual(['macros.2026-09-26.sqlite', 'macros.2026-09-27.sqlite'])
+
+      // A real database, holding what had been logged.
+      const copy = new DatabaseSync(path.join(freshDir, 'backups', 'macros.2026-09-27.sqlite'))
+      expect((copy.prepare('SELECT COUNT(*) AS n FROM entries').get() as { n: number }).n).toBe(1)
+      copy.close()
+    } finally {
+      fs.rmSync(freshDir, { recursive: true, force: true })
+    }
+  })
+
   it('picks up an edit made to the file while running', () => {
     store.addEntry(banana())
     const other = new Store({ dir })

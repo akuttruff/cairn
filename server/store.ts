@@ -941,6 +941,8 @@ export class Store {
   private paths: ReturnType<typeof locate>
   private db: DatabaseSync
   private stmts: Stmts
+  /** The local date of the last snapshot this process made or found. */
+  private backedUpOn = ''
 
   constructor(options: StoreOptions = {}) {
     this.paths = locate(options.dir)
@@ -1107,19 +1109,28 @@ export class Store {
    * primary key, so there's no "the whole document got swapped for
    * something smaller" failure mode left to guard against on every write --
    * only user error or a bad migration, which this covers.
+   *
+   * Taken on opening and again before the first write of each new day (the
+   * API calls this), since the service runs for weeks between restarts.
+   * Named by the local date, the day you would look for it under.
    */
-  private backupOncePerDay(): void {
-    const today = new Date().toISOString().slice(0, 10)
+  backupOncePerDay(now: Date = new Date()): void {
+    const today = localDate(now)
+    if (today === this.backedUpOn) return
     const backupDir = path.join(this.dataDir, 'backups')
-    const name = `macros.${today}.sqlite`
-    if (fs.existsSync(path.join(backupDir, name))) return
-    fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 })
-    fs.copyFileSync(this.paths.sqlite, path.join(backupDir, name))
-    try { fs.chmodSync(path.join(backupDir, name), 0o600) } catch { /* best effort */ }
-    const kept = fs.readdirSync(backupDir).filter((f) => f.endsWith('.sqlite')).sort()
-    for (const old of kept.slice(0, Math.max(0, kept.length - BACKUP_KEEP))) {
-      try { fs.unlinkSync(path.join(backupDir, old)) } catch { /* already gone */ }
+    const file = path.join(backupDir, `macros.${today}.sqlite`)
+    if (!fs.existsSync(file)) {
+      fs.mkdirSync(backupDir, { recursive: true, mode: 0o700 })
+      // VACUUM INTO, not a file copy: a consistent snapshot even with a
+      // write (or another process's) half-way through.
+      this.db.prepare('VACUUM INTO ?').run(file)
+      try { fs.chmodSync(file, 0o600) } catch { /* best effort */ }
+      const kept = fs.readdirSync(backupDir).filter((f) => f.endsWith('.sqlite')).sort()
+      for (const old of kept.slice(0, Math.max(0, kept.length - BACKUP_KEEP))) {
+        try { fs.unlinkSync(path.join(backupDir, old)) } catch { /* already gone */ }
+      }
     }
+    this.backedUpOn = today
   }
 
   // --- online lookup cache ---------------------------------------------------
