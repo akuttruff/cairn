@@ -39,6 +39,7 @@ npm run screenshots                # another; needs Google Chrome
 
 - **Meals** log calories, protein, carbs, fat and fiber per entry, against daily targets, in a day, week and month view.
 - **Food lookup** works three ways. Search the USDA FoodData Central and Open Food Facts databases, scan a nutrition label from a photo for a local vision model to read, or ask for an online lookup, where a local model with a web-research tool reads the restaurant's or brand's own page.
+- **Label scanning** turns a picture into a food. Upload a photo or screenshot of a nutrition label, paste one, or drop it anywhere on the page. A local vision model reads it and fills in the Manual tab: name, brand, serving and macros. The food is ticked to save to My foods, so it is there for next time once you have checked it.
 - **My foods** keeps anything you have typed or confirmed, for one-tap logging, and saved meals log several at once.
 - **Water, alcohol, workouts, dog walks and meditation** each have their own tracker.
 - **Notes** are two or three short paragraphs on a week or a month, written from your own numbers against your goals.
