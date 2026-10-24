@@ -88,6 +88,13 @@ describe('Open Food Facts normalisation', () => {
     expect(offNutrients({ 'energy-kj_100g': 836.8 }).calories).toBe(200)
   })
 
+  it('treats a negative or absurd crowd-sourced value as unknown, as the store would refuse it', () => {
+    expect(offNutrients({ 'energy-kcal_100g': 120, proteins_100g: -3, fat_100g: 1e9, carbohydrates_100g: 99_999.99, fiber_100g: 0 }))
+      .toEqual({ calories: 120, protein: null, fat: null, carbs: 99_999.99, fiber: 0 })
+    expect(usdaNutrients([{ nutrientId: 1008, value: -50 }, { nutrientId: 1003, value: 250_000 }]))
+      .toMatchObject({ calories: null, protein: null })
+  })
+
   it('reads a comma-separated brand string', () => {
     expect(fromOff({ ...OFF_YOGURT, brands: 'Fage, Total' }).brand).toBe('Fage')
   })

@@ -31,6 +31,16 @@ const num = (v: unknown): number | null =>
 const round2 = (n: number | null): number | null =>
   n == null ? null : Math.round(n * 100) / 100
 
+/**
+ * A nutrient value, to two places, within the bounds the store accepts
+ * (cleanNutrients): crowd-sourced entries carry the odd negative or absurd
+ * number, which is better shown as unknown than refused on Add.
+ */
+const nutrient = (n: number | null): number | null => {
+  const v = round2(n)
+  return v != null && v >= 0 && v < 100_000 ? v : null
+}
+
 // ---------------------------------------------------------------------------
 // USDA
 // ---------------------------------------------------------------------------
@@ -74,7 +84,7 @@ export function usdaNutrients(list: UsdaNutrient[] = []): Nutrients {
       let v = num(hit.value)
       // Energy occasionally arrives in kJ only.
       if (key === 'calories' && v != null && hit.unitName?.toLowerCase() === 'kj') v /= 4.184
-      out[key] = round2(v)
+      out[key] = nutrient(v)
     }
   }
   return out
@@ -109,11 +119,11 @@ export function offNutrients(n: Record<string, unknown> = {}): Nutrients {
   const kj = num(n['energy-kj_100g']) ?? num(n['energy_100g'])
   if (calories == null && kj != null) calories = kj / 4.184
   return {
-    calories: round2(calories),
-    protein: round2(num(n['proteins_100g'])),
-    fat: round2(num(n['fat_100g'])),
-    carbs: round2(num(n['carbohydrates_100g'])),
-    fiber: round2(num(n['fiber_100g'])),
+    calories: nutrient(calories),
+    protein: nutrient(num(n['proteins_100g'])),
+    fat: nutrient(num(n['fat_100g'])),
+    carbs: nutrient(num(n['carbohydrates_100g'])),
+    fiber: nutrient(num(n['fiber_100g'])),
   }
 }
 
