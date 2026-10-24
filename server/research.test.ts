@@ -183,15 +183,25 @@ describe('chooseModel', () => {
     const eyes = { type: 'llm', key: 'eyes/loaded', loaded_instances: [{ id: 'eyes/loaded' }], capabilities: { vision: true } }
     const settings = { ...SETTINGS, researchModel: 'small/chosen', preferredModel: 'big/always' }
 
-    it('uses it for every job while it is loaded, with its own reasoning', async () => {
+    it('stands in for the research model while it is loaded, with its own reasoning', async () => {
       const fetchImpl = lm([{ ...always, loaded_instances: [{ id: 'big/always:2' }] }, chosen])
       expect(await chooseModel(settings, fetchImpl)).toEqual({ model: 'big/always:2', reasoning: 'low' })
-      expect(await chooseModel(settings, fetchImpl, undefined, 'small/chosen')).toEqual({ model: 'big/always:2', reasoning: 'low' })
+      // Notes with no model of their own use it too.
+      expect(await chooseModel(settings, fetchImpl, undefined, settings.notesModel)).toEqual({ model: 'big/always:2', reasoning: 'low' })
       // Named by a loaded instance id, it matches too.
       expect((await chooseModel({ ...settings, preferredModel: 'big/always:2' }, fetchImpl)).model).toBe('big/always:2')
       // No reasoning options means none is sent.
       const plain = lm([{ type: 'llm', key: 'big/always', loaded_instances: [{ id: 'big/always' }] }, chosen])
       expect(await chooseModel(settings, plain)).toEqual({ model: 'big/always', reasoning: null })
+    })
+
+    it('leaves a job its own model even while it is loaded', async () => {
+      const fetchImpl = lm([{ ...always, loaded_instances: [{ id: 'big/always' }] }, chosen])
+      // Notes with their own model ignore it.
+      expect(await chooseModel({ ...settings, notesModel: 'small/chosen' }, fetchImpl, undefined, 'small/chosen')).toEqual({ model: 'small/chosen', reasoning: 'off' })
+      // A label with its own labelModel keeps it, even when the preferred one can see.
+      const seeing = lm([{ ...always, loaded_instances: [{ id: 'big/always' }], capabilities: { vision: true } }, eyes])
+      expect(await chooseModel({ ...settings, labelModel: 'eyes/loaded' }, seeing, undefined, 'eyes/loaded', true)).toEqual({ model: 'eyes/loaded', reasoning: null })
     })
 
     it('leaves things as they were while it is not loaded', async () => {
@@ -203,9 +213,9 @@ describe('chooseModel', () => {
     it('for a job that needs eyes, passes over one that cannot see', async () => {
       const fetchImpl = lm([{ ...always, loaded_instances: [{ id: 'big/always' }] }, eyes])
       expect(await chooseModel(settings, fetchImpl, undefined, '', true)).toEqual({ model: 'eyes/loaded', reasoning: null })
-      // One that can see is used for that too.
+      // One that can see is used for that too, when no label model is chosen.
       const seeing = lm([{ ...always, loaded_instances: [{ id: 'big/always' }], capabilities: { vision: true, reasoning: { allowed_options: ['off'] } } }, eyes])
-      expect(await chooseModel(settings, seeing, undefined, 'eyes/loaded', true)).toEqual({ model: 'big/always', reasoning: 'off' })
+      expect(await chooseModel(settings, seeing, undefined, '', true)).toEqual({ model: 'big/always', reasoning: 'off' })
     })
   })
 

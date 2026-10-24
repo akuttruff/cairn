@@ -463,7 +463,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
                 {models.map((m) => <option key={m.key} value={m.key}>{m.key}{m.loaded ? ' (loaded)' : ''}</option>)}
               </select>
               <div className="hint">
-                When this model is loaded in LM Studio, Cairn uses it for everything and leaves the others alone.
+                While LM Studio has this loaded, it stands in for the research model. Notes and label reading keep their own model when one is chosen.
               </div>
             </div>
           </div>

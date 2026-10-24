@@ -203,10 +203,12 @@ export async function listLlms(settings: Settings, fetchImpl: typeof fetch): Pro
  * suitable is loaded, any downloaded vision model will do -- LM Studio
  * loads it on the first call.
  *
- * Above all of that, the "use when loaded" model: while LM Studio has it
- * loaded, every job uses it (a vision job only if it can see) and the
- * models chosen for each job are left alone. It is only ever taken when
- * already loaded, so it never makes LM Studio load anything.
+ * The "use when loaded" model stands in for the research model: while LM
+ * Studio has it loaded, research and any job without a model of its own
+ * use it (a vision job only if it can see). A job that passes its own
+ * model (`preferred`: the notes or label model) keeps it, so notes stay on
+ * their small model. It is only ever taken when already loaded, so it
+ * never makes LM Studio load anything.
  */
 export async function chooseModel(
   settings: Settings,
@@ -222,7 +224,8 @@ export async function chooseModel(
     const allowed = m?.capabilities?.reasoning?.allowed_options ?? []
     return ['off', 'minimal', 'low'].find((r) => allowed.includes(r)) ?? null
   }
-  const always = settings.preferredModel
+  // A job's own model wins; the loaded preferred one stands in for the research model.
+  const always = preferred ? '' : settings.preferredModel
   const loaded = always
     ? models.find((m) => m.loaded_instances?.length && (m.key === always || m.loaded_instances.some((i) => i.id === always)))
     : undefined
