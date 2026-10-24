@@ -198,6 +198,12 @@ describe('foods and goals', () => {
     expect(res.body).toMatchObject({ hasUsdaKey: true, hasLmStudioToken: true })
     expect(JSON.stringify(res.body)).not.toMatch(/SECRET/)
   })
+
+  it('saves and returns the "use when loaded" model', async () => {
+    expect((await call('PUT', '/api/settings', { preferredModel: 'big/always' })).body.preferredModel).toBe('big/always')
+    expect((await call('GET', '/api/settings')).body.preferredModel).toBe('big/always')
+    await call('PUT', '/api/settings', { preferredModel: '' })
+  })
 })
 
 describe('online lookup', () => {

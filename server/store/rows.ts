@@ -241,11 +241,13 @@ export interface BodyRow { metric: string; measured_at: number; date: string; va
 export interface SettingsRow {
   usda_api_key: string; lm_studio_url: string; lm_studio_token: string; research_model: string; auto_lookup: number
   app_icon: string; charts: string | null; workout_kinds: string | null; notes_model: string | null; label_model: string | null
+  preferred_model: string | null
 }
 export function settingsFromRow(row: SettingsRow): Settings {
   return {
     usdaApiKey: row.usda_api_key, lmStudioUrl: row.lm_studio_url, lmStudioToken: row.lm_studio_token,
-    researchModel: row.research_model, notesModel: row.notes_model ?? '', labelModel: row.label_model ?? '', autoLookup: row.auto_lookup === 1,
+    researchModel: row.research_model, notesModel: row.notes_model ?? '', labelModel: row.label_model ?? '',
+    preferredModel: row.preferred_model ?? '', autoLookup: row.auto_lookup === 1,
     appIcon: (APP_ICONS as readonly string[]).includes(row.app_icon) ? row.app_icon as AppIcon : 'ring',
     charts: parseCharts(row.charts),
     workoutKinds: parseWorkoutKinds(row.workout_kinds),

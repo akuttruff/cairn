@@ -202,6 +202,11 @@ export async function listLlms(settings: Settings, fetchImpl: typeof fetch): Pro
  * label): a chosen text-only model is passed over, and when nothing
  * suitable is loaded, any downloaded vision model will do -- LM Studio
  * loads it on the first call.
+ *
+ * Above all of that, the "use when loaded" model: while LM Studio has it
+ * loaded, every job uses it (a vision job only if it can see) and the
+ * models chosen for each job are left alone. It is only ever taken when
+ * already loaded, so it never makes LM Studio load anything.
  */
 export async function chooseModel(
   settings: Settings,
@@ -213,6 +218,19 @@ export async function chooseModel(
 ): Promise<{ model: string; reasoning: string | null }> {
   const models = await fetchLmModels(settings, fetchImpl, signal)
   const sees = (m: LmModel): boolean => m.type === 'llm' && m.capabilities?.vision === true
+  const cheapest = (m: LmModel | undefined): string | null => {
+    const allowed = m?.capabilities?.reasoning?.allowed_options ?? []
+    return ['off', 'minimal', 'low'].find((r) => allowed.includes(r)) ?? null
+  }
+  const always = settings.preferredModel
+  const loaded = always
+    ? models.find((m) => m.loaded_instances?.length && (m.key === always || m.loaded_instances.some((i) => i.id === always)))
+    : undefined
+  if (loaded && (!vision || sees(loaded))) {
+    // The loaded instance itself, so the call lands on the copy already in memory.
+    const instance = loaded.loaded_instances!.find((i) => i.id === always) ?? loaded.loaded_instances![0]
+    return { model: instance?.id || loaded.key!, reasoning: cheapest(loaded) }
+  }
   const wanted = vision ? preferred : preferred || settings.researchModel
   let entry = wanted
     ? models.find((m) => m.key === wanted || m.loaded_instances?.some((i) => i.id === wanted))
@@ -223,9 +241,7 @@ export async function chooseModel(
   }
   const model = (vision ? '' : wanted) || entry?.loaded_instances?.[0]?.id || entry?.key
   if (!model) throw new Error('No model is loaded in LM Studio. Load one, or choose one in Settings.')
-  const allowed = entry?.capabilities?.reasoning?.allowed_options ?? []
-  const reasoning = ['off', 'minimal', 'low'].find((r) => allowed.includes(r)) ?? null
-  return { model, reasoning }
+  return { model, reasoning: cheapest(entry) }
 }
 
 export async function describeError(res: Response): Promise<string> {

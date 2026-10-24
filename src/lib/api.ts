@@ -93,7 +93,7 @@ export const api = {
   addDogWalk: (w: { date: string; miles?: number }) => request<DogWalkLog>('POST', '/api/dog-walks', w),
   deleteDogWalk: (id: string) => request<{ ok: true }>('DELETE', `/api/dog-walks/${encodeURIComponent(id)}`),
   settings: () => request<PublicSettings>('GET', '/api/settings'),
-  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; notesModel?: string; labelModel?: string; autoLookup?: boolean; appIcon?: AppIcon; charts?: ChartKey[]; workoutKinds?: WorkoutKindDef[] }) =>
+  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; notesModel?: string; labelModel?: string; preferredModel?: string; autoLookup?: boolean; appIcon?: AppIcon; charts?: ChartKey[]; workoutKinds?: WorkoutKindDef[] }) =>
     request<PublicSettings>('PUT', '/api/settings', s),
   /** Read a photographed nutrition label (a JPEG/PNG/WebP data URL) into the Manual tab's fields. Seconds, once the model is loaded. */
   readLabel: (image: string) => request<{ reading: LabelReading }>('POST', '/api/label', { image }),

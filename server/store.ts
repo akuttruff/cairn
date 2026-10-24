@@ -960,6 +960,7 @@ export class Store {
       researchModel: s.researchModel,
       notesModel: s.notesModel,
       labelModel: s.labelModel,
+      preferredModel: s.preferredModel,
       autoLookup: s.autoLookup,
       appIcon: s.appIcon,
       charts: s.charts,
@@ -974,6 +975,7 @@ export class Store {
     if (typeof input.researchModel === 'string') next.researchModel = input.researchModel.trim().slice(0, 200)
     if (typeof input.notesModel === 'string') next.notesModel = input.notesModel.trim().slice(0, 200)
     if (typeof input.labelModel === 'string') next.labelModel = input.labelModel.trim().slice(0, 200)
+    if (typeof input.preferredModel === 'string') next.preferredModel = input.preferredModel.trim().slice(0, 200)
     if (typeof input.autoLookup === 'boolean') next.autoLookup = input.autoLookup
     if (input.appIcon !== undefined) {
       if (!(APP_ICONS as readonly string[]).includes(input.appIcon)) throw new ValidationError(`appIcon must be one of ${APP_ICONS.join(', ')}`)
@@ -1002,7 +1004,7 @@ export class Store {
       if (nextUrl !== next.lmStudioUrl && typeof input.lmStudioToken !== 'string') next.lmStudioToken = ''
       next.lmStudioUrl = nextUrl
     }
-    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon, JSON.stringify(next.charts), JSON.stringify(next.workoutKinds), next.notesModel, next.labelModel)
+    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon, JSON.stringify(next.charts), JSON.stringify(next.workoutKinds), next.notesModel, next.labelModel, next.preferredModel)
     return this.getPublicSettings()
   }
 }

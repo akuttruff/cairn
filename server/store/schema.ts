@@ -264,4 +264,10 @@ function migrateSchema(db: DatabaseSync): void {
     if (!cols.some((c) => c.name === 'label_model')) db.exec("ALTER TABLE settings ADD COLUMN label_model TEXT NOT NULL DEFAULT ''")
     db.exec('PRAGMA user_version = 15')
   }
+  if (version < 16) {
+    // The model to use for everything whenever LM Studio has it loaded.
+    const cols = db.prepare('PRAGMA table_info(settings)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'preferred_model')) db.exec("ALTER TABLE settings ADD COLUMN preferred_model TEXT NOT NULL DEFAULT ''")
+    db.exec('PRAGMA user_version = 16')
+  }
 }

@@ -4,7 +4,7 @@ import type { LookupStore } from './research.ts'
 import { DEFAULT_WORKOUT_KINDS } from '../src/types.ts'
 import type { Settings } from '../src/types.ts'
 
-const SETTINGS: Settings = { usdaApiKey: '', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: 'sk-lm-T', researchModel: '', notesModel: '', labelModel: '', autoLookup: true, appIcon: 'ring', charts: ['calories', 'protein', 'fiber', 'water'], workoutKinds: DEFAULT_WORKOUT_KINDS }
+const SETTINGS: Settings = { usdaApiKey: '', lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: 'sk-lm-T', researchModel: '', notesModel: '', labelModel: '', preferredModel: '', autoLookup: true, appIcon: 'ring', charts: ['calories', 'protein', 'fiber', 'water'], workoutKinds: DEFAULT_WORKOUT_KINDS }
 
 const BOWL_REPLY = {
   found: true,
@@ -174,6 +174,39 @@ describe('chooseModel', () => {
       { type: 'llm', key: 'text/loaded', loaded_instances: [{ id: 'text/loaded' }], capabilities: { vision: false } },
     ] }))) as unknown as typeof fetch
     await expect(chooseModel(SETTINGS, blind, undefined, '', true)).rejects.toThrow(/No vision model/)
+  })
+
+  describe('with a "use when loaded" model', () => {
+    const lm = (models: object[]) => vi.fn(async () => new Response(JSON.stringify({ models }))) as unknown as typeof fetch
+    const always = { type: 'llm', key: 'big/always', capabilities: { vision: false, reasoning: { allowed_options: ['low', 'high'] } } }
+    const chosen = { type: 'llm', key: 'small/chosen', loaded_instances: [{ id: 'small/chosen' }], capabilities: { reasoning: { allowed_options: ['off', 'on'] } } }
+    const eyes = { type: 'llm', key: 'eyes/loaded', loaded_instances: [{ id: 'eyes/loaded' }], capabilities: { vision: true } }
+    const settings = { ...SETTINGS, researchModel: 'small/chosen', preferredModel: 'big/always' }
+
+    it('uses it for every job while it is loaded, with its own reasoning', async () => {
+      const fetchImpl = lm([{ ...always, loaded_instances: [{ id: 'big/always:2' }] }, chosen])
+      expect(await chooseModel(settings, fetchImpl)).toEqual({ model: 'big/always:2', reasoning: 'low' })
+      expect(await chooseModel(settings, fetchImpl, undefined, 'small/chosen')).toEqual({ model: 'big/always:2', reasoning: 'low' })
+      // Named by a loaded instance id, it matches too.
+      expect((await chooseModel({ ...settings, preferredModel: 'big/always:2' }, fetchImpl)).model).toBe('big/always:2')
+      // No reasoning options means none is sent.
+      const plain = lm([{ type: 'llm', key: 'big/always', loaded_instances: [{ id: 'big/always' }] }, chosen])
+      expect(await chooseModel(settings, plain)).toEqual({ model: 'big/always', reasoning: null })
+    })
+
+    it('leaves things as they were while it is not loaded', async () => {
+      const fetchImpl = lm([{ ...always, loaded_instances: [] }, chosen])
+      expect(await chooseModel(settings, fetchImpl)).toEqual({ model: 'small/chosen', reasoning: 'off' })
+      expect(await chooseModel(settings, lm([always, chosen]), undefined, 'other/notes')).toEqual({ model: 'other/notes', reasoning: null })
+    })
+
+    it('for a job that needs eyes, passes over one that cannot see', async () => {
+      const fetchImpl = lm([{ ...always, loaded_instances: [{ id: 'big/always' }] }, eyes])
+      expect(await chooseModel(settings, fetchImpl, undefined, '', true)).toEqual({ model: 'eyes/loaded', reasoning: null })
+      // One that can see is used for that too.
+      const seeing = lm([{ ...always, loaded_instances: [{ id: 'big/always' }], capabilities: { vision: true, reasoning: { allowed_options: ['off'] } } }, eyes])
+      expect(await chooseModel(settings, seeing, undefined, 'eyes/loaded', true)).toEqual({ model: 'big/always', reasoning: 'off' })
+    })
   })
 
   it('explains when nothing is loaded or LM Studio is down', async () => {

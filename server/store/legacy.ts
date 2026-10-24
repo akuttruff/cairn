@@ -52,6 +52,7 @@ export function migrateFromJson(paths: ReturnType<typeof locate>): void {
     researchModel: typeof rawSettings.researchModel === 'string' ? rawSettings.researchModel : '',
     notesModel: '',
     labelModel: '',
+    preferredModel: '',
     autoLookup: typeof rawSettings.autoLookup === 'boolean' ? rawSettings.autoLookup : true,
     appIcon: 'ring',
     charts: [...DEFAULT_CHARTS],

@@ -489,6 +489,8 @@ export interface Settings {
   notesModel: string
   /** Vision model that reads a photographed nutrition label; blank uses whichever vision model is loaded. */
   labelModel: string
+  /** Used for every job, in place of the three above, whenever LM Studio has it loaded; blank never overrides. */
+  preferredModel: string
   /** Start an online lookup by itself once you stop typing. */
   autoLookup: boolean
   appIcon: AppIcon
@@ -513,6 +515,7 @@ export interface PublicSettings {
   researchModel: string
   notesModel: string
   labelModel: string
+  preferredModel: string
   autoLookup: boolean
   appIcon: AppIcon
   /** The daily charts to show in Week and Month, of CHARTABLE. */

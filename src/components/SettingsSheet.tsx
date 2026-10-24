@@ -94,6 +94,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const [autoLookup, setAutoLookup] = useState<boolean | null>(null)
   const [notesModel, setNotesModel] = useState<string | null>(null)
   const [labelModel, setLabelModel] = useState<string | null>(null)
+  const [preferredModel, setPreferredModel] = useState<string | null>(null)
   const [appIcon, setAppIcon] = useState<AppIcon | null>(null)
   // Which daily charts Week and Month draw; null until one is toggled.
   const [charts, setCharts] = useState<ChartKey[] | null>(null)
@@ -134,6 +135,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const chosenModel = lmModel ?? settings?.researchModel ?? ''
   const chosenNotesModel = notesModel ?? settings?.notesModel ?? ''
   const chosenLabelModel = labelModel ?? settings?.labelModel ?? ''
+  const chosenPreferredModel = preferredModel ?? settings?.preferredModel ?? ''
   const visionModels = models.filter((m) => m.vision)
 
   const setKind = (i: number, patch: Partial<KindRow>): void =>
@@ -182,6 +184,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       if (lmModel != null && lmModel.trim() !== settings?.researchModel) changes.researchModel = lmModel.trim()
       if (notesModel != null && notesModel.trim() !== settings?.notesModel) changes.notesModel = notesModel.trim()
       if (labelModel != null && labelModel.trim() !== settings?.labelModel) changes.labelModel = labelModel.trim()
+      if (preferredModel != null && preferredModel.trim() !== settings?.preferredModel) changes.preferredModel = preferredModel.trim()
       if (autoLookup != null && autoLookup !== settings?.autoLookup) changes.autoLookup = autoLookup
       const iconChanged = appIcon != null && appIcon !== settings?.appIcon
       if (iconChanged) changes.appIcon = appIcon
@@ -450,6 +453,17 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
                 Reads a photographed nutrition label into the Manual tab. Only models that can see images are listed
                 (Gemma 3, Qwen3-VL); a small one reads a label in seconds.
                 {!modelsError && models.length > 0 && visionModels.length === 0 ? ' LM Studio has none downloaded yet.' : ''}
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="preferred-model">Use when loaded</label>
+              <select id="preferred-model" value={chosenPreferredModel} onChange={(e) => setPreferredModel(e.target.value)}>
+                <option value="">None</option>
+                {chosenPreferredModel && !models.some((m) => m.key === chosenPreferredModel) && <option value={chosenPreferredModel}>{chosenPreferredModel}</option>}
+                {models.map((m) => <option key={m.key} value={m.key}>{m.key}{m.loaded ? ' (loaded)' : ''}</option>)}
+              </select>
+              <div className="hint">
+                When this model is loaded in LM Studio, Cairn uses it for everything and leaves the others alone.
               </div>
             </div>
           </div>
