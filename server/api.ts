@@ -345,10 +345,15 @@ export function createApi(options: ApiOptions = {}) {
 }
 
 export default function api(options: ApiOptions = {}): Plugin {
-  const { middleware } = createApi(options)
+  // Built only once a server starts, never at plugin creation: `vite build`
+  // loads this plugin too, and must not open (migrate, back up) the live
+  // database while the running service is still serving it.
+  const serve = (server: { middlewares: { use: (m: Middleware) => unknown } }): void => {
+    server.middlewares.use(createApi(options).middleware)
+  }
   return {
     name: 'macros-api',
-    configureServer(server) { server.middlewares.use(middleware) },
-    configurePreviewServer(server) { server.middlewares.use(middleware) },
+    configureServer: serve,
+    configurePreviewServer: serve,
   }
 }

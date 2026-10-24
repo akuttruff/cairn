@@ -4,7 +4,7 @@ import type { Server } from 'node:http'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { createApi } from './api.ts'
+import api, { createApi } from './api.ts'
 import type { DayView, Entry } from '../src/types.ts'
 
 let server: Server
@@ -429,6 +429,18 @@ describe('cross-origin protection', () => {
   it('allows reads from anywhere', async () => {
     const res = await call('GET', `/api/day/${DAY}`, undefined, { Origin: 'https://evil.example' })
     expect(res.status).toBe(200)
+  })
+})
+
+describe('the vite plugin', () => {
+  it('opens no database until a server starts, so a build leaves the live one alone', () => {
+    const untouched = path.join(dir, 'not-yet')
+    const plugin = api({ dir: untouched })
+    expect(fs.existsSync(untouched)).toBe(false)
+    const use = vi.fn()
+    ;(plugin.configurePreviewServer as (s: unknown) => void)({ middlewares: { use } })
+    expect(use).toHaveBeenCalledOnce()
+    expect(fs.existsSync(path.join(untouched, 'macros.sqlite'))).toBe(true)
   })
 })
 
