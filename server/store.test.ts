@@ -399,6 +399,16 @@ describe('servings', () => {
     expect(store.getSettings()).toMatchObject({ lmStudioUrl: 'http://192.168.1.5:1234', researchModel: 'qwen/qwen3.8-27b' })
     expect(() => store.setSettings({ lmStudioUrl: 'file:///etc' })).toThrow(/http/)
   })
+
+  it('forgets the LM Studio token when the address changes without a new one', () => {
+    store.setSettings({ lmStudioToken: 'sk-lm-HOME' })
+    store.setSettings({ lmStudioUrl: 'http://127.0.0.1:1234/', researchModel: 'm' }) // the same server, written differently
+    expect(store.getSettings().lmStudioToken).toBe('sk-lm-HOME')
+    store.setSettings({ lmStudioUrl: 'http://elsewhere.example:1234' })
+    expect(store.getSettings().lmStudioToken).toBe('')
+    store.setSettings({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: 'sk-lm-NEW' })
+    expect(store.getSettings()).toMatchObject({ lmStudioUrl: 'http://127.0.0.1:1234', lmStudioToken: 'sk-lm-NEW' })
+  })
 })
 
 describe('meal presets', () => {

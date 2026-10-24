@@ -2003,7 +2003,11 @@ export class Store {
           throw new ValidationError('LM Studio address must be an http(s) URL')
         }
       }
-      next.lmStudioUrl = url || 'http://127.0.0.1:1234'
+      const nextUrl = url || 'http://127.0.0.1:1234'
+      // The token was entered for one server: never send it to another
+      // unless it comes with the new address.
+      if (nextUrl !== next.lmStudioUrl && typeof input.lmStudioToken !== 'string') next.lmStudioToken = ''
+      next.lmStudioUrl = nextUrl
     }
     this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon, JSON.stringify(next.charts), JSON.stringify(next.workoutKinds), next.notesModel, next.labelModel)
     return this.getPublicSettings()
