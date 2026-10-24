@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { Camera, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api.ts'
@@ -66,8 +66,9 @@ export function ManualTab({ onLog, onSaved }: {
       setScanStarted(null)
     }
   }
-  const scanRef = useRef(scan)
-  scanRef.current = scan
+  // Always the latest scan (with this render's fields) for the listeners
+  // below, without re-adding them on every keystroke.
+  const scanPicture = useEffectEvent((file: File) => { void scan(file) })
 
   // A pasted screenshot or a dropped picture scans too, from anywhere on
   // the page: a label dragged in from the desktop shouldn't have to land on
@@ -81,7 +82,7 @@ export function ManualTab({ onLog, onSaved }: {
       const file = pictureOf(e.clipboardData)
       if (!file) return
       e.preventDefault()
-      void scanRef.current(file)
+      scanPicture(file)
     }
     const over = (e: DragEvent): void => {
       if (!carriesPicture(e.dataTransfer)) return
@@ -95,7 +96,7 @@ export function ManualTab({ onLog, onSaved }: {
       const file = pictureOf(e.dataTransfer)
       if (!file) return
       e.preventDefault()
-      void scanRef.current(file)
+      scanPicture(file)
     }
     document.addEventListener('paste', paste)
     window.addEventListener('dragover', over)
