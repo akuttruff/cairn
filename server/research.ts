@@ -203,11 +203,11 @@ export async function listLlms(settings: Settings, fetchImpl: typeof fetch): Pro
  * suitable is loaded, any downloaded vision model will do -- LM Studio
  * loads it on the first call.
  *
- * The "use when loaded" model stands in for the research model: while LM
- * Studio has it loaded, research and any job without a model of its own
- * use it (a vision job only if it can see). A job that passes its own
- * model (`preferred`: the notes or label model) keeps it, so notes stay on
- * their small model. It is only ever taken when already loaded, so it
+ * The "use when loaded" model stands in for a job with no model of its
+ * own: while LM Studio has it loaded, such a job uses it (a vision job only
+ * if it can see). A job that passes its own model (`preferred`: the
+ * research, notes or label model) keeps it, so lookups and notes stay on
+ * the small model chosen for them. It is only ever taken when already loaded, so it
  * never makes LM Studio load anything.
  */
 export async function chooseModel(
@@ -224,7 +224,7 @@ export async function chooseModel(
     const allowed = m?.capabilities?.reasoning?.allowed_options ?? []
     return ['off', 'minimal', 'low'].find((r) => allowed.includes(r)) ?? null
   }
-  // A job's own model wins; the loaded preferred one stands in for the research model.
+  // A job's own model wins; otherwise the loaded preferred one stands in.
   const always = preferred ? '' : settings.preferredModel
   const loaded = always
     ? models.find((m) => m.loaded_instances?.length && (m.key === always || m.loaded_instances.some((i) => i.id === always)))
@@ -309,7 +309,8 @@ export async function researchFood(query: string, settings: Settings, options: R
   const step = options.onStep ?? (() => {})
   const started = Date.now()
   step('choosing a model')
-  const { model, reasoning } = await chooseModel(settings, fetchImpl, options.signal)
+  // A chosen research model is the lookup's own, like the notes model: the preferred one stands in only when it is blank.
+  const { model, reasoning } = await chooseModel(settings, fetchImpl, options.signal, settings.researchModel)
 
   const body: Record<string, unknown> = {
     model,

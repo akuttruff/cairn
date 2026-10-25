@@ -463,7 +463,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
                 {models.map((m) => <option key={m.key} value={m.key}>{m.key}{m.loaded ? ' (loaded)' : ''}</option>)}
               </select>
               <div className="hint">
-                While LM Studio has this loaded, it stands in for the research model. Notes and label reading keep their own model when one is chosen.
+                While LM Studio has this loaded, it does any job left on no model of its own. Lookups, notes and label reading keep the model chosen for them.
               </div>
             </div>
           </div>

@@ -265,6 +265,16 @@ describe('researchFood', () => {
     expect(steps).toContain('starting')
   })
 
+  it('keeps a chosen research model even while the preferred one is loaded', async () => {
+    const { fetchImpl, calls } = lmStudio(JSON.stringify(BOWL_REPLY))
+    await researchFood('q', { ...SETTINGS, researchModel: 'small/research', preferredModel: 'qwen/qwen3.8-27b' }, { fetchImpl })
+    expect(calls.find((c) => c.url.endsWith('/api/v1/chat'))!.body!.model).toBe('small/research')
+    // With no research model chosen, the loaded preferred one does the lookup.
+    const blank = lmStudio(JSON.stringify(BOWL_REPLY))
+    await researchFood('q', { ...SETTINGS, preferredModel: 'qwen/qwen3.8-27b' }, { fetchImpl: blank.fetchImpl })
+    expect(blank.calls.find((c) => c.url.endsWith('/api/v1/chat'))!.body!.model).toBe('qwen/qwen3.8-27b')
+  })
+
   it('reports what it is reading as it goes', async () => {
     const { fetchImpl } = lmStudio(JSON.stringify(BOWL_REPLY), [
       { type: 'prompt_processing.start' },
