@@ -730,7 +730,7 @@ describe('alcohol', () => {
 
 describe('water', () => {
   it('starts at zero, against the default goal', () => {
-    expect(store.getDay(DAY).water).toEqual({ ounces: 0, goal: 96, lastLogId: null })
+    expect(store.getDay(DAY).water).toEqual({ ounces: 0, goal: 72, tea: 0, lastLogId: null })
   })
 
   it('logs a bottle and adds it to the day total', () => {
@@ -771,8 +771,16 @@ describe('water', () => {
     expect(() => store.deleteWater('nope')).toThrow(/no such log/)
   })
 
-  it('goal defaults to 96oz (3 x 32oz bottles) and is editable', () => {
-    expect(store.getGoals().water).toBe(96)
+  it('counts a mug of tea toward the total, and keeps track of how much was tea', () => {
+    store.addWater(DAY, 32)
+    const tea = store.addWater(DAY, 8, 'tea')
+    expect(tea.drink).toBe('tea')
+    expect(store.getDay(DAY).water).toMatchObject({ ounces: 40, tea: 8, lastLogId: tea.id })
+    expect(() => store.addWater(DAY, 8, 'coffee')).toThrow(/drink must be one of/)
+  })
+
+  it('goal defaults to 72oz (two 32oz bottles and a mug of tea) and is editable', () => {
+    expect(store.getGoals().water).toBe(72)
     store.setGoals({ water: 64 })
     expect(store.getGoals().water).toBe(64)
   })
@@ -1074,17 +1082,28 @@ describe('dog walks', () => {
 })
 
 describe('training-day water', () => {
-  it('asks for a bottle more water on a training day, and scores the week against each day', () => {
-    expect(store.getGoals().trainingWater).toBe(32)
+  it('asks for the same water on a training day as on a rest day', () => {
     store.setDayType(DAY, 'training')
-    expect(store.getDay(DAY).water.goal).toBe(128)
-    expect(store.getDay('2026-09-27').water.goal).toBe(96) // a rest day
-    store.addWater(DAY, 96) // enough for a rest day, not this one
-    store.addWater('2026-09-25', 96)
+    expect(store.getDay(DAY).water.goal).toBe(72)
+    expect(store.getDay('2026-09-27').water.goal).toBe(72) // a rest day
+    store.addWater(DAY, 72)
+    store.addWater('2026-09-25', 64)
     expect(store.getRange('2026-09-25', DAY).water).toMatchObject({ met: 1, of: 2 })
-    store.setGoals({ trainingWater: 16 })
-    expect(new Store({ dir }).getDay(DAY).water.goal).toBe(112)
-    expect(() => store.setGoals({ trainingWater: -5 })).toThrow(ValidationError)
+  })
+
+  it('upgrades a database from before tea, keeping its water logs as water', () => {
+    const db = openRaw()
+    try {
+      db.exec('DROP TABLE water_logs')
+      db.exec('CREATE TABLE water_logs (id TEXT PRIMARY KEY, date TEXT NOT NULL, ounces REAL NOT NULL, created_at INTEGER NOT NULL)')
+      db.exec(`INSERT INTO water_logs VALUES ('old', '${DAY}', 32, 1)`)
+      db.exec('PRAGMA user_version = 16')
+    } finally {
+      db.close()
+    }
+    const upgraded = new Store({ dir })
+    upgraded.addWater(DAY, 8, 'tea')
+    expect(upgraded.getDay(DAY).water).toMatchObject({ ounces: 40, tea: 8 })
   })
 })
 

@@ -251,6 +251,9 @@ button:disabled { opacity: 0.45; cursor: default; }
 .bar.alcohol .bar-fill { background: var(--c-alcohol); }
 .bar.alcohol.over .bar-fill { background: var(--rust); }
 /* Undo lives up by the count, so the three buttons always share the whole row equally. */
+/* Bottle and tea share the row with Undo, so they tighten the same way. */
+.drink-add { min-width: 0; white-space: nowrap; padding: 11px 6px; font-size: 13px; gap: 4px; }
+.drink-add svg { flex-shrink: 0; }
 .alcohol-add { min-width: 0; white-space: nowrap; border-color: var(--c-alcohol); color: var(--c-alcohol); padding: 11px 6px; font-size: 13px; gap: 4px; }
 
 /* ====== Workouts and meditation ====== */

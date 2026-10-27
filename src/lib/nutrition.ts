@@ -16,9 +16,8 @@ export const DEFAULT_GOALS: Goals = {
   trainingCarbs: 35,
   calorieBuffer: 100,
   fiber: 30,
-  water: 96,
-  // A WOD or lifting day: one more 32oz bottle.
-  trainingWater: 32,
+  // Every day, whatever the activity: two 32oz bottles and a mug of tea.
+  water: 72,
   alcoholWeekly: 7,
   // Lifting twice, yoga four times, pilates once and two WODs a week.
   workoutPlan: { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 },
@@ -29,7 +28,7 @@ export const DEFAULT_GOALS: Goals = {
   walkMiles: 1,
 }
 
-/** Whether logging this kind makes the day a training day (the carb and water bumps are for these). */
+/** Whether logging this kind makes the day a training day (the carb bump is for these). */
 export const isTrainingKind = (kinds: WorkoutKindDef[], id: string): boolean => kinds.some((k) => k.id === id && k.training)
 
 export const UNITS: Record<NutrientKey, string> = {
@@ -337,7 +336,7 @@ export function resolveGoals(goals: Goals, dayType: DayType): ResolvedGoals {
     // The macros' calories, plus the buffer: the cap has a little room the macros themselves don't.
     calories: exact(round1(goals.protein * 4 + carbs * 4 + goals.fat * 9 + goals.calorieBuffer)),
     protein: exact(goals.protein), carbs: exact(carbs), fat: exact(goals.fat),
-    fiber: goals.fiber, water: goals.water + (dayType === 'training' ? goals.trainingWater : 0), alcoholWeekly: goals.alcoholWeekly,
+    fiber: goals.fiber, water: goals.water, alcoholWeekly: goals.alcoholWeekly,
     meditationMinutes: goals.meditationMinutes,
     dogWalks: goals.dogWalks, walkMiles: goals.walkMiles,
   }
@@ -359,8 +358,8 @@ export function blendGoals(perDay: ResolvedGoals[]): ResolvedGoals {
   })
   return {
     calories: avg((g) => g.calories), protein: avg((g) => g.protein), carbs: avg((g) => g.carbs), fat: avg((g) => g.fat),
-    // These don't vary by day type (water does -- a training day adds a bottle -- so it's averaged too).
-    fiber: first.fiber, water: round1(perDay.reduce((sum, g) => sum + g.water, 0) / perDay.length), alcoholWeekly: first.alcoholWeekly,
+    // These don't vary by day type.
+    fiber: first.fiber, water: first.water, alcoholWeekly: first.alcoholWeekly,
     meditationMinutes: first.meditationMinutes,
     dogWalks: first.dogWalks, walkMiles: first.walkMiles,
   }

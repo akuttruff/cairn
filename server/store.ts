@@ -2,9 +2,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { ALCOHOL_KINDS, APP_ICONS, BODY_METRICS, CHARTABLE, MEALS, NUTRIENTS } from '../src/types.ts'
+import { ALCOHOL_KINDS, APP_ICONS, BODY_METRICS, CHARTABLE, DRINKS, MEALS, NUTRIENTS } from '../src/types.ts'
 import type {
-  AlcoholKind, AlcoholLog, DaySummary, DayType, DayView, Entry, Food, Goals,
+  AlcoholKind, AlcoholLog, DaySummary, DayType, DayView, Drink, Entry, Food, Goals,
   Meal, MealPreset, MealPresetItem, MeditationLog, DogWalkLog, NewEntry, Nutrients, NutrientKey, PublicSettings,
   RangeView, Settings, WaterLog, WorkoutKind, WorkoutLog, WorkoutPlan,
 } from '../src/types.ts'
@@ -493,7 +493,8 @@ export class Store {
   private getWater(date: string, goal: number): DayView['water'] {
     const rows = this.stmts.selectWaterByDate.all(date) as unknown as WaterLogRow[]
     const ounces = rows.reduce((sum, r) => sum + r.ounces, 0)
-    return { ounces, goal, lastLogId: rows[0]?.id ?? null }
+    const tea = rows.reduce((sum, r) => sum + (r.drink === 'tea' ? r.ounces : 0), 0)
+    return { ounces, goal, tea, lastLogId: rows[0]?.id ?? null }
   }
 
   /** This day's drinks, plus the calendar week's (Sunday-start, today included) against its own goal. */
@@ -526,14 +527,15 @@ export class Store {
     if (result.changes === 0) throw new ValidationError('no such log')
   }
 
-  /** One water log for one day -- a bottle, a glass, whatever amount was drunk. */
-  addWater(date: string, ounces: number): WaterLog {
+  /** One water log for one day -- a bottle, a mug of tea, whatever amount was drunk. */
+  addWater(date: string, ounces: number, drink: string = 'water'): WaterLog {
     if (!isDateString(date)) throw new ValidationError('date must be YYYY-MM-DD')
     if (typeof ounces !== 'number' || !Number.isFinite(ounces) || ounces <= 0 || ounces > 200) {
       throw new ValidationError('ounces must be a positive number')
     }
-    const log: WaterLog = { id: randomUUID(), date, ounces, createdAt: Date.now() }
-    this.stmts.insertWater.run(log.id, log.date, log.ounces, log.createdAt)
+    if (!(DRINKS as readonly string[]).includes(drink)) throw new ValidationError(`drink must be one of ${DRINKS.join(', ')}`)
+    const log: WaterLog = { id: randomUUID(), date, ounces, drink: drink as Drink, createdAt: Date.now() }
+    this.stmts.insertWater.run(log.id, log.date, log.ounces, log.drink, log.createdAt)
     return log
   }
 
@@ -916,7 +918,6 @@ export class Store {
     if (input.fat !== undefined) next.fat = cleanGoalNumber(input.fat, 'fat')
     if (input.carbs !== undefined) next.carbs = cleanGoalNumber(input.carbs, 'carbs')
     if (input.trainingCarbs !== undefined) next.trainingCarbs = cleanGoalNumber(input.trainingCarbs, 'trainingCarbs')
-    if (input.trainingWater !== undefined) next.trainingWater = cleanGoalNumber(input.trainingWater, 'trainingWater', 500)
     if (input.calorieBuffer !== undefined) next.calorieBuffer = cleanGoalNumber(input.calorieBuffer, 'calorieBuffer', 2000)
     if (input.fiber !== undefined) next.fiber = cleanGoalNumber(input.fiber, 'fiber', 1000)
     if (input.water !== undefined) next.water = cleanGoalNumber(input.water, 'water', 1000)

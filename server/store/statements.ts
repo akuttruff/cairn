@@ -168,7 +168,7 @@ export function prepareStatements(db: DatabaseSync): Stmts {
     ),
     selectWaterByDate: db.prepare('SELECT * FROM water_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
     selectWaterBetween: db.prepare('SELECT * FROM water_logs WHERE date >= ? AND date <= ?'),
-    insertWater: db.prepare('INSERT INTO water_logs (id,date,ounces,created_at) VALUES (?,?,?,?)'),
+    insertWater: db.prepare('INSERT INTO water_logs (id,date,ounces,drink,created_at) VALUES (?,?,?,?,?)'),
     deleteWater: db.prepare('DELETE FROM water_logs WHERE id = ?'),
     selectAlcoholByDate: db.prepare('SELECT * FROM alcohol_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
     selectAlcoholBetween: db.prepare('SELECT * FROM alcohol_logs WHERE date >= ? AND date <= ?'),

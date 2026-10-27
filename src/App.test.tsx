@@ -29,7 +29,7 @@ const WORKOUTS_DAY = {
 }
 /** What Settings edits and /api/goals returns -- separate shape from GOALS above (a resolved, per-day view). */
 const STORED_GOALS: Goals = {
-  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, trainingWater: 32, calorieBuffer: 100, fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1, workoutPlan: PLAN,
+  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, calorieBuffer: 100, fiber: 30, water: 72, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1, workoutPlan: PLAN,
 }
 /** A range day's workout and meditation fields, with nothing logged. */
 const DAY_ACTIVITY = { workouts: 0, workoutMinutes: 0, meditationMinutes: 0, dogWalks: 0, dogMiles: 0 }
@@ -50,7 +50,7 @@ const day = (entries: Entry[], over: Partial<DayView> = {}): DayView => ({
   date: TODAY, entries, goals: GOALS, dayType: 'training',
   totals: { calories: 190, protein: 6.5, fat: 3.4, carbs: 33, fiber: 5 },
   missing: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 },
-  water: { ounces: 0, goal: 96, lastLogId: null },
+  water: { ounces: 0, goal: 72, tea: 0, lastLogId: null },
   alcohol: { drinks: 0, byKind: { beer: 0, wine: 0, liquor: 0 }, weekTotal: 0, weekByKind: { beer: 0, wine: 0, liquor: 0 }, weekGoal: 7, calories: 0, lastLogId: null },
   workouts: WORKOUTS_DAY,
   meditation: { sessions: [], minutes: 0, goal: 10, lastLogId: null },
@@ -894,12 +894,18 @@ describe('App', () => {
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/entries/e1')).toBe(true))
   })
 
-  it('shows water logged against the goal, in ounces and bottles', async () => {
-    stubApi({ [`GET /api/day/${TODAY}`]: day([], { water: { ounces: 64, goal: 96, lastLogId: 'w2' } }) })
+  it('shows water logged against the goal, in ounces, bottles and mugs of tea', async () => {
+    stubApi({ [`GET /api/day/${TODAY}`]: day([], { water: { ounces: 40, goal: 72, tea: 8, lastLogId: 'w2' } }) })
     render(<App />)
     expect(await screen.findByRole('region', { name: 'Water' })).toBeInTheDocument()
-    expect(screen.getByText('2 of 3 bottles (32oz each)')).toBeInTheDocument()
-    expect(screen.getByRole('progressbar', { name: 'Water' })).toHaveAttribute('aria-valuenow', '64')
+    expect(screen.getByText('1 bottle + 1 mug of tea · 32 oz to go')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: 'Water' })).toHaveAttribute('aria-valuenow', '40')
+  })
+
+  it('says when the water goal is met', async () => {
+    stubApi({ [`GET /api/day/${TODAY}`]: day([], { water: { ounces: 80, goal: 72, tea: 16, lastLogId: 'w4' } }) })
+    render(<App />)
+    expect(await screen.findByText('2 bottles + 2 mugs of tea · goal met')).toBeInTheDocument()
   })
 
   it('logs a bottle of water with one tap', async () => {
@@ -908,11 +914,20 @@ describe('App', () => {
     render(<App />)
     await user.click(await screen.findByRole('button', { name: /Bottle \(32oz\)/ }))
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/water')).toBe(true))
-    expect(calls.find((c) => c.method === 'POST' && c.url === '/api/water')!.body).toEqual({ date: TODAY, ounces: 32 })
+    expect(calls.find((c) => c.method === 'POST' && c.url === '/api/water')!.body).toEqual({ date: TODAY, ounces: 32, drink: 'water' })
+  })
+
+  it('logs a mug of tea with one tap', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'POST /api/water': { id: 'w1', date: TODAY, ounces: 8, drink: 'tea', createdAt: 1 } })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: /Tea \(8oz\)/ }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/water')).toBe(true))
+    expect(calls.find((c) => c.method === 'POST' && c.url === '/api/water')!.body).toEqual({ date: TODAY, ounces: 8, drink: 'tea' })
   })
 
   it('undoes the most recent water log, only once one exists', async () => {
-    stubApi({ [`GET /api/day/${TODAY}`]: day([], { water: { ounces: 0, goal: 96, lastLogId: null } }) })
+    stubApi({ [`GET /api/day/${TODAY}`]: day([], { water: { ounces: 0, goal: 72, tea: 0, lastLogId: null } }) })
     render(<App />)
     await screen.findByRole('region', { name: 'Water' })
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
@@ -1090,23 +1105,6 @@ describe('App', () => {
     expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({ dogWalks: 3, walkMiles: 1.5 })
   })
 
-  it('edits the extra water a training day asks for, in Settings', async () => {
-    const user = userEvent.setup()
-    const calls = stubApi({
-      [`GET /api/day/${TODAY}`]: day([]),
-      'GET /api/targets': STORED_GOALS,
-      'PUT /api/targets': { ...STORED_GOALS, trainingWater: 24 },
-    })
-    render(<App />)
-    await user.click(await screen.findByRole('button', { name: 'Settings' }))
-    const field = await screen.findByLabelText('Extra water on training days (oz)')
-    expect(field).toHaveValue('32')
-    await user.clear(field)
-    await user.type(field, '24')
-    await user.click(screen.getByRole('button', { name: 'Save' }))
-    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/targets')).toBe(true))
-    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({ trainingWater: 24 })
-  })
 
   it('edits the fiber goal in Settings, alongside the macros', async () => {
     const user = userEvent.setup()
@@ -1240,7 +1238,7 @@ describe('App', () => {
   it('undoes the most recent water log', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
-      [`GET /api/day/${TODAY}`]: day([], { water: { ounces: 32, goal: 96, lastLogId: 'w1' } }),
+      [`GET /api/day/${TODAY}`]: day([], { water: { ounces: 32, goal: 72, tea: 0, lastLogId: 'w1' } }),
       'DELETE /api/water/w1': { ok: true },
     })
     render(<App />)

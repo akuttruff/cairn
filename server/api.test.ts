@@ -352,11 +352,19 @@ describe('water', () => {
     const id = (logged.body as unknown as { id: string }).id
 
     let day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
-    expect(day.water).toEqual({ ounces: 32, goal: 96, lastLogId: id })
+    expect(day.water).toEqual({ ounces: 32, goal: 72, tea: 0, lastLogId: id })
 
     await call('DELETE', `/api/water/${id}`)
     day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
-    expect(day.water).toEqual({ ounces: 0, goal: 96, lastLogId: null })
+    expect(day.water).toEqual({ ounces: 0, goal: 72, tea: 0, lastLogId: null })
+  })
+
+  it('logs a mug of tea toward the same total', async () => {
+    await call('POST', '/api/water', { date: DAY, ounces: 32 })
+    expect((await call('POST', '/api/water', { date: DAY, ounces: 8, drink: 'tea' })).status).toBe(201)
+    const day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
+    expect(day.water).toMatchObject({ ounces: 40, tea: 8 })
+    expect((await call('POST', '/api/water', { date: DAY, ounces: 8, drink: 'soda' })).status).toBe(400)
   })
 
   it('rejects a nonsense amount', async () => {

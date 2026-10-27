@@ -6,7 +6,7 @@ import { DEFAULT_GOALS } from '../../src/lib/nutrition.ts'
 // Storage paths and schema
 // ---------------------------------------------------------------------------
 
-/** 3 x 32oz bottles, the user's actual daily habit. */
+/** Two 32oz bottles and a mug of tea, every day. */
 const DEFAULT_WATER_OUNCES = DEFAULT_GOALS.water
 const DEFAULT_ALCOHOL_WEEKLY = DEFAULT_GOALS.alcoholWeekly
 
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS meal_preset_items (
 
 CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY CHECK (id = 1),
   base_protein REAL NOT NULL, base_fat REAL NOT NULL, base_carbs REAL NOT NULL, training_carbs REAL NOT NULL,
-  fiber REAL NOT NULL, water_ounces REAL NOT NULL DEFAULT 96, alcohol_weekly REAL NOT NULL DEFAULT 7,
+  fiber REAL NOT NULL, water_ounces REAL NOT NULL DEFAULT 72, alcohol_weekly REAL NOT NULL DEFAULT 7,
   workouts_weekly REAL NOT NULL DEFAULT 4, meditation_minutes REAL NOT NULL DEFAULT 10,
   calorie_buffer REAL NOT NULL DEFAULT 100, workout_plan TEXT, training_water REAL NOT NULL DEFAULT 32,
   dog_walks REAL NOT NULL DEFAULT 2, walk_miles REAL NOT NULL DEFAULT 1);
@@ -88,7 +88,8 @@ CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK (id = 1),
 CREATE TABLE IF NOT EXISTS day_types (date TEXT PRIMARY KEY, type TEXT NOT NULL CHECK (type IN ('training','rest')));
 
 CREATE TABLE IF NOT EXISTS water_logs (
-  id TEXT PRIMARY KEY, date TEXT NOT NULL, ounces REAL NOT NULL, created_at INTEGER NOT NULL
+  id TEXT PRIMARY KEY, date TEXT NOT NULL, ounces REAL NOT NULL, created_at INTEGER NOT NULL,
+  drink TEXT NOT NULL DEFAULT 'water' CHECK (drink IN ('water','tea'))
 );
 CREATE INDEX IF NOT EXISTS idx_water_logs_date ON water_logs(date);
 
@@ -231,10 +232,10 @@ function migrateSchema(db: DatabaseSync): void {
     db.exec('PRAGMA user_version = 10')
   }
   if (version < 11) {
-    // The extra water a training day asks for.
+    // The extra water a training day asked for (no longer read: the water goal is the same every day).
     const cols = db.prepare('PRAGMA table_info(goals)').all() as { name: string }[]
     if (!cols.some((c) => c.name === 'training_water')) {
-      db.exec(`ALTER TABLE goals ADD COLUMN training_water REAL NOT NULL DEFAULT ${DEFAULT_GOALS.trainingWater}`)
+      db.exec(`ALTER TABLE goals ADD COLUMN training_water REAL NOT NULL DEFAULT 32`)
     }
     db.exec('PRAGMA user_version = 11')
   }
@@ -269,5 +270,13 @@ function migrateSchema(db: DatabaseSync): void {
     const cols = db.prepare('PRAGMA table_info(settings)').all() as { name: string }[]
     if (!cols.some((c) => c.name === 'preferred_model')) db.exec("ALTER TABLE settings ADD COLUMN preferred_model TEXT NOT NULL DEFAULT ''")
     db.exec('PRAGMA user_version = 16')
+  }
+  if (version < 17) {
+    // Mugs of tea count toward the water goal, logged apart from plain water.
+    const cols = db.prepare('PRAGMA table_info(water_logs)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'drink')) {
+      db.exec("ALTER TABLE water_logs ADD COLUMN drink TEXT NOT NULL DEFAULT 'water' CHECK (drink IN ('water','tea'))")
+    }
+    db.exec('PRAGMA user_version = 17')
   }
 }

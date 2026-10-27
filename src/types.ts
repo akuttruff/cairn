@@ -121,13 +121,11 @@ export interface Goals {
   carbs: number
   /** Grams of fast carbs a training day adds (before the workout): 35 g is about 140 kcal. */
   trainingCarbs: number
-  /** Ounces of water a training day adds to the daily water goal. */
-  trainingWater: number
   /** Calories allowed on top of what the macros add up to, every day -- room for the odd extra. */
   calorieBuffer: number
   /** Grams per day, the same on any day type. */
   fiber: number
-  /** Ounces per day. */
+  /** Ounces per day, the same on any day type; tea counts toward it. */
   water: number
   /** Standard drinks per calendar week (Sunday-start), not per day -- see DayView.alcohol. */
   alcoholWeekly: number
@@ -185,11 +183,16 @@ export interface AlcoholLog {
   createdAt: number
 }
 
-/** One log of water drunk -- a bottle, a glass, whatever amount. */
+/** What a water log was: plain water, or a mug of tea (which counts toward the water goal). */
+export const DRINKS = ['water', 'tea'] as const
+export type Drink = (typeof DRINKS)[number]
+
+/** One log of water drunk -- a bottle, a mug of tea, whatever amount. */
 export interface WaterLog {
   id: string
   date: string
   ounces: number
+  drink: Drink
   createdAt: number
 }
 
@@ -205,7 +208,7 @@ export type WorkoutIcon = (typeof WORKOUT_ICONS)[number]
  * One kind of workout, as set up in Settings. `id` is what sessions and
  * plans are stored under and never changes once logs carry it; `label` and
  * `icon` are how it shows. `training`: logging one ticks the day as a
- * training day (the extra carbs and water apply).
+ * training day (the extra carbs apply).
  */
 export interface WorkoutKindDef {
   id: string
@@ -271,9 +274,11 @@ export interface DayView extends DayTotals {
   /** This day's goals, resolved from whichever of Goals.training/rest matches dayType -- see ResolvedGoals. */
   goals: ResolvedGoals
   water: {
-    /** Total logged for this day. */
+    /** Total logged for this day, tea included. */
     ounces: number
     goal: number
+    /** The part of `ounces` that was tea. */
+    tea: number
     /** The most recent log's id, for a one-tap undo. Null with nothing logged yet. */
     lastLogId: string | null
   }

@@ -155,7 +155,7 @@ describe('rangeStatus', () => {
 })
 
 const GOALS: Goals = {
-  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, trainingWater: 32, calorieBuffer: 0, fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1,
+  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, calorieBuffer: 0, fiber: 30, water: 72, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1,
   workoutPlan: { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 },
 }
 
@@ -166,7 +166,7 @@ describe('resolveGoals', () => {
     expect(resolved.calories).toEqual({ min: 1700, max: 1700 })
     expect(resolved.carbs).toEqual({ min: 160, max: 160 })
     expect(resolved.fiber).toBe(30)
-    expect(resolved.water).toBe(96)
+    expect(resolved.water).toBe(72)
     expect(resolved.alcoholWeekly).toBe(7)
     expect(resolved.meditationMinutes).toBe(10)
   })
@@ -178,9 +178,9 @@ describe('resolveGoals', () => {
     expect(resolved.protein).toEqual({ min: 130, max: 130 }) // unchanged
   })
 
-  it('adds a bottle of water on a training day, and none on a rest day', () => {
-    expect(resolveGoals(GOALS, 'rest').water).toBe(96)
-    expect(resolveGoals(GOALS, 'training').water).toBe(128) // 96 + 32
+  it('asks for the same water on any day type', () => {
+    expect(resolveGoals(GOALS, 'rest').water).toBe(72)
+    expect(resolveGoals(GOALS, 'training').water).toBe(72)
   })
 
   it('adds the calorie buffer on top of what the macros come to, on every day type', () => {
@@ -306,7 +306,7 @@ describe('scoreWater', () => {
     expect(scoreWater(days, 0)).toEqual({ met: 0, of: 3 }) // no goal set: nothing can be met
   })
 
-  it("judges each day against its own goal when it has one: 96 oz misses a training day's 128", () => {
+  it('judges each day against its own goal when it has one: 96 oz misses a goal of 128', () => {
     const days = [{ water: 96, goals: { water: 96 } }, { water: 96, goals: { water: 128 } }, { water: 128, goals: { water: 128 } }]
     expect(scoreWater(days, 96)).toEqual({ met: 2, of: 3 })
   })
@@ -353,10 +353,10 @@ describe('blendGoals', () => {
     expect(blended.protein.min).toBe(130) // the same every day
   })
 
-  it('carries fiber through unchanged, and averages water, which a training day raises', () => {
+  it('carries fiber and water through unchanged', () => {
     const blended = blendGoals([training, rest])
     expect(blended.fiber).toBe(30)
-    expect(blended.water).toBe(112) // (128 + 96) / 2
+    expect(blended.water).toBe(72)
   })
 
   it('a single day blends to exactly that day\'s own goals', () => {

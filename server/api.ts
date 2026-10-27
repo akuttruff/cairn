@@ -131,8 +131,8 @@ export function createApi(options: ApiOptions = {}) {
     }
 
     if (p === '/api/water' && method === 'POST') {
-      const body = await readBody(req) as { date?: unknown; ounces?: unknown }
-      return json(res, 201, store.addWater(body.date as string, body.ounces as number))
+      const body = await readBody(req) as { date?: unknown; ounces?: unknown; drink?: unknown }
+      return json(res, 201, store.addWater(body.date as string, body.ounces as number, (body.drink ?? 'water') as string))
     }
     if (p === '/api/alcohol' && method === 'POST') {
       const body = await readBody(req) as { date?: unknown; kind?: unknown }

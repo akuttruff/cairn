@@ -1,6 +1,6 @@
 import type {
   DayType, DayView, Entry, Food, Goals, LabelReading, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeNotes, RangeView, Serving,
-  AlcoholKind, AlcoholLog, AppIcon, ChartKey, WaterLog, LmModelOption, MeditationLog, DogWalkLog, WorkoutKind, WorkoutKindDef, WorkoutLog, WorkoutPlan,
+  AlcoholKind, AlcoholLog, AppIcon, ChartKey, Drink, WaterLog, LmModelOption, MeditationLog, DogWalkLog, WorkoutKind, WorkoutKindDef, WorkoutLog, WorkoutPlan,
 } from '../types.ts'
 import { noReply, reachFetch } from './reach.ts'
 
@@ -76,7 +76,7 @@ export const api = {
   setGoals: (goals: Partial<Goals>) => request<Goals>('PUT', '/api/targets', goals),
   setDayType: (date: string, type: DayType) =>
     request<{ date: string; type: DayType }>('PUT', `/api/day-type/${encodeURIComponent(date)}`, { type }),
-  addWater: (date: string, ounces: number) => request<WaterLog>('POST', '/api/water', { date, ounces }),
+  addWater: (date: string, ounces: number, drink: Drink = 'water') => request<WaterLog>('POST', '/api/water', { date, ounces, drink }),
   deleteWater: (id: string) => request<{ ok: true }>('DELETE', `/api/water/${encodeURIComponent(id)}`),
   addAlcohol: (date: string, kind: AlcoholKind) => request<AlcoholLog>('POST', '/api/alcohol', { date, kind }),
   deleteAlcohol: (id: string) => request<{ ok: true }>('DELETE', `/api/alcohol/${encodeURIComponent(id)}`),
