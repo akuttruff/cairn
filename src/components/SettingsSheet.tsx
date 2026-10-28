@@ -373,6 +373,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
                     <label htmlFor={`gear-dumbbells-${i}`}>Dumbbell weights (lb each)</label>
                     <input id={`gear-dumbbells-${i}`} type="text" inputMode="decimal" placeholder="15, 20, 25" value={p.dbText} onChange={(e) => setPlace(i, { dbText: e.target.value })} />
                     {!db && <div className="hint bad">List weights separated by commas, e.g. 15, 20, 25.</div>}
+                    {db && !db.length && p.gear.includes('dumbbells') && <div className="hint">Dumbbells are ticked{places.length > 1 ? ` for ${where}` : ''} but no weights are listed, so WODs keep their written weights.</div>}
                   </div>
                   <div className="field">
                     <label htmlFor={`gear-kettlebells-${i}`}>Kettlebell weights (lb each)</label>
