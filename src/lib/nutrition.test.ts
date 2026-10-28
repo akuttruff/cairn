@@ -190,7 +190,7 @@ describe('goalMet', () => {
     expect(goalMet(1900, r, 'calories')).toBe(true)
     expect(goalMet(1200, r, 'calories')).toBe(false)
     expect(goalMet(1901, r, 'calories')).toBe(false)
-    expect(goalDirection('calories', r)).toBe('stay within')
+    expect(goalDirection('calories', r)).toBe('in range')
     expect(goalLabel('calories', r)).toBe('1600–1900')
     expect(goalStatus('calories', 1200, r)).toEqual({ text: '400 to go', bad: false, met: false })
     expect(goalStatus('calories', 1700, r)).toEqual({ text: '200 left', bad: false, met: true })

@@ -21,7 +21,7 @@ interface Series {
   /** Also the CSS class that colours it. */
   key: NutrientKey | 'water'
   label: string
-  /** Which way the goal points: "stay under", "stay within" or "reach"; empty when there's no goal (carbs). */
+  /** Which way the goal points: "stay under", "in range" or "reach"; empty when there's no goal (carbs). */
   direction: string
   unit: string
   value: (d: DaySummary) => number
@@ -130,7 +130,7 @@ function RangeChart({ series, view, today, selected, onPick }: RangeChartProps) 
   const n = days.length
   const bars = n <= 7
   // A cap or a calorie range: the good side is below the top (and above the bottom, for a range).
-  const under = series.direction.startsWith('stay')
+  const under = series.direction !== '' && series.direction !== 'reach'
   const goalOf = (d: DaySummary): number => { const g = series.goal(d); return !g ? 0 : under ? g.max : g.min }
   const floorOf = (d: DaySummary): number => (under ? series.goal(d)?.min ?? 0 : 0)
   // Headroom above the tallest thing, so a value label has somewhere to sit.
@@ -348,7 +348,7 @@ export default function RangeSummary({ view, onSelectDay, part = 'nutrition' }: 
           return (
             <div key={key} className={`macro ${key} score-row`}>
               <div className="macro-head">
-                <span className="macro-name">{LABELS[key]} <span className="goal-dir">{goalDirection(key)}</span></span>
+                <span className="macro-name">{LABELS[key]} <span className="goal-dir">{goalDirection(key, goalRangeFor(goals, key))}</span></span>
                 <span className="macro-num">
                   {of ? `${met} of ${plural(of, 'day')}` : '—'}
                   <span className="macro-goal"> · avg {fmt(key, averages[key])} {UNITS[key]}</span>

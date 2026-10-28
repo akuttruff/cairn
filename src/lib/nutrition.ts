@@ -197,9 +197,9 @@ export const OVER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['calories'])
 /** Floors: the goal is to reach them, and going over is fine. */
 export const UNDER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['protein', 'fat', 'fiber'])
 
-/** Which way a nutrient's goal points, in words: "stay under" a cap, "stay within" a calorie range, "reach" a floor. */
+/** Which way a nutrient's goal points, in words: "stay under" a cap, "in range" a calorie range, "reach" a floor. */
 export const goalDirection = (key: NutrientKey, range?: MacroRange | null): string =>
-  (OVER_IS_BAD.has(key) ? (range && range.min > 0 ? 'stay within' : 'stay under') : 'reach')
+  (OVER_IS_BAD.has(key) ? (range && range.min > 0 ? 'in range' : 'stay under') : 'reach')
 
 /** The goal as it reads beside a total: "max 1800", "1500–1800", "min 130". */
 export function goalLabel(key: NutrientKey, range: MacroRange): string {

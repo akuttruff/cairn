@@ -2002,6 +2002,19 @@ describe('App', () => {
       expect(within(card).queryByText(/Carbs/)).not.toBeInTheDocument()
     })
 
+    it('says a calorie range is to be landed in, on the scorecard and the chart', async () => {
+      const user = userEvent.setup()
+      stubApi({
+        [`GET /api/day/${TODAY}`]: day([]),
+        'GET /api/range': range({ goals: { ...GOALS, calories: { min: 1700, max: 2000 } } }),
+      })
+      render(<App />)
+      await user.click(await screen.findByRole('tab', { name: 'Week' }))
+      const card = await screen.findByRole('region', { name: 'Goals met' })
+      expect(within(card).getByText('in range')).toBeInTheDocument()
+      expect(screen.queryByText('stay under')).not.toBeInTheDocument()
+    })
+
     it('charts calories, protein and fiber per day -- not whether a day was logged', async () => {
       const user = userEvent.setup()
       const start = startOfWeek(addDays(TODAY, -7)) // last week: every day in it is finished
