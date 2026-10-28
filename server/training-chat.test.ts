@@ -102,7 +102,7 @@ describe('optional work', () => {
   it("makes a session optional for every week, so the day counts as done without it", () => {
     const checked = checkEdits(store.training, plan(), [{ op: 'setOptional', sessionId: 'wod-wed', optional: true }], MON, store.getSettings())
     expect(checked.errors).toEqual([])
-    expect(previewEdits(store.training, plan(), checked, MON)).toEqual(['Wed, Nov 4, Nov 11, Nov 18, Nov 25: WOD is optional'])
+    expect(previewEdits(store.training, plan(), checked, MON)).toEqual(['Optional from now on: WOD'])
     store.training.revise(plan().id, checked.revised!, 'coach', null)
     const wed = store.training.day(WED)
     expect(wed.sessions.find((s) => s.id === 'wod-wed')).toMatchObject({ optional: true })

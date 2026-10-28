@@ -181,6 +181,9 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
   })
 
   const lines: string[] = []
+  // Optional or not holds for every week, so it reads once, without dates.
+  const nowOptional = new Set<string>()
+  const nowRequired = new Set<string>()
   const gone = new Map<string, { date: string; title: string }>()
   const added = new Map<string, { date: string; session: DayPlan[number] }>()
   for (const d of sorted) {
@@ -191,10 +194,10 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
     for (const s of now) {
       const old = was.find((x) => x.id === s.id)
       if (!old) continue
-      if (old.optional !== s.optional) lines.push(`${shortDate(d)}: ${s.title} ${s.optional ? 'is optional' : 'counts again'}`)
+      if (old.optional !== s.optional) (s.optional ? nowOptional : nowRequired).add(s.title)
       for (const i of s.items) {
         const o = old.items.find((x) => x.id === i.id)
-        if (o && o.optional !== i.optional) lines.push(`${shortDate(d)} · ${i.name} ${i.optional ? 'is optional' : 'counts again'}`)
+        if (o && o.optional !== i.optional) (i.optional ? nowOptional : nowRequired).add(i.name)
       }
       const removed = old.items.filter((i) => !s.items.some((x) => x.id === i.id))
       const fresh = s.items.filter((i) => !old.items.some((x) => x.id === i.id))
@@ -220,6 +223,8 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
     } else lines.push(`${shortDate(g.date)}: no ${g.title}`)
   }
   for (const { date, session } of added.values()) lines.push(`${shortDate(date)}: + ${session.title} (${session.items.map((i) => i.name).join(', ')})`)
+  if (nowOptional.size) lines.push(`Optional from now on: ${[...nowOptional].join(', ')}`)
+  if (nowRequired.size) lines.push(`Part of the day again: ${[...nowRequired].join(', ')}`)
   for (const e of checked.overrides) if (e.op === 'equipment') lines.push(`${shortDate(e.from)}–${shortDate(e.to)}: WODs for ${describeGear(e.equipment)}`)
   // The same change on several days reads once: "Sun, Dec 13, Dec 20: + Easy Sunday run".
   const grouped = new Map<string, string[]>()
