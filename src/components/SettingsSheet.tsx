@@ -522,7 +522,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
                 {models.map((m) => <option key={m.key} value={m.key}>{m.key}{m.loaded ? ' (loaded)' : ''}</option>)}
               </select>
               <div className="hint">
-                Writes the next training schema from how the last one went (Train tab). A large model plans better; it can take several minutes.
+                Writes the next training block from how the last one went, and rewrites a plan when you ask the coach for one. A large model plans better; it can take several minutes.
               </div>
             </div>
             <div className="field">

@@ -32,10 +32,10 @@ function Pending({ training }: { training: TrainingState }) {
   }
   if (!training.day) return null
   return (
-    <section className="water-card" aria-label="Training schema">
+    <section className="water-card" aria-label="Training plan">
       <div className="water-head"><span className="water-label">Train</span></div>
       <p className="hint">
-        No training schema yet. A schema is a plan in Cairn&apos;s training-schema format (see docs/training-schema.md);
+        No training plan yet. Plans are written in Cairn&apos;s training-schema format (see docs/training-schema.md);
         import one on the computer running Cairn with <code>npm run import:schema -- plan.json</code>.
       </p>
     </section>
@@ -56,7 +56,7 @@ interface TodayProps {
   onSelectDate: (date: string) => void
   /** Something logged here changes the day's workout dots. */
   onLogged: () => void
-  onCoach: () => void
+  onCoach: (text?: string) => void
 }
 
 export function TrainToday({ date, training, onSelectDate, onLogged, onCoach }: TodayProps) {
@@ -99,7 +99,9 @@ export function TrainToday({ date, training, onSelectDate, onLogged, onCoach }: 
         </div>
         <div className="train-strip" role="group" aria-label="This week's days">
           {day.strip.map((d, i) => {
-            const done = d.sessions.length > 0 && d.sessions.every((s) => s.done)
+            // Optional sessions (yoga, say) don't keep a day from counting as done.
+            const counted = d.sessions.some((s) => !s.optional) ? d.sessions.filter((s) => !s.optional) : d.sessions
+            const done = counted.length > 0 && counted.every((s) => s.done)
             const started = d.sessions.some((s) => s.started)
             return (
               <button
@@ -118,7 +120,7 @@ export function TrainToday({ date, training, onSelectDate, onLogged, onCoach }: 
           })}
         </div>
         <div className="train-head-actions">
-          <button type="button" className="coach-btn" onClick={onCoach}>
+          <button type="button" className="coach-btn" onClick={() => onCoach()}>
             <MessageCircle size={15} aria-hidden="true" /> Coach
           </button>
           {day.week !== null && (
@@ -187,7 +189,7 @@ export function TrainWeek({ training, onSelectDay }: WeekProps) {
               <span className="week-plan-sessions">
                 {d.sessions.length === 0 && <span className="week-plan-rest">Rest</span>}
                 {d.sessions.map((s) => (
-                  <span key={s.id} className={`week-plan-session${s.done ? ' done' : s.started ? ' started' : ''}`}>
+                  <span key={s.id} className={`week-plan-session${s.done ? ' done' : s.started ? ' started' : ''}${s.optional ? ' optional' : ''}`}>
                     {s.done && <Check size={12} aria-hidden="true" />} {s.title}
                   </span>
                 ))}
@@ -204,7 +206,26 @@ interface BlockProps {
   date: string
   training: TrainingState
   onLogged: () => void
-  onCoach: () => void
+  /** Open the coach, asking `text` if there is any. */
+  onCoach: (text?: string) => void
+}
+
+/** Where to ask for feedback or a change to the schedule: it goes to the coach. */
+function CoachPrompt({ onCoach }: { onCoach: (text?: string) => void }) {
+  const [text, setText] = useState('')
+  return (
+    <form className="water-card coach-prompt" aria-label="Ask the coach" onSubmit={(e) => { e.preventDefault(); onCoach(text.trim() || undefined); setText('') }}>
+      <div className="water-head"><span className="water-label"><MessageCircle size={12} aria-hidden="true" /> Coach</span></div>
+      <textarea
+        aria-label="Ask the coach"
+        placeholder="Ask for feedback, or change your schedule: a day off, a lighter week, travel…"
+        value={text}
+        maxLength={2000}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <button type="submit" className="coach-apply">{text.trim() ? 'Ask' : 'Open the coach'}</button>
+    </form>
+  )
 }
 
 /** The schema as a whole: PRs, progress, the plan week by week, and the next one. */
@@ -213,10 +234,7 @@ export function TrainBlock({ date, training, onLogged, onCoach }: BlockProps) {
   if (!day?.schema) return <Pending training={training} />
   return (
     <>
-      <button type="button" className="water-card coach-teaser" onClick={onCoach}>
-        <MessageCircle size={16} aria-hidden="true" />
-        <span>Ask the coach about this plan, or for a change to it</span>
-      </button>
+      <CoachPrompt onCoach={onCoach} />
       <LiftsCard date={date} day={day} onDay={(next) => { training.setDay(next); onLogged() }} />
       <ProgressCard />
       <SchemaCard day={day} onChanged={() => void training.refresh()} />

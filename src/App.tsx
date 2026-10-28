@@ -38,6 +38,12 @@ export default function App() {
   const [nutritionMode, setNutritionMode] = useState<NutritionMode>('day')
   const [trainMode, setTrainMode] = useState<TrainMode>('today')
   const [coachOpen, setCoachOpen] = useState(false)
+  // Something to ask the coach as it opens (typed into Block's box); numbered so asking the same thing twice still asks.
+  const [coachAsk, setCoachAsk] = useState<{ text: string; n: number } | null>(null)
+  const openCoach = (text?: string): void => {
+    setCoachAsk(text ? { text, n: Date.now() } : null)
+    setCoachOpen(true)
+  }
   const mode = section === 'nutrition' ? nutritionMode : trainMode
   // Both kept mounted (not just the active one) so switching Week -> Month
   // -> Week back doesn't lose either one's navigated position -- each only
@@ -170,7 +176,7 @@ export default function App() {
           </>
         ) : !nutrition && trainMode === 'today' ? (
           <>
-            <TrainToday date={day.date} training={training} onSelectDate={day.setDate} onLogged={trainLogged} onCoach={() => setCoachOpen(true)} />
+            <TrainToday date={day.date} training={training} onSelectDate={day.setDate} onLogged={trainLogged} onCoach={openCoach} />
             {view && (
               <>
                 <WorkoutTracker date={day.date} workouts={view.workouts} onLogged={() => { refresh(); void training.refresh() }} />
@@ -192,7 +198,7 @@ export default function App() {
           </>
         ) : !nutrition ? (
           <>
-            <TrainBlock date={day.date} training={training} onLogged={trainLogged} onCoach={() => setCoachOpen(true)} />
+            <TrainBlock date={day.date} training={training} onLogged={trainLogged} onCoach={openCoach} />
             {view && <BodyCard date={day.date} body={view.body} />}
           </>
         ) : (
@@ -223,7 +229,8 @@ export default function App() {
 
       <CoachSheet
         open={coachOpen}
-        onClose={() => setCoachOpen(false)}
+        ask={coachAsk}
+        onClose={() => { setCoachOpen(false); setCoachAsk(null) }}
         // Applied or undone: the plan, the week and the day's workout dots all fetch afresh.
         onChanged={() => { void training.refresh(); trainLogged() }}
       />

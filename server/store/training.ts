@@ -361,16 +361,16 @@ export class TrainingStore {
   }
 
   /** A day's planned items in words, for the coach and for previews: "Back squat: 5×5 @ 95". */
-  planOf(plan: ActivePlan, date: string): { id: string; title: string; kind: string; week: number; items: { id: string; name: string; text: string }[] }[] {
+  planOf(plan: ActivePlan, date: string): { id: string; title: string; kind: string; week: number; optional: boolean; items: { id: string; name: string; text: string; optional: boolean }[] }[] {
     const lifts = this.liftMap()
     return this.sessionsFor(plan, date).map(({ session, week }) => ({
-      id: session.id, title: session.title, kind: session.kind, week,
+      id: session.id, title: session.title, kind: session.kind, week, optional: Boolean(session.optional),
       items: session.items.map((item) => {
         let text = 'tick'
         if (hasSets(item)) text = describe(this.plan(item, week, plan.schema, lifts, this.factorOn(plan, date, item.lift)) ?? [])
         else if (item.minutes) text = `${item.minutes[String(week)]} min`
         else if (item.wod) text = `WOD up to ${item.wod.maxMinutes} min`
-        return { id: item.id, name: item.name, text }
+        return { id: item.id, name: item.name, text, optional: Boolean(item.optional) }
       }),
     }))
   }
@@ -431,7 +431,7 @@ export class TrainingStore {
 
     const sessions: ResolvedSession[] = this.sessionsFor(plan, date).map(({ session, week }) => {
       const items: ResolvedItem[] = session.items.map((item) => {
-        const base = { id: item.id, name: item.name, ...(item.lift ? { lift: item.lift } : {}), ...(item.notes ? { notes: item.notes } : {}) }
+        const base = { id: item.id, name: item.name, ...(item.lift ? { lift: item.lift } : {}), ...(item.notes ? { notes: item.notes } : {}), ...(item.optional ? { optional: true } : {}) }
         if (hasSets(item)) {
           const planned = this.plan(item, week, schema, liftById, this.factorOn(plan, date, item.lift)) ?? []
           const sets = planned.map((p, index) => ({ index, ...p, log: logs.get(`${item.id}:${index}`) ?? null }))
@@ -452,7 +452,10 @@ export class TrainingStore {
         }
         return { ...base, type: 'check' as const, done }
       })
-      return { id: session.id, title: session.title, kind: session.kind, items, done: items.every((i) => i.done) }
+      // Optional items don't hold a session back; a session of only optional items is done when any of them is.
+      const required = items.filter((i) => !i.optional)
+      const done = required.length ? required.every((i) => i.done) : items.some((i) => i.done)
+      return { id: session.id, title: session.title, kind: session.kind, ...(session.optional ? { optional: true } : {}), items, done }
     })
 
     if (!at) return { ...empty, strip, adjustments, sessions }
@@ -479,12 +482,16 @@ export class TrainingStore {
       const d = addDays(monday, i)
       const done = logged.get(d) ?? new Set<string>()
       const sessions = this.sessionsFor(plan, d).map(({ session: s, week }) => {
-        const keys = s.items.flatMap((item) => {
+        const keysOf = (items: TrainingItem[]): string[] => items.flatMap((item) => {
           const planned = hasSets(item) ? this.plan(item, week, plan.schema, lifts) ?? [] : [null]
           return planned.map((_, k) => `${item.id}:${k}`)
         })
-        const hits = keys.filter((k) => done.has(k)).length
-        return { id: s.id, title: s.title, kind: s.kind, done: keys.length > 0 && hits === keys.length, started: hits > 0 }
+        const all = keysOf(s.items)
+        const required = keysOf(s.items.filter((i) => !i.optional))
+        const counted = required.length ? required : all
+        const hits = all.filter((k) => done.has(k)).length
+        const finished = counted.length > 0 && (required.length ? counted.every((k) => done.has(k)) : hits > 0)
+        return { id: s.id, title: s.title, kind: s.kind, done: finished, started: hits > 0, ...(s.optional ? { optional: true } : {}) }
       })
       return { date: d, sessions }
     })

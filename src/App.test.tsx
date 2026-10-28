@@ -2319,7 +2319,7 @@ describe('App', () => {
         'GET /api/training': training({ draft }),
         'POST /api/training/schemas/d1/activate': draft,
       }, 'Block')
-      const card = await screen.findByRole('region', { name: 'Training schema' })
+      const card = await screen.findByRole('region', { name: 'Training plan' })
       await user.click(within(card).getByRole('button', { name: 'Review it' }))
       expect(await within(card).findByText('70 → 85 lb')).toBeInTheDocument()
       expect(within(card).getByText('70 → 75 lb')).toBeInTheDocument()
@@ -2370,6 +2370,19 @@ describe('App', () => {
       expect(await within(card).findByText('Undone')).toBeInTheDocument()
     })
 
+    it("asks the coach from Block's box, which opens the coach with the question", async () => {
+      const { calls, user } = await openTrain({
+        'GET /api/training/chat': { messages: [], busy: false },
+        'POST /api/training/chat': { messages: [{ id: 'a1', role: 'assistant', text: 'Here is how I would do it.', proposal: null, status: null, note: null, createdAt: 1 }] },
+        'GET /api/training': training(),
+      }, 'Block')
+      expect(await screen.findByRole('button', { name: 'Write the next block' })).toBeInTheDocument()
+      await user.type(await screen.findByRole('textbox', { name: 'Ask the coach' }), 'Make yoga optional')
+      await user.click(screen.getByRole('button', { name: 'Ask' }))
+      await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url === '/api/training/chat')?.body).toEqual({ message: 'Make yoga optional', today: TODAY }))
+      expect(await screen.findByText('Here is how I would do it.')).toBeInTheDocument()
+    })
+
     it("sends a typed message, and shows the coach's one-off changes on the day with an undo", async () => {
       const { calls, user } = await openTrain({
         'GET /api/training/chat': { messages: [], busy: false },
@@ -2400,7 +2413,7 @@ describe('App', () => {
 
     it('explains how to start when there is no schema', async () => {
       await openTrain({ 'GET /api/training': training({ schema: null, week: null, sessions: [], strip: [], lifts: [] }) })
-      expect(await screen.findByText(/No training schema yet/)).toBeInTheDocument()
+      expect(await screen.findByText(/No training plan yet/)).toBeInTheDocument()
     })
   })
 })

@@ -8,6 +8,8 @@ import type { CoachMessage, TrainingDay } from '../../types.ts'
 
 interface CoachSheetProps {
   open: boolean
+  /** Asked as the coach opens. */
+  ask?: { text: string; n: number } | null
   onClose: () => void
   /** A change was applied or undone: the plan on screen fetches afresh. */
   onChanged: (day?: TrainingDay) => void
@@ -28,7 +30,7 @@ const STARTERS = [
  * it's going, get feedback, or ask for a change. A change comes back as a
  * card spelling out what it would do, applied only on Apply, and undoable.
  */
-export default function CoachSheet({ open, onClose, onChanged }: CoachSheetProps) {
+export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheetProps) {
   const [messages, setMessages] = useState<CoachMessage[]>([])
   const [draft, setDraft] = useState('')
   const [thinking, setThinking] = useState(false)
@@ -40,6 +42,17 @@ export default function CoachSheet({ open, onClose, onChanged }: CoachSheetProps
   }, [open])
 
   useEffect(() => { end.current?.scrollIntoView?.({ block: 'end' }) }, [messages, thinking])
+
+  // Asked from Block's box: sent as the sheet opens, once per ask.
+  const asked = useRef<number | null>(null)
+  useEffect(() => {
+    if (open && ask && asked.current !== ask.n) {
+      asked.current = ask.n
+      void send(ask.text)
+    }
+    // send is a fresh closure each render; the ask's number is what decides.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, ask?.n])
 
   const send = async (text: string): Promise<void> => {
     const message = text.trim()

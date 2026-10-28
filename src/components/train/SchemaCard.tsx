@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronUp, Sparkles } from 'lucide-react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api.ts'
 import type { GenerateStatus, SchemaOverview, TrainingDay } from '../../types.ts'
@@ -18,15 +18,15 @@ function span(o: SchemaOverview['lifts'][number], schema: SchemaOverview['schema
 }
 
 /**
- * The schema being followed: the whole thing week by week, and the next
- * one -- written by the local model from how this one went, then reviewed
- * here before it's followed.
+ * The plan being followed: the whole thing week by week, and the next
+ * block -- written by the local model from how this one went, then
+ * reviewed here before it's followed. Changes to this plan go through the
+ * coach; a rewrite from it is reviewed here too.
  */
 export default function SchemaCard({ day, onChanged }: SchemaCardProps) {
   const schema = day.schema!
   const [overview, setOverview] = useState<SchemaOverview | null>(null)
   const [showPlan, setShowPlan] = useState(false)
-  const [note, setNote] = useState('')
   const [gen, setGen] = useState<GenerateStatus | null>(null)
   const [draft, setDraft] = useState<SchemaOverview | null>(null)
   const [busy, setBusy] = useState(false)
@@ -57,13 +57,13 @@ export default function SchemaCard({ day, onChanged }: SchemaCardProps) {
 
   const generate = async (): Promise<void> => {
     try {
-      setGen(await api.generateSchema(note.trim() || undefined))
+      setGen(await api.generateSchema())
       const poll = (): void => {
         api.generation().then((s) => {
           setGen(s)
           if (s.status === 'running') timer.current = setTimeout(poll, POLL_MS)
-          else if (s.status === 'done') { toast.success('The next schema is ready to review'); onChanged() }
-          else if (s.status === 'error') toast.error(s.error ?? 'Couldn\'t write the next schema')
+          else if (s.status === 'done') { toast.success('The next block is ready to review'); onChanged() }
+          else if (s.status === 'error') toast.error(s.error ?? 'Couldn\'t write the next block')
         }, (err: Error) => toast.error(err.message))
       }
       timer.current = setTimeout(poll, POLL_MS)
@@ -105,9 +105,9 @@ export default function SchemaCard({ day, onChanged }: SchemaCardProps) {
 
   const running = gen?.status === 'running'
   return (
-    <section className="water-card" aria-label="Training schema">
+    <section className="water-card" aria-label="Training plan">
       <div className="water-head">
-        <span className="water-label">Schema</span>
+        <span className="water-label">Plan</span>
         <span className="water-goal">{schema.startDate} to {schema.endDate}</span>
       </div>
       <div className="schema-name">{schema.name}</div>
@@ -132,7 +132,7 @@ export default function SchemaCard({ day, onChanged }: SchemaCardProps) {
         </div>
       )}
 
-      <h3 className="sheet-h">Next schema</h3>
+      <h3 className="sheet-h">{day.draft?.rewriteFrom != null ? 'New version of this plan' : 'Next block'}</h3>
       {day.draft ? (
         <div className="draft">
           <div className="hint">
@@ -167,20 +167,11 @@ export default function SchemaCard({ day, onChanged }: SchemaCardProps) {
       ) : (
         <div className="generate">
           <div className="hint">
-            Your local model writes the next block from this one: what you lifted against the plan, what got skipped, your
-            new PRs and your equipment. You review it before it&apos;s followed.
+            When this block is done, your local model can write the next one from how it went: what you lifted, what got
+            skipped, your new PRs and what you told the coach. To change this plan now, ask the coach.
           </div>
-          <textarea
-            className="generate-note"
-            aria-label="Anything to change"
-            placeholder="Anything to change? (optional: more running, 5/3/1 for squats…)"
-            value={note}
-            maxLength={500}
-            onChange={(e) => setNote(e.target.value)}
-            disabled={running}
-          />
-          <button type="button" className="primary generate-btn" disabled={running} onClick={() => void generate()}>
-            {running ? <><span className="spinner" aria-hidden="true" /> Writing the next schema…</> : <><Sparkles size={15} aria-hidden="true" /> Write the next schema</>}
+          <button type="button" className="link-btn accent generate-link" disabled={running} onClick={() => void generate()}>
+            {running ? <><span className="spinner" aria-hidden="true" /> Writing the next block…</> : 'Write the next block'}
           </button>
           {gen?.status === 'error' && <div className="hint bad">{gen.error}</div>}
         </div>

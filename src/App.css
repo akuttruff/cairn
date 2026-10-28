@@ -1006,3 +1006,12 @@ button:disabled { opacity: 0.45; cursor: default; }
   flex: 0 0 auto; width: 40px; height: 40px; border-radius: 50%; border: none; background: var(--c-workout); color: var(--bg);
   display: flex; align-items: center; justify-content: center;
 }
+.coach-prompt textarea {
+  width: 100%; min-height: 64px; resize: none; padding: 10px 12px; border-radius: 10px; font: inherit; font-size: 15px; box-sizing: border-box;
+  background: var(--bg); border: 1px solid var(--line); color: var(--paper); margin-bottom: 8px;
+}
+.coach-prompt textarea:focus { outline: none; border-color: var(--moss-dim); }
+.coach-prompt .water-label { display: inline-flex; align-items: center; gap: 5px; }
+.generate-link { display: inline-flex; align-items: center; gap: 6px; padding-left: 0; margin-top: 4px; }
+.session-title .badge, .plan-item-name .badge { margin-left: 8px; vertical-align: middle; }
+.week-plan-session.optional { font-style: italic; opacity: 0.75; }

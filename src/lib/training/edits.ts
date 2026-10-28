@@ -128,6 +128,23 @@ export function reviseSchema(schema: TrainingSchema, edits: RevisionEdit[], curr
         if (moved.items.length) day.sessions.push(moved)
         break
       }
+      case 'setOptional': {
+        // Only how the day counts as done changes, so it holds for every week, trained or not.
+        if (e.sessionId) {
+          const at = findSession(e.sessionId)
+          if (!at) { errors.push(`setOptional: no session "${e.sessionId}"`); break }
+          const s = at.day.sessions[at.index]!
+          if (e.optional) s.optional = true
+          else delete s.optional
+        } else if (e.itemId) {
+          const at = findItem(e.itemId)
+          if (!at) { errors.push(`setOptional: no item "${e.itemId}"`); break }
+          const i = at.session.items[at.index]!
+          if (e.optional) i.optional = true
+          else delete i.optional
+        } else errors.push('setOptional: needs a sessionId or an itemId')
+        break
+      }
     }
   }
   out.days = out.days.filter((d) => d.sessions.length > 0)

@@ -38,7 +38,7 @@ export default function SessionCard({ date, session, kinds, onDay, onShuffle }: 
   return (
     <section className="water-card session-card" aria-label={session.title}>
       <div className="water-head">
-        <span className="session-title"><Icon size={16} aria-hidden="true" /> {session.title}</span>
+        <span className="session-title"><Icon size={16} aria-hidden="true" /> {session.title}{session.optional && <span className="badge">optional</span>}</span>
         <span className={`session-count${session.done ? ' done' : ''}`}>{done}/{session.items.length}</span>
       </div>
       {session.items.map((item) => <Item key={item.id} date={date} item={item} onDay={onDay} onShuffle={onShuffle} />)}
@@ -61,7 +61,7 @@ function Item({ date, item, onDay, onShuffle }: { date: string; item: ResolvedIt
   return (
     <div className={`plan-item${item.done ? ' done' : ''}`}>
       <div className="plan-item-head">
-        <span className="plan-item-name">{item.name}</span>
+        <span className="plan-item-name">{item.name}{item.optional && <span className="badge">optional</span>}</span>
         {item.type === 'minutes' && item.minutes !== undefined && <span className="plan-item-meta">{item.minutes} min</span>}
         {item.notes && (
           <button type="button" className="link-btn accent" aria-expanded={showNotes} onClick={() => setShowNotes((v) => !v)}>

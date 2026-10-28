@@ -42,6 +42,7 @@ Lasting changes to the plan from a week on (fromWeek defaults to the current wee
   { "op": "addSession", "weekday": 1-7 (7 = Sunday), "session": { "id", "title", "kind", "items": [Item] }, "fromWeek"?: n }
   { "op": "removeSession", "sessionId": id, "fromWeek"?: n }
   { "op": "moveSession", "sessionId": id, "toWeekday": 1-7, "fromWeek"?: n }
+  { "op": "setOptional", "sessionId"?: id, "itemId"?: id, "optional": true | false }   nice to do, not needed for the day to count as done
 A rewrite of the rest of the plan, when the person asks for one or for something bigger than a few edits:
   { "op": "rewrite", "instruction": "what to change, in a sentence or two", "fromWeek": n }   (alone, no other edits)
 Item = { "id": new unique id, "name", "lift"?: lift id, "notes"?, and exactly one of:
@@ -189,6 +190,11 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
     for (const s of now) {
       const old = was.find((x) => x.id === s.id)
       if (!old) continue
+      if (old.optional !== s.optional) lines.push(`${shortDate(d)}: ${s.title} ${s.optional ? 'is optional' : 'counts again'}`)
+      for (const i of s.items) {
+        const o = old.items.find((x) => x.id === i.id)
+        if (o && o.optional !== i.optional) lines.push(`${shortDate(d)} · ${i.name} ${i.optional ? 'is optional' : 'counts again'}`)
+      }
       const removed = old.items.filter((i) => !s.items.some((x) => x.id === i.id))
       const fresh = s.items.filter((i) => !old.items.some((x) => x.id === i.id))
       for (const i of s.items) {
@@ -223,7 +229,7 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
     const key = `${m[2]}${m[3]}`
     grouped.set(key, [...(grouped.get(key) ?? []), m[1]!])
   }
-  const joinDates = (ds: string[]): string => ds.map((d, i) => (i === 0 ? d : d.replace(/^\w{3}, /, ''))).join(', ')
+  const joinDates = (ds: string[]): string => (ds.length > 4 ? `From ${ds[0]} (${ds.length} days)` : ds.map((d, i) => (i === 0 ? d : d.replace(/^\w{3}, /, ''))).join(', '))
   const unique = [...new Set([...[...grouped].map(([key, ds]) => `${joinDates(ds)}${key}`), ...plain])]
   return unique.length > 14 ? [...unique.slice(0, 14), `…and ${unique.length - 14} more`] : unique
 }

@@ -98,6 +98,19 @@ describe('one-off changes', () => {
   })
 })
 
+describe('optional work', () => {
+  it("makes a session optional for every week, so the day counts as done without it", () => {
+    const checked = checkEdits(store.training, plan(), [{ op: 'setOptional', sessionId: 'wod-wed', optional: true }], MON, store.getSettings())
+    expect(checked.errors).toEqual([])
+    expect(previewEdits(store.training, plan(), checked, MON)).toEqual(['Wed, Nov 4, Nov 11, Nov 18, Nov 25: WOD is optional'])
+    store.training.revise(plan().id, checked.revised!, 'coach', null)
+    const wed = store.training.day(WED)
+    expect(wed.sessions.find((s) => s.id === 'wod-wed')).toMatchObject({ optional: true })
+    for (let i = 0; i < 2; i++) store.training.logSet({ date: WED, itemId: 'strict-press', setIndex: i, reps: 5, weight: 40 })
+    expect(store.training.day(WED).strip.find((d) => d.date === WED)!.sessions.map((s) => [s.id, s.done, s.optional ?? false])).toEqual([['press-day', true, false], ['wod-wed', false, true]])
+  })
+})
+
 describe('previews', () => {
   it('spells out a move and a lighter week from the days before and after, saving nothing', () => {
     const checked = checkEdits(store.training, plan(), [

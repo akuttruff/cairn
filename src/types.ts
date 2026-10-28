@@ -625,6 +625,8 @@ export interface TrainingItem {
   notes?: string
   /** Only in these weeks (inclusive); the item is absent the rest of the time. */
   onlyWeeks?: [number, number]
+  /** Nice to do, not part of what makes the day done. */
+  optional?: boolean
   // Exactly one of the following says what the item is.
   /** The same sets every week the item is on. */
   sets?: Prescription
@@ -640,6 +642,8 @@ export interface TrainingSession {
   title: string
   /** A workout activity from Settings; logging the session fills that activity's dot. */
   kind: string
+  /** Nice to do, not part of what makes the day done (yoga, say). */
+  optional?: boolean
   items: TrainingItem[]
 }
 
@@ -713,6 +717,7 @@ export interface ResolvedItem {
   lift?: string
   notes?: string
   type: 'sets' | 'check' | 'minutes' | 'wod'
+  optional?: boolean
   note?: string
   sets?: ResolvedSet[]
   minutes?: number
@@ -724,6 +729,7 @@ export interface ResolvedSession {
   id: string
   title: string
   kind: string
+  optional?: boolean
   items: ResolvedItem[]
   done: boolean
 }
@@ -742,7 +748,7 @@ export interface TrainingDay {
   /** One-off changes from the coach that touch this day: a session moved here or away, lighter weights, a stand-in. */
   adjustments: { id: string; text: string }[]
   /** The calendar week, Monday to Sunday, around `date`. */
-  strip: { date: string; sessions: { id: string; title: string; kind: string; done: boolean; started: boolean }[] }[]
+  strip: { date: string; sessions: { id: string; title: string; kind: string; done: boolean; started: boolean; optional?: boolean }[] }[]
   lifts: Lift[]
 }
 
@@ -825,10 +831,11 @@ export type PlanEdit =
   | { op: 'addSession'; weekday: number; session: TrainingSession; fromWeek?: number }
   | { op: 'removeSession'; sessionId: string; fromWeek?: number }
   | { op: 'moveSession'; sessionId: string; toWeekday: number; fromWeek?: number }
+  | { op: 'setOptional'; sessionId?: string; itemId?: string; optional: boolean; fromWeek?: number }
   | { op: 'rewrite'; instruction: string; fromWeek: number }
 
 export const OVERRIDE_OPS = ['move', 'skip', 'load', 'swap', 'equipment'] as const
-export const REVISION_OPS = ['replaceItem', 'addItem', 'removeItem', 'addSession', 'removeSession', 'moveSession'] as const
+export const REVISION_OPS = ['replaceItem', 'addItem', 'removeItem', 'addSession', 'removeSession', 'moveSession', 'setOptional'] as const
 
 export interface PlanProposal {
   edits: PlanEdit[]

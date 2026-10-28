@@ -111,7 +111,7 @@ export function cleanSchema(input: unknown, ctx: SchemaContext): { schema: Train
           if (prescriptionFor(item, testWeek as number, schemaish)?.sets.some((x) => x.test)) tested = true
         }
       })
-      if (title && typeof sid === 'string' && typeof rawSession.kind === 'string') sessions.push({ id: sid, title, kind: rawSession.kind, items })
+      if (title && typeof sid === 'string' && typeof rawSession.kind === 'string') sessions.push({ id: sid, title, kind: rawSession.kind, ...(rawSession.optional === true ? { optional: true } : {}), items })
     })
     days.push({ weekday: rawDay.weekday, sessions })
   })
@@ -125,6 +125,7 @@ export function cleanSchema(input: unknown, ctx: SchemaContext): { schema: Train
     const label = `${where} (${name ?? id})`
     if (!name) err(label, 'name is required')
     const item: TrainingItem = { id, name: name ?? id }
+    if (raw.optional === true) item.optional = true
     const notes = text(raw.notes, 1500)
     if (notes) item.notes = notes
     if (raw.lift !== undefined) {
