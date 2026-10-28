@@ -33,21 +33,28 @@ export function snapWeight(want: number, available: number[]): number {
 
 const subsOf = (m: Movement): Sub[] => (m.sub ? (Array.isArray(m.sub) ? m.sub : [m.sub]) : [])
 
-/** The movement as the gear allows: itself, or the first stand-in down its substitutions that can be done. */
+/** The movement as the gear allows: itself, or the closest stand-in down its substitutions that can be done. */
 function standIn(move: Movement, amount: number | undefined, weight: number | undefined, equipment: Pick<Equipment, 'gear'>, lowImpact: boolean, seen: Set<string>, cost = 0):
   { move: Movement; amount?: number; weight?: number; cost: number } | null {
   if (has(equipment, move) && !(lowImpact && move.impact)) return { move, amount, weight, cost }
   if (seen.size > 4) return null
+  let best: { move: Movement; amount?: number; weight?: number; cost: number } | null = null
   for (const s of subsOf(move)) {
     const next = MOVEMENT.get(s.to)
     if (!next || seen.has(next.id)) continue
     const a = amount === undefined ? undefined : Math.max(1, Math.round(amount * s.factor))
-    // A barbell's total becomes about a third of it in each hand; a bodyweight stand-in carries none.
-    const w = weight === undefined ? undefined : next.bells ? (move.bells ? weight : weight * 0.3) : undefined
+    // Between barbell and bells: a barbell's total is about a third in each hand, and a pair of bells about 2.5 times one
+    // of them on the bar (2×20 lb thrusters become 50 lb); a bodyweight stand-in carries none.
+    const toBar = next.needs.some((set) => set.includes('barbell'))
+    const w = weight === undefined ? undefined
+      : next.bells ? (move.bells ? weight : weight * 0.3)
+      : toBar && move.bells ? Math.max(45, Math.round((weight * 2.5) / 5) * 5)
+      : toBar ? weight : undefined
     const found = standIn(next, a, w, equipment, lowImpact, new Set([...seen, next.id]), cost + (s.cost ?? 3))
-    if (found) return found
+    // The cheapest route, not the first: bike to jump rope directly, rather than by way of a rower there isn't.
+    if (found && (!best || found.cost < best.cost)) best = found
   }
-  return null
+  return best
 }
 
 function place(part: WodPart, equipment: Pick<Equipment, 'gear' | 'dumbbells' | 'kettlebells'>, lowImpact: boolean): Placed | null {

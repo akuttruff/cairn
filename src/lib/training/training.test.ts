@@ -122,6 +122,17 @@ describe('the WOD bank', () => {
     expect(pressPairing).toMatchObject({ place: 'Living room', lines: ['10 DB push press (2×25 lb)', '12 cal bike', '10 V-ups'] })
   })
 
+  it('turns dumbbell lifts into the barbell version where the barbell is, at a matching load', () => {
+    const split = cleanEquipment({ places: [
+      { name: 'Living room', gear: ['bike', 'dumbbells'], dumbbells: [15, 20, 25, 30] },
+      { name: 'Garage', gear: ['barbell', 'plates', 'rack', 'pullup-bar', 'rings', 'bands', 'jump-rope'] },
+    ] })
+    // Fran: thrusters and ring rows are both in the garage, so it's done there rather than as DB rows in the living room.
+    expect(viewWod(WOD_BANK.find((w) => w.id === 'fran-ish')!, split)).toMatchObject({ place: 'Garage', lines: ['thrusters @ 50 lb', 'ring rows'] })
+    // The closest stand-in wins: bike calories become single-unders directly, so the barbell WOD stays in the garage.
+    expect(viewWod(WOD_BANK.find((w) => w.id === 'quick-cycle')!, split)!.place).toBe('Garage')
+  })
+
   it('leaves out WODs a schema hides', () => {
     const slot = { maxMinutes: 15, focus: ['upper' as const, 'bike' as const] }
     const all = fittingWods(slot, SAMPLE_EQUIPMENT).map((w) => w.id)
