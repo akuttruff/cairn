@@ -57,6 +57,9 @@ if (wrapped && raw.prs && typeof raw.prs === 'object') {
   }
 }
 if (wrapped && raw.weeklyPlan) {
-  store.setGoals({ workoutPlan: { ...store.getGoals().workoutPlan, ...(raw.weeklyPlan as WorkoutPlan) } })
+  // Only activities Settings has; one that was removed there (a run, say) is skipped.
+  const have = new Set(store.getSettings().workoutKinds.map((k) => k.id))
+  const wanted = Object.fromEntries(Object.entries(raw.weeklyPlan as WorkoutPlan).filter(([k]) => have.has(k)))
+  store.setGoals({ workoutPlan: { ...store.getGoals().workoutPlan, ...wanted } })
   console.log('set the weekly workout plan')
 }
