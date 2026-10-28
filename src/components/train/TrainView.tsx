@@ -21,6 +21,15 @@ import type { TrainingDay, WorkoutKindDef } from '../../types.ts'
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
 /** The shared top: no schema, or the fetch failed, or still loading. Null when there's a day to show. */
+/**
+ * The last day shown, kept in place (faded, and not tappable -- a tap would
+ * write to the new date) while the next one loads, so paging days doesn't
+ * flash an empty view.
+ */
+function Settling({ stale, children }: { stale: boolean; children: React.ReactNode }) {
+  return <div className={stale ? 'settling stale' : 'settling'} inert={stale} aria-busy={stale}>{children}</div>
+}
+
 function Pending({ training }: { training: TrainingState }) {
   if (training.error && !training.day) {
     return (
@@ -91,7 +100,7 @@ export function TrainToday({ date, training, onSelectDate, onLogged, onCoach }: 
 
   const today = localDate()
   return (
-    <>
+    <Settling stale={training.stale}>
       <section className="water-card train-head" aria-label="This week">
         <div className="water-head">
           <span className="water-label">{day.schema.name}</span>
@@ -148,7 +157,7 @@ export function TrainToday({ date, training, onSelectDate, onLogged, onCoach }: 
       {day.sessions.map((s) => (
         <SessionCard key={s.id} date={date} session={s} kinds={kinds} onDay={onDay} onShuffle={() => training.setShuffle(training.shuffle + 1)} />
       ))}
-    </>
+    </Settling>
   )
 }
 
@@ -233,11 +242,11 @@ export function TrainBlock({ date, training, onLogged, onCoach }: BlockProps) {
   const day = training.day
   if (!day?.schema) return <Pending training={training} />
   return (
-    <>
+    <Settling stale={training.stale}>
       <CoachPrompt onCoach={onCoach} />
       <LiftsCard date={date} day={day} onDay={(next) => { training.setDay(next); onLogged() }} />
       <ProgressCard />
       <SchemaCard day={day} onChanged={() => void training.refresh()} />
-    </>
+    </Settling>
   )
 }

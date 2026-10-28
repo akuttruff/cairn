@@ -3,7 +3,10 @@ import { api } from '../lib/api.ts'
 import type { TrainingDay } from '../types.ts'
 
 export interface TrainingState {
+  /** The day on screen: while another loads, still the last one (see `stale`), so paging days doesn't blank the view. */
   day: TrainingDay | null
+  /** `day` is an earlier date's, kept on screen until the asked-for one arrives. */
+  stale: boolean
   error: string | null
   /** Bumped by Shuffle, to be offered other WODs. */
   shuffle: number
@@ -41,5 +44,5 @@ export default function useTraining(date: string, active: boolean): TrainingStat
     setDay(next)
   }, [])
 
-  return { day: day?.date === date ? day : null, error, shuffle, setShuffle, setDay: put, refresh: load }
+  return { day, stale: !!day && day.date !== date, error, shuffle, setShuffle, setDay: put, refresh: load }
 }

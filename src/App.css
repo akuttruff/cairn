@@ -1054,3 +1054,5 @@ button:disabled { opacity: 0.45; cursor: default; }
 .move-body p { margin: 0 0 6px; }
 .move-body ul { margin: 0 0 6px; padding-left: 18px; }
 .move-meta { font-size: 12px; color: var(--paper-dim); }
+.settling { transition: opacity 0.15s ease; }
+.settling.stale { opacity: 0.55; transition-delay: 0.12s; }

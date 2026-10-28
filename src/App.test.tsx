@@ -2300,6 +2300,19 @@ describe('App', () => {
       expect(screen.getByText(/Hang from the bar with straight arms/)).toBeInTheDocument()
     })
 
+    it('keeps the day on screen, faded and untappable, while the next one loads', async () => {
+      let release!: () => void
+      const next = new Promise<TrainingDay>((r) => { release = () => r(training({ date: addDays(TODAY, 1) })) })
+      const { user } = await openTrain({ [`GET /api/day/${addDays(TODAY, 1)}`]: { ...day([]), date: addDays(TODAY, 1) }, [`GET /api/training?date=${addDays(TODAY, 1)}`]: () => next, 'GET /api/training': training() })
+      const legs = await screen.findByRole('region', { name: 'Legs' })
+      await user.click(screen.getByRole('button', { name: 'Next day' }))
+      // Still there, not blanked: the trackers below don't jump up into its place.
+      expect(screen.getByRole('region', { name: 'Legs' })).toBe(legs)
+      expect(legs.closest('.settling')).toHaveAttribute('aria-busy', 'true')
+      release()
+      await waitFor(() => expect(screen.getByRole('region', { name: 'Legs' }).closest('.settling')).toHaveAttribute('aria-busy', 'false'))
+    })
+
     it("shows the day's sessions set by set, and ticks a set with the planned numbers", async () => {
       const { calls, user } = await openTrain({ 'GET /api/training': training(), 'PUT /api/training/sets': { day: training(), newPr: null } })
       const legs = await screen.findByRole('region', { name: 'Legs' })
