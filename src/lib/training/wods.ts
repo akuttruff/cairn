@@ -193,4 +193,120 @@ export const WOD_BANK: Wod[] = [
     notes: 'Add 1 calorie each minute: 5 the first minute, 6 the second, until you can\'t finish one in the minute.',
     parts: [{ move: 'bike-cal', amount: 5 }],
   },
+  // --- Garage: barbell, rack, pull-up bar, rings, bands and a jump rope, no bike ---
+  {
+    id: 'grace-ish', name: 'Grace-ish', format: 'chipper', minutes: 8,
+    parts: [{ move: 'ground-to-overhead', amount: 30, weight: 65 }],
+  },
+  {
+    id: 'isabel-ish', name: 'Isabel-ish', format: 'chipper', minutes: 8,
+    parts: [{ move: 'hang-power-snatch', amount: 30, weight: 45 }],
+  },
+  {
+    id: 'deadlift-and-knees', name: 'Deadlift & Knees', format: 'ladder', scheme: [21, 15, 9], minutes: 10,
+    parts: [{ move: 'deadlift', weight: 115 }, { move: 'knees-to-chest' }],
+  },
+  {
+    id: 'helen-in-the-garage', name: 'Helen in the Garage', format: 'rft', rounds: 3, minutes: 14,
+    parts: [{ move: 'single-under', amount: 90 }, { move: 'sdhp', amount: 15, weight: 55 }, { move: 'banded-pull-up', amount: 12 }],
+  },
+  {
+    id: 'ring-cycle', name: 'Ring Cycle', format: 'emom', minutes: 16,
+    parts: [{ move: 'ring-row', amount: 8 }, { move: 'ring-dip', amount: 6 }, { move: 'single-under', amount: 40 }, { move: 'hollow-rock', amount: 10 }],
+  },
+  {
+    id: 'front-rack-and-rope', name: 'Front Rack & Rope', format: 'amrap', minutes: 12,
+    parts: [{ move: 'front-squat', amount: 8, weight: 75 }, { move: 'single-under', amount: 40 }],
+  },
+  {
+    id: 'squat-and-skip', name: 'Squat & Skip', format: 'emom', minutes: 10,
+    parts: [{ move: 'back-squat', amount: 5, weight: 95 }, { move: 'single-under', amount: 30 }],
+  },
+  {
+    id: 'dt-light', name: 'DT-light', format: 'rft', rounds: 5, minutes: 18,
+    parts: [{ move: 'deadlift', amount: 12, weight: 75 }, { move: 'hang-power-clean', amount: 9, weight: 75 }, { move: 'push-jerk', amount: 6, weight: 75 }],
+  },
+  {
+    id: 'overhead-ladder', name: 'Overhead Ladder', format: 'ladder', scheme: [15, 12, 9, 6, 3], minutes: 12,
+    parts: [{ move: 'overhead-squat', weight: 45 }, { move: 'banded-pull-up' }],
+  },
+  {
+    id: 'clean-rope-burpee', name: 'Clean, Rope, Burpee', format: 'intervals', minutes: 16,
+    text: '4 rounds: 3 min work, 1 min rest. In each 3 min, as many rounds as you can of:',
+    parts: [{ move: 'power-clean', amount: 5, weight: 75 }, { move: 'single-under', amount: 30 }, { move: 'burpee', amount: 5 }],
+  },
+  {
+    id: 'bar-rows-and-press', name: 'Bar Rows & Press', format: 'amrap', minutes: 15,
+    parts: [{ move: 'barbell-row', amount: 10, weight: 75 }, { move: 'strict-press', amount: 8, weight: 55 }, { move: 'toes-to-bar', amount: 8 }],
+  },
+  {
+    id: 'lunge-and-hang', name: 'Lunge & Hang', format: 'rft', rounds: 4, minutes: 16,
+    parts: [{ move: 'barbell-lunge', amount: 10, weight: 75 }, { move: 'knees-to-chest', amount: 10 }, { move: 'single-under', amount: 50 }],
+  },
+  {
+    id: 'garage-chipper', name: 'Garage Chipper', format: 'chipper', minutes: 25,
+    parts: [
+      { move: 'single-under', amount: 100 }, { move: 'air-squat', amount: 50 }, { move: 'ring-row', amount: 40 },
+      { move: 'deadlift', amount: 30, weight: 95 }, { move: 'banded-pull-up', amount: 20 }, { move: 'thruster', amount: 10, weight: 65 },
+    ],
+  },
+
+  // --- Living room: the bike, dumbbell pairs to 30 lb, a mat ---
+  {
+    id: 'dumbbell-dt', name: 'Dumbbell DT', format: 'rft', rounds: 5, minutes: 15,
+    parts: [{ move: 'db-deadlift', amount: 12, weight: 30 }, { move: 'db-hang-clean', amount: 9, weight: 25 }, { move: 'db-push-press', amount: 6, weight: 25 }],
+  },
+  {
+    id: 'sprint-and-squat', name: 'Sprint & Squat', format: 'intervals', minutes: 15,
+    text: '5 rounds: 1 min hard on the bike, then:',
+    parts: [{ move: 'goblet-squat', amount: 12, weight: 25 }, { move: 'push-up', amount: 10 }],
+  },
+  {
+    id: 'living-room-murph', name: 'Living-room Murph-lite', format: 'chipper', minutes: 25,
+    parts: [
+      { move: 'bike-cal', amount: 20 }, { move: 'db-row', amount: 40, weight: 20 }, { move: 'push-up', amount: 40 },
+      { move: 'air-squat', amount: 80 }, { move: 'bike-cal', amount: 20 },
+    ],
+  },
+  {
+    id: 'devil-ladder', name: 'Devil Ladder', format: 'ladder', scheme: [10, 8, 6, 4, 2], minutes: 12,
+    parts: [{ move: 'devil-press', weight: 20 }, { move: 'bike-cal' }],
+  },
+  {
+    id: 'lunge-and-spin', name: 'Lunge & Spin', format: 'amrap', minutes: 14,
+    parts: [{ move: 'db-reverse-lunge', amount: 12, weight: 20 }, { move: 'bike-cal', amount: 12 }, { move: 'hollow-rock', amount: 12 }],
+  },
+  {
+    id: 'clean-and-jerk-emom', name: 'Clean & Jerk EMOM', format: 'emom', minutes: 12,
+    parts: [{ move: 'db-clean-jerk', amount: 6, weight: 25 }, { move: 'bike-cal', amount: 12 }],
+  },
+  {
+    id: 'hinge-and-row', name: 'Hinge & Row', format: 'rft', rounds: 4, minutes: 16,
+    parts: [{ move: 'db-rdl', amount: 12, weight: 30 }, { move: 'db-row', amount: 12, weight: 25 }, { move: 'bike-cal', amount: 12 }],
+  },
+  {
+    id: 'overhead-burn', name: 'Overhead Burn', format: 'amrap', minutes: 10,
+    parts: [{ move: 'db-overhead-squat', amount: 10, weight: 20 }, { move: 'bike-cal', amount: 10 }, { move: 'hollow-rock', amount: 10 }],
+  },
+  {
+    id: 'thirty-thirty', name: 'Thirty-Thirty', format: 'intervals', minutes: 20,
+    text: '10 rounds: 30 s all out on the bike, 30 s easy. Then 3 rounds of:',
+    parts: [{ move: 'db-floor-press', amount: 15, weight: 25 }, { move: 'glute-bridge', amount: 20 }, { move: 'plank', amount: 45 }],
+  },
+  {
+    id: 'snatch-ladder', name: 'Snatch Ladder', format: 'ladder', scheme: [20, 16, 12, 8, 4], minutes: 14,
+    parts: [{ move: 'db-snatch', weight: 25 }, { move: 'bike-cal' }],
+  },
+  {
+    id: 'man-maker-ride', name: 'Man Maker Ride', format: 'rft', rounds: 5, minutes: 18,
+    parts: [{ move: 'man-maker', amount: 5, weight: 20 }, { move: 'bike-cal', amount: 15 }, { move: 'sit-up', amount: 15 }],
+  },
+  {
+    id: 'push-pull-legs', name: 'Push, Pull, Legs', format: 'emom', minutes: 18,
+    parts: [{ move: 'db-strict-press', amount: 10, weight: 20 }, { move: 'db-row', amount: 12, weight: 25 }, { move: 'goblet-squat', amount: 15, weight: 30 }],
+  },
+  {
+    id: 'high-pull-ride', name: 'High Pull Ride', format: 'amrap', minutes: 20,
+    parts: [{ move: 'db-high-pull', amount: 15, weight: 20 }, { move: 'db-thruster', amount: 12, weight: 20 }, { move: 'bike-cal', amount: 15 }],
+  },
 ]
