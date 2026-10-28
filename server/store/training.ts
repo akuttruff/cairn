@@ -19,8 +19,7 @@ import { ValidationError } from './clean.ts'
  * at a time; a generated one waits as a draft until it's reviewed. Sets are
  * logged by (date, item, set number), and a session's first logged set
  * also logs the session itself in the ordinary workout log, so the Day
- * view's activity dots and the training-day carbs follow without a second
- * tap.
+ * view's activity dots follow without a second tap.
  */
 
 interface SchemaRow {

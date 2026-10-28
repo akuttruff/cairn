@@ -53,7 +53,7 @@ const log = (date: string, meal: Meal, name: string, grams: number): void => {
   store.addEntry({ date, meal, name, brand: f.brand, grams, per100g: f.per100g, source: 'custom' })
 }
 
-// A week of meals, today first. Today is a training day with a full log; the others vary.
+// A week of meals, today first. Today has a full log; the others vary.
 const MENUS: [string, Meal, number][][] = [
   [['Greek yogurt, plain', 'breakfast', 170], ['Blueberries', 'breakfast', 100], ['Granola', 'breakfast', 40], ['Chicken breast, grilled', 'lunch', 150], ['Brown rice, cooked', 'lunch', 180], ['Black beans', 'lunch', 90], ['Salmon, baked', 'dinner', 150], ['Sweet potato, roasted', 'dinner', 200], ['Broccoli, steamed', 'dinner', 120], ['Apple', 'snack', 180], ['Almonds', 'snack', 28]],
   [['Rolled oats', 'breakfast', 60], ['Banana', 'breakfast', 118], ['Turkey sandwich', 'lunch', 230], ['Tofu stir-fry', 'dinner', 350], ['Dark chocolate', 'snack', 20]],
@@ -72,7 +72,7 @@ const WATER = [[32, 32, 16], [32, 32, 32], [32, 32, 16], [32, 32, 32], [32, 32, 
 for (let back = 0; back < 14; back++) for (const ounces of WATER[back % WATER.length]!) store.addWater(day(back), ounces)
 
 // A training plan, made up for the demo: eight weeks, now in its third, with the sets done so far logged
-// (logging a session's sets is what fills its workout dot and marks the training day).
+// (logging a session's sets is what fills its workout dot).
 const monday = addDays(today, 1 - weekdayOf(today))
 const start = addDays(monday, -14)
 const minutes = (list: number[]): Record<string, number> => Object.fromEntries(list.map((m, i) => [String(i + 1), m]))
@@ -183,6 +183,6 @@ store.setSettings({ lmStudioUrl: 'http://127.0.0.1:1234', researchModel: 'qwen/q
 const note = (start: string, end: string, text: string): void => store.saveNotes(start, end, fingerprint(store.getRange(start, end)), text, 'qwen/qwen3.5-9b')
 const sunday = addDays(today, -new Date(`${today}T12:00:00`).getDay())
 note(addDays(sunday, -7), addDays(sunday, -1), 'A steady week: protein landed within a few grams of the goal every day, and fiber cleared it on all seven. Calories ran under the ceiling on the rest days and right at it on the two lifting days, which is the shape you want.\n\nWater was the weak spot, with three days under 80 oz. The dog walks and the two yoga sessions kept the rest days from being sedentary.')
-note(sunday, addDays(sunday, 6), 'One day in, and it is a good one: a training day with the carbs spent before the lift, protein three grams short, fiber met. Keep the second bottle of water earlier in the afternoon.')
+note(sunday, addDays(sunday, 6), 'One day in, and it is a good one: under the calorie cap, protein three grams short, fat and fiber met. Keep the second bottle of water earlier in the afternoon.')
 note(`${today.slice(0, 7)}-01`, addDays(`${today.slice(0, 7)}-01`, 30), 'Fourteen days logged this month. The pattern is clear and worth keeping: protein on target, fiber comfortably over, calories under on rest days. The lifting days are the only ones that press the calorie ceiling, and they should.')
 console.log(`seeded ${dir} for ${day(6)} to ${today}`)

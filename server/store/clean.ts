@@ -1,5 +1,5 @@
-import { NUTRIENTS, WORKOUT_ICONS, DAY_TYPES } from '../../src/types.ts'
-import type { Amount, BodyMetric, DayType, FoodSource, Nutrients, PerServing, SourceLink, WorkoutKindDef, WorkoutPlan } from '../../src/types.ts'
+import { NUTRIENTS, WORKOUT_ICONS } from '../../src/types.ts'
+import type { Amount, BodyMetric, FoodSource, Nutrients, PerServing, SourceLink, WorkoutKindDef, WorkoutPlan } from '../../src/types.ts'
 
 // ---------------------------------------------------------------------------
 // Validating what a client sends
@@ -71,13 +71,6 @@ export function cleanGoalNumber(input: unknown, label: string, max = 100_000): n
     throw new ValidationError(`goal ${label} must be a non-negative number`)
   }
   return input
-}
-
-export function cleanDayType(input: unknown): DayType {
-  if (!(DAY_TYPES as readonly string[]).includes(input as string)) {
-    throw new ValidationError(`dayType must be one of ${DAY_TYPES.join(', ')}`)
-  }
-  return input as DayType
 }
 
 export function cleanPerServing(input: unknown): PerServing | undefined {
@@ -161,7 +154,7 @@ export function cleanWorkoutKinds(input: unknown): WorkoutKindDef[] {
     if (!(WORKOUT_ICONS as readonly string[]).includes(String(k.icon))) {
       throw new ValidationError(`activity ${id}: icon must be one of ${WORKOUT_ICONS.join(', ')}`)
     }
-    return { id, label, icon: k.icon as WorkoutKindDef['icon'], training: k.training === true }
+    return { id, label, icon: k.icon as WorkoutKindDef['icon'] }
   })
 }
 

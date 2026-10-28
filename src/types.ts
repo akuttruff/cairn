@@ -2,6 +2,9 @@
 
 export const NUTRIENTS = ['calories', 'protein', 'fat', 'carbs', 'fiber'] as const
 export type NutrientKey = (typeof NUTRIENTS)[number]
+/** The nutrients with a goal: carbs are counted but not judged. */
+export const GOAL_NUTRIENTS = ['calories', 'protein', 'fat', 'fiber'] as const
+export type GoalKey = (typeof GOAL_NUTRIENTS)[number]
 
 /**
  * Nutrient amounts. `null` means unknown -- the source did not report it --
@@ -95,9 +98,6 @@ export interface Amount {
   unitGrams: number | null
 }
 
-export const DAY_TYPES = ['training', 'rest'] as const
-export type DayType = (typeof DAY_TYPES)[number]
-
 /**
  * A target as a band with a bottom and a top. Today's goals are single
  * numbers, so min and max are equal; the shape stays so the bars and charts
@@ -109,23 +109,18 @@ export interface MacroRange {
 }
 
 /**
- * What Settings edits: one base set of macros for every day, plus the extra
- * carbs a training day adds on top. Which days are training days is ticked
- * off day by day in Day view. There is no stored calorie goal -- see
- * ResolvedGoals for why, and resolveGoals() in lib/nutrition.ts for the math.
+ * What Settings edits. The nutrition goals are floors and a cap: protein,
+ * fat and fiber each have a daily minimum to reach, and calories a daily
+ * maximum to stay under. Carbs are counted but have no goal.
  */
 export interface Goals {
-  /** Grams per day, every day. */
+  /** Calories per day, at most. */
+  calories: number
+  /** Grams per day, at least. */
   protein: number
   fat: number
-  carbs: number
-  /** Grams of fast carbs a training day adds (before the workout): 35 g is about 140 kcal. */
-  trainingCarbs: number
-  /** Calories allowed on top of what the macros add up to, every day -- room for the odd extra. */
-  calorieBuffer: number
-  /** Grams per day, the same on any day type. */
   fiber: number
-  /** Ounces per day, the same on any day type; tea counts toward it. */
+  /** Ounces per day; tea counts toward it. */
   water: number
   /** Standard drinks per calendar week (Sunday-start), not per day -- see DayView.alcohol. */
   alcoholWeekly: number
@@ -145,17 +140,13 @@ export interface Goals {
 }
 
 /**
- * One day's goals, resolved to concrete numbers a day or range view can
- * compare a total against: the base macros, plus the carb bump on a training
- * day. Calories are computed from them (4 kcal/g protein and carbs, 9 kcal/g
- * fat) by resolveGoals(), never stored on their own -- so they can never
- * disagree with what the macros actually add up to, the way a hand-typed
- * calorie goal could. Each is a MacroRange with min = max.
+ * The goals as a day or range view compares totals against them: a cap on
+ * calories and floors on protein, fat and fiber, as MacroRanges (min = max)
+ * so the bars and charts can draw them. Carbs have none.
  */
 export interface ResolvedGoals {
   calories: MacroRange
   protein: MacroRange
-  carbs: MacroRange
   fat: MacroRange
   fiber: number
   water: number
@@ -207,24 +198,22 @@ export type WorkoutIcon = (typeof WORKOUT_ICONS)[number]
 /**
  * One kind of workout, as set up in Settings. `id` is what sessions and
  * plans are stored under and never changes once logs carry it; `label` and
- * `icon` are how it shows. `training`: logging one ticks the day as a
- * training day (the extra carbs apply).
+ * `icon` are how it shows.
  */
 export interface WorkoutKindDef {
   id: string
   label: string
   icon: WorkoutIcon
-  training: boolean
 }
 
 /** The activities Cairn starts with; Settings can change, add to or remove them. */
 export const DEFAULT_WORKOUT_KINDS: WorkoutKindDef[] = [
-  { id: 'wod', label: 'WOD', icon: 'flame', training: true },
-  { id: 'weightlifting', label: 'Lifting', icon: 'dumbbell', training: true },
-  { id: 'run', label: 'Run', icon: 'footprints', training: false },
-  { id: 'cycling', label: 'Cycling', icon: 'bike', training: false },
-  { id: 'yoga', label: 'Yoga', icon: 'sparkles', training: false },
-  { id: 'pilates', label: 'Pilates', icon: 'person-standing', training: false },
+  { id: 'wod', label: 'WOD', icon: 'flame' },
+  { id: 'weightlifting', label: 'Lifting', icon: 'dumbbell' },
+  { id: 'run', label: 'Run', icon: 'footprints' },
+  { id: 'cycling', label: 'Cycling', icon: 'bike' },
+  { id: 'yoga', label: 'Yoga', icon: 'sparkles' },
+  { id: 'pilates', label: 'Pilates', icon: 'person-standing' },
 ]
 /** The ids of those, for anything that needs a kind without the settings in hand. */
 export const WORKOUT_KINDS: readonly string[] = DEFAULT_WORKOUT_KINDS.map((k) => k.id)
@@ -235,11 +224,7 @@ export type WorkoutKind = string
 /** Sessions of each kind to aim for in a week, by kind id; 0 for a kind that isn't in the plan. */
 export type WorkoutPlan = Record<WorkoutKind, number>
 
-/**
- * One workout session. Logging a WOD or weightlifting session also ticks
- * the day as a training day (see Store.addWorkout), since that is what the
- * box means; the box can still be unticked by hand.
- */
+/** One workout session. */
 export interface WorkoutLog {
   id: string
   date: string
@@ -270,8 +255,7 @@ export interface DogWalkLog {
 export interface DayView extends DayTotals {
   date: string
   entries: Entry[]
-  dayType: DayType
-  /** This day's goals, resolved from whichever of Goals.training/rest matches dayType -- see ResolvedGoals. */
+  /** The goals this day is judged against -- see ResolvedGoals. */
   goals: ResolvedGoals
   water: {
     /** Total logged for this day, tea included. */
@@ -360,8 +344,7 @@ export interface DaySummary extends DayTotals {
   date: string
   /** How many things were logged this day, so an empty day reads as "not logged" rather than "ate nothing". */
   entryCount: number
-  dayType: DayType
-  /** This day's own goals (training or rest): what its totals are judged against, never a blend. */
+  /** The goals its totals are judged against. */
   goals: ResolvedGoals
   water: number
   alcohol: number
@@ -373,8 +356,8 @@ export interface DaySummary extends DayTotals {
   dogMiles: number
 }
 
-/** Per nutrient, how many of the range's logged days met that day's own goal -- see goalMet() in lib/nutrition.ts. */
-export type Scorecard = Record<NutrientKey, { met: number; of: number }>
+/** Per nutrient with a goal, how many of the range's logged days met it -- see goalMet() in lib/nutrition.ts. */
+export type Scorecard = Record<GoalKey, { met: number; of: number }>
 
 /**
  * A week or month at a glance: one summary per calendar day, plus totals and
@@ -386,19 +369,14 @@ export type Scorecard = Record<NutrientKey, { met: number; of: number }>
  * like a real zero-calorie day. Water, drinks and meditation average over
  * every finished day: whether you drank water is not conditional on eating.
  *
- * Training and rest days have different goals, so a range never judges a
- * day against an average: `scorecard` counts, per nutrient, the logged days
- * that met their own day's goal, and each DaySummary carries the goals it
- * was judged by. `goals` is the blend across the range's mix of day types
- * (see blendGoals()) -- a reference for the water card and the like, not a
- * target any one day had.
+ * A range never judges a day against an average: `scorecard` counts, per
+ * nutrient with a goal, the logged days that met it.
  */
 export interface RangeView {
   start: string
   end: string
   days: DaySummary[]
   goals: ResolvedGoals
-  dayTypes: Record<DayType, number>
   scorecard: Scorecard
   /** Which daily charts to draw, from Settings. */
   charts: ChartKey[]

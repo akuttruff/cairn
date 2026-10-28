@@ -73,18 +73,17 @@ CREATE TABLE IF NOT EXISTS meal_preset_items (
 );
 
 CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY CHECK (id = 1),
-  base_protein REAL NOT NULL, base_fat REAL NOT NULL, base_carbs REAL NOT NULL, training_carbs REAL NOT NULL,
+  base_protein REAL NOT NULL, base_fat REAL NOT NULL, base_carbs REAL NOT NULL DEFAULT 0, training_carbs REAL NOT NULL DEFAULT 0,
   fiber REAL NOT NULL, water_ounces REAL NOT NULL DEFAULT 72, alcohol_weekly REAL NOT NULL DEFAULT 7,
   workouts_weekly REAL NOT NULL DEFAULT 4, meditation_minutes REAL NOT NULL DEFAULT 10,
   calorie_buffer REAL NOT NULL DEFAULT 100, workout_plan TEXT, training_water REAL NOT NULL DEFAULT 32,
-  dog_walks REAL NOT NULL DEFAULT 2, walk_miles REAL NOT NULL DEFAULT 1);
+  dog_walks REAL NOT NULL DEFAULT 2, walk_miles REAL NOT NULL DEFAULT 1, max_calories REAL NOT NULL DEFAULT 1800);
 CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK (id = 1),
   usda_api_key TEXT NOT NULL DEFAULT '', lm_studio_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:1234',
   lm_studio_token TEXT NOT NULL DEFAULT '', research_model TEXT NOT NULL DEFAULT '', auto_lookup INTEGER NOT NULL DEFAULT 1,
   app_icon TEXT NOT NULL DEFAULT 'ring', charts TEXT, workout_kinds TEXT);
 
--- No row for a date means a rest day (see getDayType): only the days you
--- tick as training days get a row.
+-- Training days, as they were once ticked; nothing reads it since goals stopped varying by day (version 22).
 CREATE TABLE IF NOT EXISTS day_types (date TEXT PRIMARY KEY, type TEXT NOT NULL CHECK (type IN ('training','rest')));
 
 CREATE TABLE IF NOT EXISTS water_logs (
@@ -226,7 +225,7 @@ function migrateSchema(db: DatabaseSync): void {
     // ones before them: SQLite can't drop a column without a rebuild).
     const defaults: [string, number][] = [
       ['base_protein', DEFAULT_GOALS.protein], ['base_fat', DEFAULT_GOALS.fat],
-      ['base_carbs', DEFAULT_GOALS.carbs], ['training_carbs', DEFAULT_GOALS.trainingCarbs],
+      ['base_carbs', 160], ['training_carbs', 35],
     ]
     for (const [column, value] of defaults) {
       if (!has(column)) db.exec(`ALTER TABLE goals ADD COLUMN ${column} REAL NOT NULL DEFAULT ${value}`)
@@ -244,7 +243,7 @@ function migrateSchema(db: DatabaseSync): void {
   if (version < 6) {
     const cols = db.prepare('PRAGMA table_info(goals)').all() as { name: string }[]
     if (!cols.some((c) => c.name === 'calorie_buffer')) {
-      db.exec(`ALTER TABLE goals ADD COLUMN calorie_buffer REAL NOT NULL DEFAULT ${DEFAULT_GOALS.calorieBuffer}`)
+      db.exec('ALTER TABLE goals ADD COLUMN calorie_buffer REAL NOT NULL DEFAULT 100')
     }
     db.exec('PRAGMA user_version = 6')
   }
@@ -346,5 +345,18 @@ function migrateSchema(db: DatabaseSync): void {
     const cols = db.prepare('PRAGMA table_info(training_chat)').all() as { name: string }[]
     if (!cols.some((c) => c.name === 'image')) db.exec('ALTER TABLE training_chat ADD COLUMN image TEXT')
     db.exec('PRAGMA user_version = 21')
+  }
+  if (version < 22) {
+    // Goals became floors (protein, fat, fiber) and a calorie cap, the same every day. The cap starts
+    // where a rest day's was: what the macros added up to, plus the buffer. Carbs, the training-day
+    // carbs, the buffer and day_types stay behind, unused.
+    const cols = db.prepare('PRAGMA table_info(goals)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'max_calories')) {
+      db.exec('ALTER TABLE goals ADD COLUMN max_calories REAL NOT NULL DEFAULT 1800')
+      if (cols.some((c) => c.name === 'base_carbs') && cols.some((c) => c.name === 'calorie_buffer')) {
+        db.exec('UPDATE goals SET max_calories = ROUND(base_protein * 4 + base_carbs * 4 + base_fat * 9 + calorie_buffer)')
+      }
+    }
+    db.exec('PRAGMA user_version = 22')
   }
 }

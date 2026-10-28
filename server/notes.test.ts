@@ -5,7 +5,7 @@ import type { RangeView, Settings } from '../src/types.ts'
 
 const ZERO = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 }
 const GOALS = {
-  calories: { min: 1850, max: 1850 }, protein: { min: 130, max: 130 }, fat: { min: 50, max: 50 }, carbs: { min: 165, max: 165 },
+  calories: { min: 1850, max: 1850 }, protein: { min: 130, max: 130 }, fat: { min: 50, max: 50 },
   fiber: 25, water: 96, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1,
 } as RangeView['goals']
 const PLAN = { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 0, pilates: 0 }
@@ -15,12 +15,12 @@ function week(over: Partial<RangeView> = {}): RangeView {
   const days = Array.from({ length: 7 }, (_, i) => ({
     date: `2026-10-0${5 + i > 9 ? '' : ''}${String(5 + i).padStart(2, '0')}`.replace('2026-10-0', '2026-10-'),
     entryCount: i < 3 ? 2 : 0, water: i < 3 ? 80 : 0, alcohol: i === 4 ? 2 : 0, workouts: i === 1 ? 1 : 0, workoutMinutes: 0,
-    meditationMinutes: 0, dogWalks: 0, dogMiles: 0, dayType: (i === 1 ? 'training' : 'rest') as 'training' | 'rest',
+    meditationMinutes: 0, dogWalks: 0, dogMiles: 0,
     goals: GOALS, missing: ZERO, totals: i < 3 ? { calories: 1800, protein: 120 + i, fat: 55, carbs: 150, fiber: 22 } : ZERO,
   }))
   return {
-    start: '2026-10-05', end: '2026-10-11', days, goals: GOALS, dayTypes: { training: 1, rest: 6 },
-    scorecard: { calories: { met: 3, of: 3 }, protein: { met: 0, of: 3 }, fat: { met: 3, of: 3 }, carbs: { met: 3, of: 3 }, fiber: { met: 0, of: 3 } },
+    start: '2026-10-05', end: '2026-10-11', days, goals: GOALS,
+    scorecard: { calories: { met: 3, of: 3 }, protein: { met: 0, of: 3 }, fat: { met: 3, of: 3 }, fiber: { met: 0, of: 3 } },
     charts: ['calories'], totalDays: 7, loggedDays: 3, averagedDays: 3, totals: ZERO, averages: { calories: 1800, protein: 121, fat: 55, carbs: 150, fiber: 22 },
     water: { total: 240, average: 80, met: 0, of: 3 }, alcohol: { total: 2, average: 0.3, calories: 250, byKind: { beer: 0, wine: 2, liquor: 0 } },
     workouts: { sessions: 1, days: 1, minutes: 0, kinds: DEFAULT_WORKOUT_KINDS, byKind: { ...NONE, wod: 1 }, goalByKind: PLAN, goal: 4 },
@@ -38,18 +38,18 @@ describe('notes on a week or month', () => {
     const input = notesInput(week(), '2026-10-20')
     expect(input).toMatch(/^Week: 2026-10-05 to 2026-10-11\. Logged 3 of 7 days/)
     expect(input).toMatch(/This week is over/)
-    expect(input).toMatch(/protein min 130 g, fat min 50 g, carbs max 165 g/)
+    expect(input).toMatch(/calories max 1850, protein min 130 g, fat min 50 g, fiber min 25 g \(carbs are counted but have no goal\)/)
     expect(input).toMatch(/Goal days met: calories 3\/3, protein 0\/3/)
-    expect(input).toMatch(/2026-10-05 rest: 1800\/120\/55\/150\/22/)
-    expect(input).toMatch(/2026-10-11 rest: nothing logged/)
+    expect(input).toMatch(/2026-10-05: 1800\/120\/55\/150\/22/)
+    expect(input).toMatch(/2026-10-11: nothing logged/)
   })
 
   it('marks the days still ahead, and says the weekly targets are not final yet', () => {
     const input = notesInput(week(), '2026-10-09')
     expect(input).toMatch(/Today is 2026-10-09\. This week is still under way: 2 days still ahead/)
-    expect(input).toMatch(/2026-10-10 rest: still ahead/)
-    expect(input).toMatch(/2026-10-11 rest: still ahead/)
-    expect(input).toMatch(/2026-10-08 rest: nothing logged/)
+    expect(input).toMatch(/2026-10-10: still ahead/)
+    expect(input).toMatch(/2026-10-11: still ahead/)
+    expect(input).toMatch(/2026-10-08: nothing logged/)
     expect(input).toMatch(/with 2 days left to reach it/)
   })
 

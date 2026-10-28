@@ -42,16 +42,13 @@ export default function SettingsSheet({ open, session, onClose, onSaved }: Setti
 }
 
 /** The number fields, as typed; each is parsed and checked on every render. */
-type NumberField = 'protein' | 'fat' | 'carbs' | 'trainingCarbs' | 'calorieBuffer' | 'fiber' | 'water' | 'alcoholWeekly' | 'meditationMinutes' | 'dogWalks' | 'walkMiles'
+type NumberField = 'calories' | 'protein' | 'fat' | 'fiber' | 'water' | 'alcoholWeekly' | 'meditationMinutes' | 'dogWalks' | 'walkMiles'
 const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
-  // Each says which way it points: a min to reach, or a max to stay under.
+  // The two-by-two grid: a cap on calories, and the floors to reach every day.
+  { key: 'calories', label: 'Calories (kcal, max)' },
   { key: 'protein', label: 'Protein (g, min)' },
   { key: 'fat', label: 'Fat (g, min)' },
-  { key: 'carbs', label: 'Carbs (g, max)' },
-  // With the macros, filling the two-by-two grid: a minimum to reach, the same on any day.
   { key: 'fiber', label: 'Fiber (g, min)' },
-  { key: 'trainingCarbs', label: 'Extra carbs on training days (g)', hint: 'Fast carbs before the workout; 35 g is about 140 kcal. Tick a day as a training day in Day view.' },
-  { key: 'calorieBuffer', label: 'Calorie buffer (kcal)', hint: 'Added to the calorie goal every day, on top of what the macros add up to.' },
   { key: 'water', label: 'Water (oz)', hint: 'The same every day; mugs of tea count. 72 is two 32oz bottles and a mug.' },
   { key: 'alcoholWeekly', label: 'Alcohol (drinks per week)', hint: 'A weekly cap, not a daily one -- shown against the running total for the week.' },
   { key: 'meditationMinutes', label: 'Meditation (minutes per day)', hint: 'Sits are 25 minutes each, so 50 is two a day.' },
@@ -92,9 +89,6 @@ function refreshIconLinks(): void {
   })
 }
 
-/** Calories the macros add up to at 4/4/9 -- the same math as resolveGoals(), for a live preview. */
-const kcal = (protein: number, fat: number, carbs: number, buffer = 0): number => Math.round(protein * 4 + carbs * 4 + fat * 9 + buffer)
-
 function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [drafts, setDrafts] = useState<Record<NumberField, string> | null>(null)
   const [key, setKey] = useState('')
@@ -125,8 +119,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     api.goals().then((g) => {
       setGoals(g)
       setDrafts({
-        protein: String(g.protein), fat: String(g.fat), carbs: String(g.carbs), trainingCarbs: String(g.trainingCarbs), calorieBuffer: String(g.calorieBuffer),
-        fiber: String(g.fiber), water: String(g.water), alcoholWeekly: String(g.alcoholWeekly),
+        calories: String(g.calories), protein: String(g.protein), fat: String(g.fat), fiber: String(g.fiber), water: String(g.water), alcoholWeekly: String(g.alcoholWeekly),
         meditationMinutes: String(g.meditationMinutes),
         dogWalks: String(g.dogWalks), walkMiles: String(g.walkMiles),
       })
@@ -164,7 +157,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const setKind = (i: number, patch: Partial<KindRow>): void =>
     setKinds((rows) => rows && rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   const addKind = (): void =>
-    setKinds((rows) => [...(rows ?? []), { id: '', label: '', icon: 'activity', training: false, isNew: true, perWeek: '0' }])
+    setKinds((rows) => [...(rows ?? []), { id: '', label: '', icon: 'activity', isNew: true, perWeek: '0' }])
   const removeKind = (i: number): void => setKinds((rows) => rows && rows.filter((_, j) => j !== i))
   // A row's problems, if any: a label it needs, or a count that isn't a whole number 0-14.
   const kindProblem = (r: KindRow): string | null => {
@@ -183,8 +176,6 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     || (key === 'dogWalks' && (!Number.isInteger(v) || v > 20)) || (key === 'walkMiles' && (v === 0 || v > 50))
   const invalid = parsed ? NUMBER_FIELDS.filter((f) => badValue(f.key, parsed[f.key])).map((f) => f.key) : []
   const formInvalid = !parsed || invalid.length > 0 || kindsInvalid || placesInvalid
-  // The preview leaves the buffer out while it's being typed wrong, rather than hiding the whole line.
-  const buffer = parsed && !invalid.includes('calorieBuffer') ? parsed.calorieBuffer! : 0
 
   const save = async (): Promise<void> => {
     if (!parsed || formInvalid || !kinds) return
@@ -195,7 +186,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       const finalKinds: WorkoutKindDef[] = kinds.map((r) => {
         const id = r.isNew ? kindIdFor(r.label, taken) : r.id
         if (r.isNew) taken.push(id)
-        return { id, label: r.label.trim(), icon: r.icon, training: r.training }
+        return { id, label: r.label.trim(), icon: r.icon }
       })
       const planNext = Object.fromEntries(finalKinds.map((k, i) => [k.id, parseNum(kinds[i]!.perWeek)!])) as WorkoutPlan
       const changes: Parameters<typeof api.setSettings>[0] = {}
@@ -221,8 +212,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       // Settings first: the plan is checked against the activities in force.
       if (Object.keys(changes).length) await api.setSettings(changes)
       const next: Goals = {
-        protein: parsed.protein!, fat: parsed.fat!, carbs: parsed.carbs!, trainingCarbs: parsed.trainingCarbs!, calorieBuffer: parsed.calorieBuffer!,
-        fiber: parsed.fiber!, water: parsed.water!, alcoholWeekly: parsed.alcoholWeekly!,
+        calories: parsed.calories!, protein: parsed.protein!, fat: parsed.fat!, fiber: parsed.fiber!, water: parsed.water!, alcoholWeekly: parsed.alcoholWeekly!,
         meditationMinutes: parsed.meditationMinutes!,
         dogWalks: parsed.dogWalks!, walkMiles: parsed.walkMiles!,
         workoutPlan: planNext,
@@ -268,23 +258,13 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
             <div className="nutrient-fields">
               {NUMBER_FIELDS.slice(0, 4).map(field)}
             </div>
-            {parsed && !invalid.includes('protein') && !invalid.includes('fat') && !invalid.includes('carbs') && (
-              <div className="hint">
-                Every day: {kcal(parsed.protein!, parsed.fat!, parsed.carbs!, buffer)} kcal
-                {buffer > 0 && <> ({kcal(parsed.protein!, parsed.fat!, parsed.carbs!)} from the macros + {buffer} buffer)</>}.
-                {!invalid.includes('trainingCarbs') && (
-                  <> Training days: {kcal(parsed.protein!, parsed.fat!, parsed.carbs! + parsed.trainingCarbs!, buffer)} kcal
-                  with {parsed.carbs! + parsed.trainingCarbs!} g carbs.</>
-                )}
-              </div>
-            )}
+            <div className="hint">The same every day. Carbs are counted in Day view, with no goal.</div>
             {NUMBER_FIELDS.slice(4).map(field)}
 
             <h3 className="sheet-h">Workout activities</h3>
             <div className="hint">
               The activities the Workouts card offers, each with its sessions per week (Sunday to Saturday; any week can have
-              its own counts from the card). &ldquo;Training day&rdquo; means logging one ticks the day as a training day,
-              with its extra carbs. Sessions already logged keep their activity if it is removed here.
+              its own counts from the card). Sessions already logged keep their activity if it is removed here.
             </div>
             <ul className="kind-list" aria-label="Workout activities">
               {(kinds ?? []).map((r, i) => {
@@ -320,10 +300,6 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
                         <X size={15} aria-hidden="true" />
                       </button>
                     </div>
-                    <label className="check kind-training">
-                      <input type="checkbox" checked={r.training} onChange={(e) => setKind(i, { training: e.target.checked })} />
-                      Training day
-                    </label>
                     {problem && <div className="hint bad">{problem}</div>}
                   </li>
                 )

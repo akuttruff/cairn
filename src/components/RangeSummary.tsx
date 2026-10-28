@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { ALCOHOL_KINDS, DEFAULT_CHARTS, NUTRIENTS } from '../types.ts'
-import { LABELS, UNITS, dogWalksMet, goalDirection, goalMet, goalRangeFor, localDate, meditationMet, progress, waterMet } from '../lib/nutrition.ts'
+import { ALCOHOL_KINDS, DEFAULT_CHARTS, GOAL_NUTRIENTS } from '../types.ts'
+import { LABELS, UNITS, dogWalksMet, goalDirection, goalMet, goalRangeFor, hasGoal, localDate, meditationMet, progress, waterMet } from '../lib/nutrition.ts'
 import RangeNotes from './RangeNotes.tsx'
 import { fmt, milesLabel } from '../lib/format.ts'
 import { kindView } from '../lib/workoutIcons.ts'
@@ -21,12 +21,12 @@ interface Series {
   /** Also the CSS class that colours it. */
   key: NutrientKey | 'water'
   label: string
-  /** Which way the goal points: "stay under" or "reach". */
+  /** Which way the goal points: "stay under" or "reach"; empty when there's no goal (carbs). */
   direction: string
   unit: string
   value: (d: DaySummary) => number
-  /** That day's own target. */
-  goal: (d: DaySummary) => MacroRange
+  /** That day's own target; null when there's none (carbs). */
+  goal: (d: DaySummary) => MacroRange | null
   logged: (d: DaySummary) => boolean
   met: (value: number, goal: MacroRange) => boolean
   format: (value: number) => string
@@ -37,7 +37,7 @@ interface Series {
 const nutrientSeries = (key: NutrientKey): Series => ({
   key,
   label: LABELS[key],
-  direction: goalDirection(key),
+  direction: hasGoal(key) ? goalDirection(key) : '',
   unit: UNITS[key],
   value: (d) => d.totals[key],
   goal: (d) => goalRangeFor(d.goals, key),
@@ -71,15 +71,17 @@ const SERIES: Record<ChartKey, Series> = {
 }
 
 /** Where a day stands against its goal. Today isn't over, so it is only a hit or a miss once that can't change. */
-type DayState = 'met' | 'missed' | 'pending' | 'unlogged' | 'future'
+type DayState = 'met' | 'missed' | 'pending' | 'logged' | 'unlogged' | 'future'
 const VERDICT: Record<DayState, string> = {
-  met: 'goal met', missed: 'goal missed', pending: 'in progress', unlogged: 'nothing logged', future: 'still ahead',
+  met: 'goal met', missed: 'goal missed', pending: 'in progress', logged: 'logged', unlogged: 'nothing logged', future: 'still ahead',
 }
 
 function dayState(series: Series, d: DaySummary, today: string): DayState {
   if (d.date > today) return 'future'
   if (!series.logged(d)) return 'unlogged'
-  const met = series.met(series.value(d), series.goal(d))
+  const goal = series.goal(d)
+  if (!goal) return 'logged'
+  const met = series.met(series.value(d), goal)
   if (d.date === today) {
     // A max already passed is a miss, a min already reached is a hit; anything else is still open.
     if (series.direction === 'stay under') return met ? 'pending' : 'missed'
@@ -111,8 +113,8 @@ interface RangeChartProps {
  * today, so a missing day never reads as a crash to zero, and a tap on a
  * day puts its numbers in the header.
  *
- * Both draw the goal the same way: a line at each day's own target (higher
- * on training days), and a faint band on the side of it that counts as
+ * Both draw the goal the same way: a line at the day's target, and a
+ * faint band on the side of it that counts as
  * good -- below a max, above a min -- so a bar or point inside the band is
  * a hit at a glance. Hits take the series colour; misses are rust, like an
  * over-the-max bar in Day view.
@@ -128,13 +130,13 @@ function RangeChart({ series, view, today, selected, onPick }: RangeChartProps) 
   const n = days.length
   const bars = n <= 7
   const under = series.direction === 'stay under'
-  const goalOf = (d: DaySummary): number => (under ? series.goal(d).max : series.goal(d).min)
+  const goalOf = (d: DaySummary): number => { const g = series.goal(d); return !g ? 0 : under ? g.max : g.min }
   // Headroom above the tallest thing, so a value label has somewhere to sit.
   const max = Math.max(...days.map(goalOf), ...days.map((d) => series.value(d)), 1) * (bars ? 1.22 : 1.1)
   const slot = 100 / n
   const yPct = (value: number): number => Math.min(100, Math.max(0, (value / max) * 100))
   const states = days.map((d) => dayState(series, d, today))
-  const drawn = (s: DayState): boolean => s === 'met' || s === 'missed' || s === 'pending'
+  const drawn = (s: DayState): boolean => s === 'met' || s === 'missed' || s === 'pending' || s === 'logged'
 
   // The line: one run per stretch of consecutive logged days.
   const runs: string[] = []
@@ -156,7 +158,7 @@ function RangeChart({ series, view, today, selected, onPick }: RangeChartProps) 
       <div className="range-chart-head">
         <span className="range-chart-dot" aria-hidden="true" />
         <span className="range-chart-label">{series.label}</span>
-        <span className="goal-dir">{series.direction}</span>
+        {series.direction && <span className="goal-dir">{series.direction}</span>}
         <span className="range-chart-readout" aria-live="polite">
           {picked && pickedState
             ? <>{shortDate(picked.date)} · {drawn(pickedState) || pickedState === 'unlogged' ? `${series.format(series.value(picked))} ${series.unit} · ` : ''}{VERDICT[pickedState]}</>
@@ -290,7 +292,7 @@ function DayBoxes({ kind, days, today, state, describe, onSelectDay, mondayFirst
  * over days actually logged, water and alcohol over every day in the range.
  */
 export default function RangeSummary({ view, onSelectDay, part = 'nutrition' }: RangeSummaryProps) {
-  const { days, goals, dayTypes, scorecard, averages, loggedDays, totalDays, averagedDays, water, alcohol, workouts, meditation, dog } = view
+  const { days, goals, scorecard, averages, loggedDays, totalDays, averagedDays, water, alcohol, workouts, meditation, dog } = view
   const today = localDate()
   const isWeek = days.length <= 7
   // Month view: the day whose numbers the chart headers show. Kept with the
@@ -324,7 +326,7 @@ export default function RangeSummary({ view, onSelectDay, part = 'nutrition' }: 
       ))}
       {!isWeek && (view.charts ?? DEFAULT_CHARTS).length > 0 && <div className="range-hint">Tap a day for its numbers; tap it again to open that day.</div>}
       <div className="range-coverage">
-        Logged {loggedDays} of {plural(totalDays, 'day')} · {dayTypes.training} training, {dayTypes.rest} rest
+        Logged {loggedDays} of {plural(totalDays, 'day')}
         {averagedDays < totalDays && <> · averages over {plural(averagedDays, 'finished day')}</>}
       </div>
 
@@ -334,10 +336,10 @@ export default function RangeSummary({ view, onSelectDay, part = 'nutrition' }: 
         <div className="scorecard-head">
           <span className="water-label">Goals met</span>
           <span className="scorecard-note">
-            {loggedDays ? 'of logged days, each against its own day’s goal' : 'nothing logged yet'}
+            {loggedDays ? 'of logged days' : 'nothing logged yet'}
           </span>
         </div>
-        {NUTRIENTS.map((key) => {
+        {GOAL_NUTRIENTS.map((key) => {
           const { met, of } = scorecard[key]
           return (
             <div key={key} className={`macro ${key} score-row`}>

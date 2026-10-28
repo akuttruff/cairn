@@ -266,16 +266,16 @@ describe('goals and settings', () => {
   })
 
   it('updates only the goals given, leaving the rest as they were', () => {
-    store.setGoals({ fiber: 40, trainingCarbs: 50 })
+    store.setGoals({ fiber: 40, calories: 1950 })
     const goals = store.getGoals()
-    expect(goals).toMatchObject({ fiber: 40, trainingCarbs: 50, protein: DEFAULT_GOALS.protein, carbs: DEFAULT_GOALS.carbs })
+    expect(goals).toMatchObject({ fiber: 40, calories: 1950, protein: DEFAULT_GOALS.protein, fat: DEFAULT_GOALS.fat })
     expect(new Store({ dir }).getGoals()).toEqual(goals)
   })
 
   it('refuses a nonsense goal', () => {
     expect(() => store.setGoals({ fiber: -1 })).toThrow(ValidationError)
     expect(() => store.setGoals({ protein: 'lots' as unknown as number })).toThrow(ValidationError)
-    expect(() => store.setGoals({ trainingCarbs: Number.NaN })).toThrow(ValidationError)
+    expect(() => store.setGoals({ calories: Number.NaN })).toThrow(ValidationError)
   })
 
   it('never exposes the USDA key', () => {
@@ -824,18 +824,6 @@ describe('workouts', () => {
     expect(store.getDay(monday).workouts.weekTotal).toBe(2)
   })
 
-  it('ticks the day as a training day for a WOD or lifting session, and leaves it alone otherwise', () => {
-    store.addWorkout({ date: DAY, kind: 'cycling' })
-    expect(store.getDay(DAY).dayType).toBe('rest')
-    store.addWorkout({ date: DAY, kind: 'wod', minutes: 45 })
-    expect(store.getDay(DAY).dayType).toBe('training')
-    store.addWorkout({ date: '2026-09-27', kind: 'weightlifting' })
-    expect(store.getDay('2026-09-27').dayType).toBe('training')
-    // The box stays the user's: unticking by hand sticks.
-    store.setDayType(DAY, 'rest')
-    expect(store.getDay(DAY).dayType).toBe('rest')
-  })
-
   it('removes a session, and refuses one that does not exist', () => {
     const s = store.addWorkout({ date: DAY, kind: 'yoga' })
     store.deleteWorkout(s.id)
@@ -845,9 +833,9 @@ describe('workouts', () => {
 
   describe('the activities are set up in Settings', () => {
     const custom = [
-      { id: 'wod', label: 'CrossFit', icon: 'flame', training: true },
-      { id: 'yoga', label: 'Yoga', icon: 'sparkles', training: true }, // now a training day too
-      { id: 'climbing', label: 'Rock climbing', icon: 'mountain', training: false },
+      { id: 'wod', label: 'CrossFit', icon: 'flame' },
+      { id: 'yoga', label: 'Yoga', icon: 'sparkles' },
+      { id: 'climbing', label: 'Rock climbing', icon: 'mountain' },
     ] as const
 
     it('starts with the built-in six and keeps a changed list, in order', () => {
@@ -858,13 +846,13 @@ describe('workouts', () => {
 
     it('refuses a bad list: no activities, a bad id, a repeated id, a missing name, an unknown icon', () => {
       expect(() => store.setSettings({ workoutKinds: [] })).toThrow(/1 to 20 activities/)
-      expect(() => store.setSettings({ workoutKinds: [{ id: 'Rock Climbing', label: 'x', icon: 'flame', training: false }] })).toThrow(/id must be/)
-      expect(() => store.setSettings({ workoutKinds: [{ id: 'a', label: 'A', icon: 'flame', training: false }, { id: 'a', label: 'B', icon: 'flame', training: false }] })).toThrow(/unique/)
-      expect(() => store.setSettings({ workoutKinds: [{ id: 'a', label: ' ', icon: 'flame', training: false }] })).toThrow(/label is required/)
-      expect(() => store.setSettings({ workoutKinds: [{ id: 'a', label: 'A', icon: 'unicorn', training: false }] as never })).toThrow(/icon must be one of/)
+      expect(() => store.setSettings({ workoutKinds: [{ id: 'Rock Climbing', label: 'x', icon: 'flame' }] })).toThrow(/id must be/)
+      expect(() => store.setSettings({ workoutKinds: [{ id: 'a', label: 'A', icon: 'flame' }, { id: 'a', label: 'B', icon: 'flame' }] })).toThrow(/unique/)
+      expect(() => store.setSettings({ workoutKinds: [{ id: 'a', label: ' ', icon: 'flame' }] })).toThrow(/label is required/)
+      expect(() => store.setSettings({ workoutKinds: [{ id: 'a', label: 'A', icon: 'unicorn' }] as never })).toThrow(/icon must be one of/)
     })
 
-    it('follows the list: the plan, the counts, what can be logged, and which kinds make a training day', () => {
+    it('follows the list: the plan, the counts, and what can be logged', () => {
       store.setGoals({ workoutPlan: { wod: 2, run: 3 } })
       store.addWorkout({ date: DAY, kind: 'run' })
       store.setSettings({ workoutKinds: custom.map((k) => ({ ...k })) })
@@ -882,10 +870,6 @@ describe('workouts', () => {
       store.setGoals({ workoutPlan: { climbing: 2 } })
       expect(store.getGoals().workoutPlan).toEqual({ wod: 0, yoga: 0, climbing: 2 })
       expect(() => store.setGoals({ workoutPlan: { run: 1 } })).toThrow(/unknown workout kind: run/)
-      // Yoga now ticks a training day, as the setting says; climbing does not.
-      expect(store.getDay(DAY).dayType).toBe('rest')
-      store.addWorkout({ date: DAY, kind: 'yoga' })
-      expect(store.getDay(DAY).dayType).toBe('training')
       expect(store.getRange(DAY, DAY).workouts.kinds).toEqual(custom)
     })
   })
@@ -936,21 +920,21 @@ describe('meditation', () => {
     expect(() => store.addMeditation({ date: DAY, minutes: 0 })).toThrow(/positive number/)
   })
 
-  it('adds a configurable calorie buffer to every day type, and keeps it through an upgrade', () => {
-    expect(store.getGoals().calorieBuffer).toBe(100)
-    expect(store.getDay(DAY).goals.calories.max).toBe(1800) // 1700 from the default macros + 100
-    store.setGoals({ calorieBuffer: 250 })
-    store.setDayType(DAY, 'training')
-    expect(store.getDay(DAY).goals.calories.max).toBe(2090) // 1840 + 250
-    expect(() => store.setGoals({ calorieBuffer: -10 })).toThrow(ValidationError)
+  it('caps calories at the goal set, and starts an older database at its rest-day number', () => {
+    expect(store.getDay(DAY).goals.calories.max).toBe(DEFAULT_GOALS.calories)
+    store.setGoals({ calories: 2000 })
+    expect(store.getDay(DAY).goals.calories.max).toBe(2000)
+    expect(() => store.setGoals({ calories: -10 })).toThrow(ValidationError)
+    // Before version 22 the cap was what the macros added up to, plus the buffer.
     const db = openRaw()
     try {
-      db.exec('ALTER TABLE goals DROP COLUMN calorie_buffer')
-      db.exec('PRAGMA user_version = 5')
+      db.exec('ALTER TABLE goals DROP COLUMN max_calories')
+      db.exec('UPDATE goals SET base_protein = 120, base_fat = 50, base_carbs = 175, calorie_buffer = 300')
+      db.exec('PRAGMA user_version = 21')
     } finally {
       db.close()
     }
-    expect(new Store({ dir }).getGoals().calorieBuffer).toBe(100) // an older database gets the default
+    expect(new Store({ dir }).getGoals()).toMatchObject({ calories: 1930, protein: 120, fat: 50 }) // 480 + 700 + 450 + 300
   })
 
   it('takes its goal, and the default weekly workout plan, from Settings', () => {
@@ -1082,11 +1066,10 @@ describe('dog walks', () => {
   })
 })
 
-describe('training-day water', () => {
-  it('asks for the same water on a training day as on a rest day', () => {
-    store.setDayType(DAY, 'training')
+describe('water', () => {
+  it('asks for the same water every day', () => {
     expect(store.getDay(DAY).water.goal).toBe(72)
-    expect(store.getDay('2026-09-27').water.goal).toBe(72) // a rest day
+    expect(store.getDay('2026-09-27').water.goal).toBe(72)
     store.addWater(DAY, 72)
     store.addWater('2026-09-25', 64)
     expect(store.getRange('2026-09-25', DAY).water).toMatchObject({ met: 1, of: 2 })
@@ -1279,27 +1262,20 @@ describe('ranges', () => {
   })
 
   it('carries the current goals along, same as a day view', () => {
-    store.setGoals({ protein: 140, fat: 45, carbs: 100, trainingCarbs: 20, calorieBuffer: 0 })
-    // No day ticked as training, so every day in range is a rest day: 140*4 + 100*4 + 45*9 = 1365.
-    expect(store.getRange(D1, D3).goals.calories.min).toBe(1365)
-    // Tick one of the three: the blended goal moves a third of the way to the training day's 1445 (+20 g carbs).
-    store.setDayType(D2, 'training')
-    expect(store.getRange(D1, D3).goals.calories.min).toBeCloseTo((1365 * 2 + 1445) / 3, 1)
+    store.setGoals({ calories: 1500, protein: 140, fat: 45 })
+    expect(store.getRange(D1, D3).goals).toMatchObject({ calories: { max: 1500 }, protein: { min: 140 }, fat: { min: 45 } })
   })
 
-  it('scores each logged day against its own goal, and says how the days were split', () => {
-    // A target a banana can nearly meet: at least 1 g protein and 1 g fat; at most 30 g carbs and (with the buffer) 233 kcal.
-    store.setGoals({ protein: 1, fat: 1, carbs: 30, trainingCarbs: 10 })
+  it('scores each logged day against the goals, carbs left out', () => {
+    // A target a banana can nearly meet: at most 233 kcal, at least 1 g protein and 1 g fat.
+    store.setGoals({ calories: 233, protein: 1, fat: 1 })
     store.addEntry(banana({ date: D1 })) // 118 g: 105 kcal, 1.3 g protein, 26.9 g carbs, 0.4 g fat, 3.1 g fiber
-    store.setDayType(D3, 'training')
     const range = store.getRange(D1, D3)
-    expect(range.dayTypes).toEqual({ training: 1, rest: 2 })
-    expect(range.days[0]!.goals.carbs).toEqual({ min: 30, max: 30 })
-    expect(range.days[2]!.goals.carbs).toEqual({ min: 40, max: 40 }) // the training day's bump
     // Only D1 was logged: it met everything but the floors a banana can't reach -- fat (0.4 of 1 g) and fiber (3.1 of 30 g).
     expect(range.scorecard).toEqual({
-      calories: { met: 1, of: 1 }, protein: { met: 1, of: 1 }, fat: { met: 0, of: 1 }, carbs: { met: 1, of: 1 }, fiber: { met: 0, of: 1 },
+      calories: { met: 1, of: 1 }, protein: { met: 1, of: 1 }, fat: { met: 0, of: 1 }, fiber: { met: 0, of: 1 },
     })
+    expect(range.averages.carbs).toBe(26.9)
   })
 
   it('rejects a malformed or backwards range', () => {

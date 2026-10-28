@@ -184,13 +184,9 @@ describe('foods and goals', () => {
     expect((await call('GET', '/api/goals')).body.fiber).toBe(35)
   })
 
-  it('treats an unmarked day as a rest day, and marks one as a training day', async () => {
-    expect((await call('GET', `/api/day/${DAY}`)).body.dayType).toBe('rest')
-    const res = await call('PUT', `/api/day-type/${DAY}`, { type: 'training' })
-    expect(res.body).toEqual({ date: DAY, type: 'training' })
-    expect((await call('GET', `/api/day/${DAY}`)).body.dayType).toBe('training')
-    await call('PUT', `/api/day-type/${DAY}`, { type: 'rest' }) // unticked again
-    expect((await call('GET', `/api/day/${DAY}`)).body.dayType).toBe('rest')
+  it('has no day types any more: the route is gone and a day carries none', async () => {
+    expect((await call('GET', `/api/day/${DAY}`)).body).not.toHaveProperty('dayType')
+    expect((await call('PUT', `/api/day-type/${DAY}`, { type: 'training' })).status).toBe(404)
   })
 
   it('never returns the USDA key', async () => {
@@ -454,12 +450,11 @@ describe('training', () => {
 })
 
 describe('workouts and meditation', () => {
-  it('logs a workout, ticks the training day, and removes it over one round trip', async () => {
+  it('logs a workout and removes it over one round trip', async () => {
     const logged = await call('POST', '/api/workouts', { date: DAY, kind: 'wod', minutes: 45 })
     expect(logged.status).toBe(201)
     const id = (logged.body as unknown as { id: string }).id
     let day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView
-    expect(day.dayType).toBe('training')
     expect(day.workouts).toMatchObject({ minutes: 45, weekTotal: 1, lastLogId: id })
     await call('DELETE', `/api/workouts/${id}`)
     day = (await call('GET', `/api/day/${DAY}`)).body as unknown as DayView

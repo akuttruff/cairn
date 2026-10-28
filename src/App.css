@@ -163,18 +163,6 @@ button:disabled { opacity: 0.45; cursor: default; }
   padding: 16px;
   margin-bottom: 18px;
 }
-.day-type-check {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.day-type-check input { width: 20px; height: 20px; margin: 0; accent-color: var(--moss); }
-/* Which set of goals the card below is showing, so unticked never reads as "no goals". */
-.day-type-note { margin-left: auto; font-family: var(--mono); font-size: 11px; font-weight: 400; color: var(--paper-dim); }
 
 .cal-row { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 10px; }
 .cal-value { font-size: 34px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
@@ -805,7 +793,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 .kind-per { color: var(--paper-dim); font-size: 12px; flex: 0 0 auto; }
 .kind-remove { display: grid; place-items: center; width: 30px; height: 30px; border: none; border-radius: 50%; background: none; color: var(--paper-dim); flex: 0 0 auto; }
 .kind-remove:disabled { opacity: 0.3; }
-.kind-training { margin-top: 8px; font-size: 13px; }
 .kind-add { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; }
 
 /* "Add to a meal" on the pick screen and the entry sheet: a quiet link that opens a short list of meals. */

@@ -270,12 +270,6 @@ export function createApi(options: ApiOptions = {}) {
       if (method === 'PUT') return json(res, 200, store.setGoals(await readBody(req) as never))
     }
 
-    if ((m = /^\/api\/day-type\/([^/]+)$/.exec(p)) && method === 'PUT') {
-      const date = decodeURIComponent(m[1]!)
-      const body = await readBody(req) as { type?: unknown }
-      return json(res, 200, { date, type: store.setDayType(date, body.type) })
-    }
-
     // One week's own workout plan (by its Sunday); DELETE puts it back on the default.
     if ((m = /^\/api\/workout-plan\/([^/]+)$/.exec(p))) {
       const weekStart = decodeURIComponent(m[1]!)

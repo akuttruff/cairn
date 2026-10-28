@@ -161,22 +161,21 @@ export function presetItemColumnParams(item: MealPresetItem): SQLInputValue[] {
 }
 
 export interface GoalsRow {
-  base_protein: number; base_fat: number; base_carbs: number; training_carbs: number
+  max_calories: number; base_protein: number; base_fat: number
   fiber: number; water_ounces: number; alcohol_weekly: number; meditation_minutes: number
-  calorie_buffer: number; workout_plan: string | null
+  workout_plan: string | null
   dog_walks: number; walk_miles: number
 }
-export interface DayTypeRow { date: string; type: string }
 
-export const GOALS_COLUMNS = 'base_protein,base_fat,base_carbs,training_carbs,fiber,water_ounces,alcohol_weekly,meditation_minutes,calorie_buffer,workout_plan,dog_walks,walk_miles'
+export const GOALS_COLUMNS = 'max_calories,base_protein,base_fat,fiber,water_ounces,alcohol_weekly,meditation_minutes,workout_plan,dog_walks,walk_miles'
 export const GOALS_PLACEHOLDERS = GOALS_COLUMNS.split(',').map(() => '?').join(',')
 export const GOALS_ASSIGNMENTS = GOALS_COLUMNS.split(',').map((c) => `${c}=?`).join(', ')
 
 export function goalsFromRow(row: GoalsRow, kinds: string[]): Goals {
   return {
-    protein: row.base_protein, fat: row.base_fat, carbs: row.base_carbs, trainingCarbs: row.training_carbs,
+    calories: row.max_calories, protein: row.base_protein, fat: row.base_fat,
     fiber: row.fiber, water: row.water_ounces, alcoholWeekly: row.alcohol_weekly,
-    meditationMinutes: row.meditation_minutes, calorieBuffer: row.calorie_buffer,
+    meditationMinutes: row.meditation_minutes,
     // Every kind in Settings gets an entry; the built-in plan only where the stored one has none.
     workoutPlan: parsePlan(row.workout_plan ?? JSON.stringify(DEFAULT_GOALS.workoutPlan), kinds) ?? zeroByKind(kinds),
     dogWalks: row.dog_walks, walkMiles: row.walk_miles,
@@ -185,7 +184,7 @@ export function goalsFromRow(row: GoalsRow, kinds: string[]): Goals {
 
 /** In GOALS_COLUMNS order. */
 export function goalsParams(g: Goals): SQLInputValue[] {
-  return [g.protein, g.fat, g.carbs, g.trainingCarbs, g.fiber, g.water, g.alcoholWeekly, g.meditationMinutes, g.calorieBuffer, JSON.stringify(g.workoutPlan), g.dogWalks, g.walkMiles]
+  return [g.calories, g.protein, g.fat, g.fiber, g.water, g.alcoholWeekly, g.meditationMinutes, JSON.stringify(g.workoutPlan), g.dogWalks, g.walkMiles]
 }
 export interface AlcoholLogRow { id: string; date: string; kind: string; created_at: number }
 export interface WaterLogRow { id: string; date: string; ounces: number; drink: string; created_at: number }

@@ -38,9 +38,6 @@ export interface Stmts {
   deletePreset: StatementSync
   selectGoals: StatementSync
   updateGoals: StatementSync
-  selectDayType: StatementSync
-  selectDayTypesBetween: StatementSync
-  upsertDayType: StatementSync
   selectSettings: StatementSync
   updateSettings: StatementSync
   selectWaterByDate: StatementSync
@@ -157,11 +154,6 @@ export function prepareStatements(db: DatabaseSync): Stmts {
     deletePreset: db.prepare('DELETE FROM meal_presets WHERE id = ?'),
     selectGoals: db.prepare('SELECT * FROM goals WHERE id = 1'),
     updateGoals: db.prepare(`UPDATE goals SET ${GOALS_ASSIGNMENTS} WHERE id=1`),
-    selectDayType: db.prepare('SELECT * FROM day_types WHERE date = ?'),
-    selectDayTypesBetween: db.prepare('SELECT * FROM day_types WHERE date >= ? AND date <= ?'),
-    upsertDayType: db.prepare(
-      'INSERT INTO day_types (date, type) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET type=excluded.type',
-    ),
     selectSettings: db.prepare('SELECT * FROM settings WHERE id = 1'),
     updateSettings: db.prepare(
       'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=?, app_icon=?, charts=?, workout_kinds=?, notes_model=?, label_model=?, preferred_model=?, equipment=?, training_model=?, plan_chat_model=? WHERE id=1',

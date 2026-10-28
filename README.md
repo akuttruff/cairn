@@ -26,7 +26,7 @@ network and backed by one SQLite file. No accounts, no cloud.
   <tr>
     <td align="center" valign="top" width="33%"><img src="docs/screenshots/week-phone.png" width="200" alt="The week view" /><br /><b>Week</b><br /><sub>Each day against its own goal, with notes</sub></td>
     <td align="center" valign="top" width="33%"><img src="docs/screenshots/month-phone.png" width="200" alt="The month view" /><br /><b>Month</b><br /><sub>The same numbers as a line</sub></td>
-    <td align="center" valign="top" width="33%"><img src="docs/screenshots/settings-phone.png" width="200" alt="Goals" /><br /><b>Goals</b><br /><sub>Macros per day, and what a training day adds</sub></td>
+    <td align="center" valign="top" width="33%"><img src="docs/screenshots/settings-phone.png" width="200" alt="Goals" /><br /><b>Goals</b><br /><sub>A calorie cap and daily minimums</sub></td>
   </tr>
   <tr>
     <td align="center" valign="top" width="33%"><img src="docs/screenshots/train-phone.png" width="200" alt="Today's training sessions, set by set" /><br /><b>Train</b><br /><sub>Today's sessions set by set, weights from your PRs</sub></td>
@@ -53,7 +53,7 @@ The app has two sections, along the bottom: Nutrition, which it opens on, and Tr
 
 ### Nutrition
 
-- **Meals** log calories, protein, carbs, fat and fiber per entry, against daily targets, in a day, week and month view.
+- **Meals** log calories, protein, carbs, fat and fiber per entry, in a day, week and month view. Goals are a daily calorie cap and minimums for protein, fat and fiber; carbs are counted, with no goal.
 - **Food lookup** works three ways. Search the USDA FoodData Central and Open Food Facts databases, scan a nutrition label from a photo for a local vision model to read, or ask for an online lookup, where a local model with a web-research tool reads the restaurant's or brand's own page.
 - **Label scanning** turns a picture into a food. Upload a photo or screenshot of a nutrition label, paste one, or drop it anywhere on the page. A local vision model reads it and fills in the Manual tab: name, brand, serving and macros. The food is ticked to save to My foods, so it is there for next time once you have checked it.
 - **My foods** keeps anything you have typed or confirmed, for one-tap logging, and saved meals log several at once.

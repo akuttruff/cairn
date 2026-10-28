@@ -16,7 +16,7 @@ vi.mock('./lib/image.ts', () => ({ shrinkImage: vi.fn<() => Promise<string>>(asy
 const TODAY = localDate()
 const RANGE = (n: number): { min: number; max: number } => ({ min: n, max: n })
 const GOALS = {
-  calories: RANGE(2000), protein: RANGE(150), fat: RANGE(65), carbs: RANGE(200),
+  calories: RANGE(2000), protein: RANGE(150), fat: RANGE(65),
   fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1,
 }
 /** Lifting 2, yoga 4, pilates 1, WOD 2 a week -- 9 sessions. */
@@ -29,7 +29,7 @@ const WORKOUTS_DAY = {
 }
 /** What Settings edits and /api/goals returns -- separate shape from GOALS above (a resolved, per-day view). */
 const STORED_GOALS: Goals = {
-  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, calorieBuffer: 100, fiber: 30, water: 72, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1, workoutPlan: PLAN,
+  calories: 1800, protein: 130, fat: 60, fiber: 30, water: 72, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1, workoutPlan: PLAN,
 }
 /** A range day's workout and meditation fields, with nothing logged. */
 const DAY_ACTIVITY = { workouts: 0, workoutMinutes: 0, meditationMinutes: 0, dogWalks: 0, dogMiles: 0 }
@@ -47,7 +47,7 @@ const entry = (over: Partial<Entry> = {}): Entry => ({
 })
 
 const day = (entries: Entry[], over: Partial<DayView> = {}): DayView => ({
-  date: TODAY, entries, goals: GOALS, dayType: 'training',
+  date: TODAY, entries, goals: GOALS,
   totals: { calories: 190, protein: 6.5, fat: 3.4, carbs: 33, fiber: 5 },
   missing: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 },
   water: { ounces: 0, goal: 72, tea: 0, lastLogId: null },
@@ -62,10 +62,10 @@ const day = (entries: Entry[], over: Partial<DayView> = {}): DayView => ({
 const ZERO = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 }
 
 /** A week starting `start` (default: the Monday on or before today), mostly untouched. */
-const NO_SCORE = { calories: { met: 0, of: 0 }, protein: { met: 0, of: 0 }, fat: { met: 0, of: 0 }, carbs: { met: 0, of: 0 }, fiber: { met: 0, of: 0 } }
+const NO_SCORE = { calories: { met: 0, of: 0 }, protein: { met: 0, of: 0 }, fat: { met: 0, of: 0 }, fiber: { met: 0, of: 0 } }
 
 const range = (over: Partial<RangeView> = {}, start = startOfWeek(TODAY)): RangeView => ({
-  start, end: addDays(start, 6), goals: GOALS, dayTypes: { training: 7, rest: 0 }, scorecard: NO_SCORE, charts: ['calories', 'protein', 'fiber', 'water'], totalDays: 7, loggedDays: 0, averagedDays: 7,
+  start, end: addDays(start, 6), goals: GOALS, scorecard: NO_SCORE, charts: ['calories', 'protein', 'fiber', 'water'], totalDays: 7, loggedDays: 0, averagedDays: 7,
   totals: ZERO, averages: ZERO,
   water: { total: 0, average: 0, met: 0, of: 0 }, alcohol: { total: 0, average: 0, calories: 0, byKind: { beer: 0, wine: 0, liquor: 0 } },
   workouts: { sessions: 0, days: 0, minutes: 0, kinds: DEFAULT_WORKOUT_KINDS, byKind: NO_KINDS, goalByKind: PLAN, goal: 9 },
@@ -73,7 +73,7 @@ const range = (over: Partial<RangeView> = {}, start = startOfWeek(TODAY)): Range
   dog: { walks: 0, miles: 0, days: 0, met: 0, of: 0, streak: 0 },
   body: { weight: null, bodyFat: null, leanMass: null, bmi: null },
   days: Array.from({ length: 7 }, (_, i) => ({
-    date: addDays(start, i), entryCount: 0, water: 0, alcohol: 0, ...DAY_ACTIVITY, dayType: 'training' as const, goals: GOALS, totals: ZERO, missing: ZERO,
+    date: addDays(start, i), entryCount: 0, water: 0, alcohol: 0, ...DAY_ACTIVITY, goals: GOALS, totals: ZERO, missing: ZERO,
   })),
   ...over,
 })
@@ -201,18 +201,19 @@ describe('App', () => {
     expect(await screen.findByTitle('1 item missing this value')).toBeInTheDocument()
   })
 
-  it('flags going over on carbs, a max, but not on protein, fat or fiber, which are mins', async () => {
-    stubApi({ [`GET /api/day/${TODAY}`]: day([], { totals: { calories: 1000, protein: 200, fat: 100, carbs: 250, fiber: 45 } }) })
+  it('flags going over only on calories, the max; protein, fat and fiber are mins, and carbs have no goal', async () => {
+    stubApi({ [`GET /api/day/${TODAY}`]: day([], { totals: { calories: 2100, protein: 200, fat: 100, carbs: 250, fiber: 45 } }) })
     render(<App />)
     await screen.findByText('Today')
-    expect(screen.getByRole('progressbar', { name: 'Carbs' })).toHaveClass('over')
+    expect(screen.getByRole('progressbar', { name: 'Calories' })).toHaveClass('over')
+    expect(screen.queryByRole('progressbar', { name: 'Carbs' })).not.toBeInTheDocument()
     expect(screen.getByRole('progressbar', { name: 'Fat' })).not.toHaveClass('over')
     expect(screen.getByRole('progressbar', { name: 'Protein' })).not.toHaveClass('over')
     expect(screen.getByRole('progressbar', { name: 'Fiber' })).not.toHaveClass('over')
     // Each goal says which way it points, and the line under it says where the day stands.
-    expect(screen.getByText('/ max 200g')).toBeInTheDocument()
-    expect(screen.getByText('50 g over')).toBeInTheDocument() // carbs 250 against 200
-    expect(screen.getByText('/ min 65g')).toBeInTheDocument() // fat is a floor now
+    expect(screen.getByText('100 over')).toBeInTheDocument() // calories 2100 against 2000
+    expect(screen.getByText('No goal')).toBeInTheDocument() // carbs
+    expect(screen.getByText('/ min 65g')).toBeInTheDocument()
     expect(screen.getByText('/ min 150g')).toBeInTheDocument()
     expect(screen.getAllByText('Goal met')).toHaveLength(3) // protein 200 >= 150, fat 100 >= 65, fiber 45 >= 30
   })
@@ -1187,27 +1188,26 @@ describe('App', () => {
     expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({ fiber: 35 })
   })
 
-  it('edits the calorie buffer in Settings, with the goal it makes shown as you type', async () => {
+  it('edits the calorie cap in Settings, with no buffer or training-day carbs to set', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([]),
       'GET /api/targets': STORED_GOALS,
-      'PUT /api/targets': { ...STORED_GOALS, calorieBuffer: 150 },
+      'PUT /api/targets': { ...STORED_GOALS, calories: 1950 },
     })
     render(<App />)
     await user.click(await screen.findByRole('button', { name: 'Settings' }))
-    const field = await screen.findByLabelText('Calorie buffer (kcal)')
-    expect(field).toHaveValue('100')
-    expect(screen.getByText(/Every day: 1800 kcal/)).toHaveTextContent('(1700 from the macros + 100 buffer)')
+    const field = await screen.findByLabelText('Calories (kcal, max)')
+    expect(field).toHaveValue('1800')
+    expect(screen.queryByLabelText(/Calorie buffer|Carbs \(g|Extra carbs/)).not.toBeInTheDocument()
     await user.clear(field)
-    await user.type(field, '150')
-    expect(screen.getByText(/Every day: 1850 kcal/)).toHaveTextContent('Training days: 1990 kcal')
+    await user.type(field, '1950')
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/targets')).toBe(true))
-    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({ calorieBuffer: 150 })
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({ calories: 1950, protein: 130, fat: 60, fiber: 30 })
   })
 
-  it('sets up the workout activities in Settings: rename one, add one as a training day, remove one', async () => {
+  it('sets up the workout activities in Settings: rename one, add one, remove one', async () => {
     const user = userEvent.setup()
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([]),
@@ -1232,7 +1232,6 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled() // no name yet
     await user.type(within(added).getByRole('textbox', { name: 'Name of activity 6' }), 'Rock climbing')
     await user.selectOptions(within(added).getByRole('combobox', { name: 'Icon for Rock climbing' }), 'mountain')
-    await user.click(within(added).getByRole('checkbox', { name: 'Training day' }))
     const count = within(added).getByRole('textbox', { name: 'Rock climbing (per week)' })
     await user.clear(count)
     await user.type(count, '2')
@@ -1242,10 +1241,10 @@ describe('App', () => {
     const targetsPut = calls.findIndex((c) => c.method === 'PUT' && c.url === '/api/targets')
     expect(settingsPut).toBeGreaterThan(-1)
     expect(settingsPut).toBeLessThan(targetsPut) // the activities first, so the plan is checked against them
-    const kinds = (calls[settingsPut]!.body as { workoutKinds: { id: string; label: string; icon: string; training: boolean }[] }).workoutKinds
+    const kinds = (calls[settingsPut]!.body as { workoutKinds: { id: string; label: string; icon: string }[] }).workoutKinds
     expect(kinds.map((k) => k.id)).toEqual(['wod', 'weightlifting', 'cycling', 'yoga', 'pilates', 'rock-climbing'])
-    expect(kinds[0]).toEqual({ id: 'wod', label: 'CrossFit', icon: 'flame', training: true })
-    expect(kinds[5]).toEqual({ id: 'rock-climbing', label: 'Rock climbing', icon: 'mountain', training: true })
+    expect(kinds[0]).toEqual({ id: 'wod', label: 'CrossFit', icon: 'flame' })
+    expect(kinds[5]).toEqual({ id: 'rock-climbing', label: 'Rock climbing', icon: 'mountain' })
     expect((calls[targetsPut]!.body as Goals).workoutPlan).toEqual({ wod: 2, weightlifting: 2, cycling: 0, yoga: 4, pilates: 1, 'rock-climbing': 2 })
   })
 
@@ -1485,11 +1484,9 @@ describe('App', () => {
     const protein = screen.getByLabelText('Protein (g, min)')
     await user.clear(protein)
     await user.type(protein, '128')
-    // The calorie math follows along as you type: 128*4 + 60*9 + 160*4, and +35 g carbs on training days.
-    expect(screen.getByText(/Every day: 1792 kcal \(1692 from the macros \+ 100 buffer\)\. Training days: 1932 kcal with 195 g carbs\./)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true))
-    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ protein: 128, trainingCarbs: 35 })
+    expect(calls.find((c) => c.method === 'PUT')!.body).toMatchObject({ protein: 128, calories: 1800 })
     // No key typed, so the saved one is left alone.
     expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/settings')).toBe(false)
   })
@@ -1512,26 +1509,16 @@ describe('App', () => {
     expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({ alcoholWeekly: 4 })
   })
 
-  it('ticks a day as a training day, and unticks it back to a rest day', async () => {
-    const user = userEvent.setup()
-    const calls = stubApi({
-      [`GET /api/day/${TODAY}`]: day([], { dayType: 'rest' }),
-      [`PUT /api/day-type/${TODAY}`]: { date: TODAY, type: 'training' },
-    })
+  it('judges the day against a calorie cap and floors, with carbs counted but no goal or day type', async () => {
+    stubApi({ [`GET /api/day/${TODAY}`]: day([entry()]) })
     render(<App />)
-    const box = await screen.findByRole('checkbox', { name: /WOD \/ weightlifting day/ })
-    expect(box).not.toBeChecked()
-    expect(screen.getByText(/rest-day goals · 2000 kcal/)).toBeInTheDocument()
-    await user.click(box)
-    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === `/api/day-type/${TODAY}`)).toBe(true))
-    expect(calls.find((c) => c.url === `/api/day-type/${TODAY}`)!.body).toEqual({ type: 'training' })
-  })
-
-  it('shows a marked training day as ticked, with its goals named', async () => {
-    stubApi({ [`GET /api/day/${TODAY}`]: day([], { dayType: 'training' }) })
-    render(<App />)
-    expect(await screen.findByRole('checkbox', { name: /WOD \/ weightlifting day/ })).toBeChecked()
-    expect(screen.getByText(/training goals · 2000 kcal/)).toBeInTheDocument()
+    const totals = await screen.findByRole('region', { name: 'Daily totals' })
+    expect(within(totals).queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(within(totals).getByText('/ max 2000 kcal', { exact: false })).toBeInTheDocument()
+    const carbs = totals.querySelector('.macro.carbs') as HTMLElement
+    expect(within(carbs).getByText('No goal')).toBeInTheDocument()
+    expect(within(carbs).queryByRole('progressbar')).not.toBeInTheDocument()
+    expect(within(totals.querySelector('.macro.fat') as HTMLElement).getByText(/min 65g/)).toBeInTheDocument()
   })
 
   it('looks a food up online, then logs it by the serving the source gave', async () => {
@@ -1981,10 +1968,10 @@ describe('App', () => {
       stubApi({
         [`GET /api/day/${TODAY}`]: day([]),
         'GET /api/range': range({
-          loggedDays: 6, dayTypes: { training: 3, rest: 4 },
+          loggedDays: 6,
           averages: { calories: 1850, protein: 120, fat: 60, carbs: 180, fiber: 22 },
           scorecard: {
-            calories: { met: 4, of: 6 }, protein: { met: 6, of: 6 }, fat: { met: 3, of: 6 }, carbs: { met: 5, of: 6 }, fiber: { met: 2, of: 6 },
+            calories: { met: 4, of: 6 }, protein: { met: 6, of: 6 }, fat: { met: 3, of: 6 }, fiber: { met: 2, of: 6 },
           },
         }),
       })
@@ -1996,7 +1983,8 @@ describe('App', () => {
       expect(within(card).getByText('2 of 6 days')).toBeInTheDocument()
       expect(within(card).getByRole('progressbar', { name: 'Fat goal met' })).toHaveAttribute('aria-valuenow', '3')
       expect(within(card).getByText(/avg 1850 kcal/)).toBeInTheDocument()
-      expect(screen.getByText('Logged 6 of 7 days · 3 training, 4 rest')).toBeInTheDocument()
+      expect(screen.getByText('Logged 6 of 7 days')).toBeInTheDocument()
+      expect(within(card).queryByText(/Carbs/)).not.toBeInTheDocument()
     })
 
     it('charts calories, protein and fiber per day -- not whether a day was logged', async () => {
@@ -2007,11 +1995,11 @@ describe('App', () => {
         'GET /api/range': range({
           days: [
             {
-              date: start, entryCount: 1, water: 0, alcohol: 0, ...DAY_ACTIVITY, dayType: 'training' as const, goals: GOALS, missing: ZERO,
+              date: start, entryCount: 1, water: 0, alcohol: 0, ...DAY_ACTIVITY, goals: GOALS, missing: ZERO,
               totals: { ...ZERO, calories: 2100, protein: 140, fiber: 28 },
             },
             ...Array.from({ length: 6 }, (_, i) => ({
-              date: addDays(start, i + 1), entryCount: 0, water: 0, alcohol: 0, ...DAY_ACTIVITY, dayType: 'training' as const, goals: GOALS, totals: ZERO, missing: ZERO,
+              date: addDays(start, i + 1), entryCount: 0, water: 0, alcohol: 0, ...DAY_ACTIVITY, goals: GOALS, totals: ZERO, missing: ZERO,
             })),
           ],
         }, start),
@@ -2061,7 +2049,7 @@ describe('App', () => {
       const user = userEvent.setup()
       const monthStart = `${addDays(TODAY, -40).slice(0, 8)}01` // a month that is over
       const days = Array.from({ length: 28 }, (_, i) => ({
-        date: addDays(monthStart, i), entryCount: i === 2 ? 1 : 0, water: 0, alcohol: 0, ...DAY_ACTIVITY, dayType: 'rest' as const,
+        date: addDays(monthStart, i), entryCount: i === 2 ? 1 : 0, water: 0, alcohol: 0, ...DAY_ACTIVITY,
         goals: GOALS, missing: ZERO, totals: i === 2 ? { ...ZERO, calories: 1900, protein: 160 } : ZERO,
       }))
       const calls = stubApi({

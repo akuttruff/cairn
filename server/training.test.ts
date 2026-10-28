@@ -64,7 +64,6 @@ describe('training schemas', () => {
     let workouts = store.getDay(MON).workouts
     expect(workouts.sessions).toHaveLength(1)
     expect(workouts.sessions[0]).toMatchObject({ kind: 'weightlifting', note: 'Legs' })
-    expect(store.getDay(MON).dayType).toBe('training')
     expect(workouts.planned).toEqual(['Legs'])
     store.training.logSet({ date: MON, itemId: 'back-squat', setIndex: 1, reps: 5, weight: 70 })
     expect(store.getDay(MON).workouts.sessions).toHaveLength(1)

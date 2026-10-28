@@ -27,7 +27,7 @@ import useTrainWeek, { mondayOf } from './hooks/useTrainWeek.ts'
 import { addDays, alcoholCaloriesLogged, localDate, mealForHour } from './lib/nutrition.ts'
 import { dayLabel } from './lib/format.ts'
 import { api } from './lib/api.ts'
-import type { DayType, Entry, Meal } from './types.ts'
+import type { Entry, Meal } from './types.ts'
 import './App.css'
 
 type Sheet = 'add' | 'entry' | 'settings' | null
@@ -84,7 +84,6 @@ export default function App() {
     setSection('train')
     setTrainMode('today')
   }
-  const setDayType = (type: DayType): void => { void api.setDayType(day.date, type).then(refresh) }
 
   /** A range chart's bar was tapped: go look at that day. */
   const selectDay = (date: string): void => {
@@ -145,7 +144,7 @@ export default function App() {
             )}
             {view && (
               <>
-                <Totals totals={view.totals} missing={view.missing} goals={view.goals} dayType={view.dayType} onSetDayType={setDayType} alcoholCalories={alcoholCaloriesLogged(view.entries)} />
+                <Totals totals={view.totals} missing={view.missing} goals={view.goals} alcoholCalories={alcoholCaloriesLogged(view.entries)} />
                 <WaterTracker date={day.date} water={view.water} onLogged={refresh} />
                 <AlcoholTracker date={day.date} alcohol={view.alcohol} onLogged={refresh} />
                 <MealList

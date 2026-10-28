@@ -68,7 +68,6 @@ A **session** is `{ "id", "title", "kind", "items": [...] }`.
 
 - `kind` is a workout activity from Settings (`weightlifting`, `wod`, `cycling`, `yoga` and so on).
 - Logging any part of a session also logs one session of that activity on the Workouts card.
-- For an activity marked as training, that also makes the day a training day.
 
 An **item** is `{ "id", "name", "lift"?, "notes"?, "onlyWeeks"?: [from, to] }` plus **exactly one** of the six types below. `notes` are the how-to, shown under "How to". `onlyWeeks` limits the item to a range of weeks.
 

@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addDays, addMonths, alcoholCalories, alcoholCaloriesLogged, dogWalksMet, scoreDogWalks, blendGoals, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalDirection, goalLabel,
-  goalMet, goalStatus,
+  addDays, addMonths, alcoholCalories, alcoholCaloriesLogged, dogWalksMet, scoreDogWalks, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalDirection, goalLabel,
+  goalMet, goalRangeFor, goalStatus,
   impliedCalories,
   isDateString, localDate, macroCalories, meditationMet, progress, rangeStatus, resolveGoals, scale, scoreDays, scoreMeditation,
   scoreWater, startOfMonth, startOfWeek, streakThrough, sumDay, sumNutrients,
 } from './nutrition.ts'
-import type { DaySummary, Entry, Goals, NutrientKey, Nutrients, ResolvedGoals } from '../types.ts'
+import type { DaySummary, Entry, Goals, NutrientKey, Nutrients } from '../types.ts'
 
 const n = (v: Partial<Nutrients>): Nutrients => ({ ...emptyNutrients(), ...v })
 
@@ -155,50 +155,32 @@ describe('rangeStatus', () => {
 })
 
 const GOALS: Goals = {
-  protein: 130, fat: 60, carbs: 160, trainingCarbs: 35, calorieBuffer: 0, fiber: 30, water: 72, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1,
+  calories: 1800, protein: 130, fat: 60, fiber: 30, water: 72, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1,
   workoutPlan: { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 },
 }
 
 describe('resolveGoals', () => {
-  it('computes calories from the macros themselves -- never a separately stated number', () => {
-    const resolved = resolveGoals(GOALS, 'rest')
-    // 130*4 + 160*4 + 60*9 = 520 + 640 + 540 = 1700.
-    expect(resolved.calories).toEqual({ min: 1700, max: 1700 })
-    expect(resolved.carbs).toEqual({ min: 160, max: 160 })
+  it('takes the calorie cap and the floors as set, the same every day', () => {
+    const resolved = resolveGoals(GOALS)
+    expect(resolved.calories).toEqual({ min: 1800, max: 1800 })
+    expect(resolved.protein).toEqual({ min: 130, max: 130 })
+    expect(resolved.fat).toEqual({ min: 60, max: 60 })
     expect(resolved.fiber).toBe(30)
     expect(resolved.water).toBe(72)
     expect(resolved.alcoholWeekly).toBe(7)
     expect(resolved.meditationMinutes).toBe(10)
-  })
-
-  it('adds the training-day carbs on top of the base, and the calories they bring', () => {
-    const resolved = resolveGoals(GOALS, 'training')
-    expect(resolved.carbs).toEqual({ min: 195, max: 195 })
-    expect(resolved.calories).toEqual({ min: 1840, max: 1840 }) // 1700 + 35*4
-    expect(resolved.protein).toEqual({ min: 130, max: 130 }) // unchanged
-  })
-
-  it('asks for the same water on any day type', () => {
-    expect(resolveGoals(GOALS, 'rest').water).toBe(72)
-    expect(resolveGoals(GOALS, 'training').water).toBe(72)
-  })
-
-  it('adds the calorie buffer on top of what the macros come to, on every day type', () => {
-    const buffered = { ...GOALS, calorieBuffer: 100 }
-    expect(resolveGoals(buffered, 'rest').calories).toEqual({ min: 1800, max: 1800 }) // 1700 + 100
-    expect(resolveGoals(buffered, 'training').calories).toEqual({ min: 1940, max: 1940 }) // 1840 + 100
-    expect(resolveGoals(buffered, 'rest').protein).toEqual({ min: 130, max: 130 }) // the macros themselves don't move
+    // Carbs are counted, never judged.
+    expect('carbs' in resolved).toBe(false)
+    expect(goalRangeFor(resolved, 'carbs')).toBeNull()
   })
 })
 
 describe('goalMet', () => {
-  it('treats calories and carbs as caps: at or under the top is a hit, over is a miss', () => {
+  it('treats calories as a cap: at or under the top is a hit, over is a miss', () => {
     const r = { min: 1900, max: 2100 }
     expect(goalMet(2100, r, 'calories')).toBe(true) // exactly on the line counts
     expect(goalMet(1200, r, 'calories')).toBe(true) // well under is still a hit
     expect(goalMet(2101, r, 'calories')).toBe(false)
-    expect(goalMet(0, { min: 220, max: 237 }, 'carbs')).toBe(true)
-    expect(goalMet(237.1, { min: 220, max: 237 }, 'carbs')).toBe(false)
   })
 
   it('treats fat as a floor, like protein: at or over the goal is a hit, under is a miss', () => {
@@ -211,12 +193,12 @@ describe('goalMet', () => {
   it('says which way each goal points, and where a day stands in those terms', () => {
     const r = { min: 60, max: 60 }
     expect(goalDirection('fat')).toBe('reach')
-    expect(goalDirection('carbs')).toBe('stay under')
+    expect(goalDirection('calories')).toBe('stay under')
     expect(goalDirection('protein')).toBe('reach')
     expect(goalLabel('calories', { min: 1800, max: 1800 })).toBe('max 1800')
     expect(goalLabel('fiber', { min: 30, max: 30 })).toBe('min 30')
-    expect(goalStatus('carbs', 45, r, 'g')).toEqual({ text: '15 g left', bad: false, met: true })
-    expect(goalStatus('carbs', 72, r, 'g')).toEqual({ text: '12 g over', bad: true, met: false })
+    expect(goalStatus('calories', 1500, { min: 1800, max: 1800 })).toEqual({ text: '300 left', bad: false, met: true })
+    expect(goalStatus('calories', 1900, { min: 1800, max: 1800 })).toEqual({ text: '100 over', bad: true, met: false })
     expect(goalStatus('fat', 45, r, 'g')).toEqual({ text: '15 g to go', bad: false, met: false })
     expect(goalStatus('protein', 110, { min: 130, max: 130 }, 'g')).toEqual({ text: '20 g to go', bad: false, met: false })
     expect(goalStatus('protein', 150, { min: 130, max: 130 }, 'g')).toEqual({ text: 'Goal met', bad: false, met: true })
@@ -233,23 +215,23 @@ describe('goalMet', () => {
 })
 
 describe('scoreDays', () => {
-  const training = resolveGoals(GOALS, 'training')
-  const rest = resolveGoals(GOALS, 'rest')
-  const summary = (dayType: 'training' | 'rest', totals: Partial<Record<NutrientKey, number>>, entryCount = 1): DaySummary => ({
-    date: '2026-09-22', entryCount, dayType, goals: dayType === 'training' ? training : rest, water: 0, alcohol: 0,
+  const goals = resolveGoals(GOALS)
+  const summary = (totals: Partial<Record<NutrientKey, number>>, entryCount = 1): DaySummary => ({
+    date: '2026-09-22', entryCount, goals, water: 0, alcohol: 0,
     workouts: 0, workoutMinutes: 0, meditationMinutes: 0, dogWalks: 0, dogMiles: 0,
     totals: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0, ...totals },
     missing: { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 },
   })
 
-  it("judges each day against its own day type's goal, never a blend", () => {
-    // 1800 kcal: under the training cap (1840), over the rest one (1700).
-    const days = [summary('training', { calories: 1800 }), summary('rest', { calories: 1800 })]
+  it('counts the days under the calorie cap and over each floor, and never scores carbs', () => {
+    const days = [summary({ calories: 1800, fat: 70 }), summary({ calories: 1801, fat: 50 })]
     expect(scoreDays(days).calories).toEqual({ met: 1, of: 2 })
+    expect(scoreDays(days).fat).toEqual({ met: 1, of: 2 })
+    expect('carbs' in scoreDays(days)).toBe(false)
   })
 
   it('leaves unlogged days out of both counts', () => {
-    const days = [summary('rest', { protein: 135 }), summary('rest', {}, 0)]
+    const days = [summary({ protein: 135 }), summary({}, 0)]
     expect(scoreDays(days).protein).toEqual({ met: 1, of: 1 })
     expect(scoreDays([]).fiber).toEqual({ met: 0, of: 0 })
   })
@@ -339,32 +321,6 @@ describe('streakThrough', () => {
 
   it('is zero when the most recent day had nothing', () => {
     expect(streakThrough(days, sat, '2026-10-03')).toBe(0)
-  })
-})
-
-describe('blendGoals', () => {
-  const training = resolveGoals(GOALS, 'training')
-  const rest = resolveGoals(GOALS, 'rest')
-
-  it('averages each goal across the days given, field by field, to one decimal', () => {
-    const blended = blendGoals([training, training, rest]) // 2 training days, 1 rest
-    expect(blended.carbs.min).toBeCloseTo((195 + 195 + 160) / 3, 1)
-    expect(blended.calories.min).toBeCloseTo((1840 + 1840 + 1700) / 3, 1)
-    expect(blended.protein.min).toBe(130) // the same every day
-  })
-
-  it('carries fiber and water through unchanged', () => {
-    const blended = blendGoals([training, rest])
-    expect(blended.fiber).toBe(30)
-    expect(blended.water).toBe(72)
-  })
-
-  it('a single day blends to exactly that day\'s own goals', () => {
-    expect(blendGoals([training])).toEqual(training)
-  })
-
-  it('refuses an empty list rather than returning something meaningless', () => {
-    expect(() => blendGoals([] as ResolvedGoals[])).toThrow('blendGoals needs at least one day')
   })
 })
 

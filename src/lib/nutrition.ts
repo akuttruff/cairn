@@ -1,20 +1,13 @@
-import { ALCOHOL_KINDS, NUTRIENTS } from '../types.ts'
+import { ALCOHOL_KINDS, GOAL_NUTRIENTS, NUTRIENTS } from '../types.ts'
 import type {
-  AlcoholKind, DaySummary, DayTotals, DayType, Entry, Goals, Meal, MacroRange, NutrientKey, Nutrients, ResolvedGoals, Scorecard,
-  WorkoutKindDef,
+  AlcoholKind, DaySummary, DayTotals, Entry, GoalKey, Goals, Meal, MacroRange, NutrientKey, Nutrients, ResolvedGoals, Scorecard,
 } from '../types.ts'
 
-/**
- * A starting point for Settings, not a fixed target: edit it to fit. The
- * base works out to 1,700 kcal (130*4 + 60*9 + 160*4); a training day's
- * 35 g of fast carbs makes it 1,840.
- */
+/** A starting point for Settings, not a fixed target: edit it to fit. */
 export const DEFAULT_GOALS: Goals = {
+  calories: 1800,
   protein: 130,
   fat: 60,
-  carbs: 160,
-  trainingCarbs: 35,
-  calorieBuffer: 100,
   fiber: 30,
   // Every day, whatever the activity: two 32oz bottles and a mug of tea.
   water: 72,
@@ -27,9 +20,6 @@ export const DEFAULT_GOALS: Goals = {
   dogWalks: 2,
   walkMiles: 1,
 }
-
-/** Whether logging this kind makes the day a training day (the carb bump is for these). */
-export const isTrainingKind = (kinds: WorkoutKindDef[], id: string): boolean => kinds.some((k) => k.id === id && k.training)
 
 export const UNITS: Record<NutrientKey, string> = {
   calories: 'kcal',
@@ -201,10 +191,9 @@ export function rangeStatus(total: number, range: MacroRange): RangeStatus {
  * Caps: the goal is to stay under them, and coming in under is a win.
  * Going past turns the bar red and costs the day its goal.
  */
-export const OVER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['calories', 'carbs'])
+export const OVER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['calories'])
 
 /** Floors: the goal is to reach them, and going over is fine. */
-/** Fat is a floor too: a daily minimum to eat, not a cap. */
 export const UNDER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['protein', 'fat', 'fiber'])
 
 /** Which way a nutrient's goal points, in words: "stay under" a cap, "reach" a floor. */
@@ -233,15 +222,19 @@ export function goalStatus(key: NutrientKey, total: number, range: MacroRange, u
     : { text: `${amount(range.min - total)} to go`, bad: false, met: false }
 }
 
-/** A nutrient's target as a range, fiber included (a single number, so min = max). */
-export function goalRangeFor(goals: ResolvedGoals, key: NutrientKey): MacroRange {
+/** A nutrient's target as a range, fiber included (a single number, so min = max); null for carbs, which have none. */
+export function goalRangeFor(goals: ResolvedGoals, key: NutrientKey): MacroRange | null {
+  if (key === 'carbs') return null
   return key === 'fiber' ? { min: goals.fiber, max: goals.fiber } : goals[key]
 }
 
+/** Whether a nutrient has a goal at all. */
+export const hasGoal = (key: NutrientKey): key is GoalKey => key !== 'carbs'
+
 /**
  * Whether a day's total hit its goal. The goals are caps and floors, not
- * targets to land on: calories, carbs and fat are met at or under the goal
- * (coming in under is a win, not a miss); protein and fiber at or over it
+ * targets to land on: calories are met at or under the cap (coming in under
+ * is a win, not a miss); protein, fat and fiber at or over their floors
  * (going over is fine). Exactly on the line counts.
  */
 export function goalMet(total: number, range: MacroRange, kind: NutrientKey): boolean {
@@ -258,9 +251,9 @@ export function goalMet(total: number, range: MacroRange, kind: NutrientKey): bo
 export function scoreDays(days: DaySummary[]): Scorecard {
   const logged = days.filter((d) => d.entryCount > 0)
   const out = {} as Scorecard
-  for (const key of NUTRIENTS) {
+  for (const key of GOAL_NUTRIENTS) {
     out[key] = {
-      met: logged.filter((d) => goalMet(d.totals[key], goalRangeFor(d.goals, key), key)).length,
+      met: logged.filter((d) => goalMet(d.totals[key], goalRangeFor(d.goals, key)!, key)).length,
       of: logged.length,
     }
   }
@@ -280,7 +273,7 @@ export function waterMet(ounces: number, goal: number): boolean {
  */
 export function scoreWater(days: (Pick<DaySummary, 'water'> & { goals?: { water: number } })[], goal: number): { met: number; of: number } {
   const logged = days.filter((d) => d.water > 0)
-  // Each day against its own goal when it carries one: a training day's is a bottle higher.
+  // Each day against its own goal when it carries one.
   return { met: logged.filter((d) => waterMet(d.water, d.goals?.water ?? goal)).length, of: logged.length }
 }
 
@@ -322,46 +315,14 @@ export function streakThrough<T extends { date: string }>(days: T[], logged: (d:
   return n
 }
 
-/**
- * A day's goals, calories included -- but calories are never stored on
- * their own (see Goals and ResolvedGoals). They're computed here from the
- * macros, at 4 kcal/g for protein and carbs and 9 for fat, so a calorie
- * target can never disagree with what the macros it's made of actually add
- * up to. A training day is the base plus its extra carbs.
- */
-export function resolveGoals(goals: Goals, dayType: DayType): ResolvedGoals {
-  const carbs = goals.carbs + (dayType === 'training' ? goals.trainingCarbs : 0)
+/** The goals as the day and range views judge totals against them. */
+export function resolveGoals(goals: Goals): ResolvedGoals {
   const exact = (n: number): MacroRange => ({ min: n, max: n })
   return {
-    // The macros' calories, plus the buffer: the cap has a little room the macros themselves don't.
-    calories: exact(round1(goals.protein * 4 + carbs * 4 + goals.fat * 9 + goals.calorieBuffer)),
-    protein: exact(goals.protein), carbs: exact(carbs), fat: exact(goals.fat),
+    calories: exact(goals.calories), protein: exact(goals.protein), fat: exact(goals.fat),
     fiber: goals.fiber, water: goals.water, alcoholWeekly: goals.alcoholWeekly,
     meditationMinutes: goals.meditationMinutes,
     dogWalks: goals.dogWalks, walkMiles: goals.walkMiles,
-  }
-}
-
-/**
- * One reference goal for a week or month that mixed training and rest days:
- * each range field is the plain average of that field across every day's
- * own resolved goal. Not a strict target -- a week of training days and one
- * of rest days should read differently -- but a fair single line for a
- * chart, and for comparing the period's averages against.
- */
-export function blendGoals(perDay: ResolvedGoals[]): ResolvedGoals {
-  const first = perDay[0]
-  if (!first) throw new Error('blendGoals needs at least one day')
-  const avg = (pick: (g: ResolvedGoals) => MacroRange): MacroRange => ({
-    min: round1(perDay.reduce((sum, g) => sum + pick(g).min, 0) / perDay.length),
-    max: round1(perDay.reduce((sum, g) => sum + pick(g).max, 0) / perDay.length),
-  })
-  return {
-    calories: avg((g) => g.calories), protein: avg((g) => g.protein), carbs: avg((g) => g.carbs), fat: avg((g) => g.fat),
-    // These don't vary by day type.
-    fiber: first.fiber, water: first.water, alcoholWeekly: first.alcoholWeekly,
-    meditationMinutes: first.meditationMinutes,
-    dogWalks: first.dogWalks, walkMiles: first.walkMiles,
   }
 }
 

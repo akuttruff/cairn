@@ -4,13 +4,13 @@ import { randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { ALCOHOL_KINDS, APP_ICONS, BODY_METRICS, CHARTABLE, DRINKS, MEALS, NUTRIENTS } from '../src/types.ts'
 import type {
-  AlcoholKind, AlcoholLog, DaySummary, DayType, DayView, Drink, Entry, Food, Goals,
+  AlcoholKind, AlcoholLog, DaySummary, DayView, Drink, Entry, Food, Goals,
   Meal, MealPreset, MealPresetItem, MeditationLog, DogWalkLog, NewEntry, Nutrients, NutrientKey, PublicSettings,
   RangeView, Settings, WaterLog, WorkoutKind, WorkoutLog, WorkoutPlan,
 } from '../src/types.ts'
 import {
-  addDays, alcoholCalories, blendGoals, DEFAULT_GOALS, daysBetween, isDateString, localDate, resolveGoals, round1, scale,
-  scoreDays, scoreDogWalks, scoreMeditation, scoreWater, startOfWeek, streakThrough, sumDay, isTrainingKind,
+  addDays, alcoholCalories, DEFAULT_GOALS, daysBetween, isDateString, localDate, resolveGoals, round1, scale,
+  scoreDays, scoreDogWalks, scoreMeditation, scoreWater, startOfWeek, streakThrough, sumDay,
 } from '../src/lib/nutrition.ts'
 import { LOOKUP_TTL_MS, normalizeQuery } from './research.ts'
 import type { ResearchResult } from './research.ts'
@@ -20,7 +20,7 @@ import { prepareStatements } from './store/statements.ts'
 import type { Stmts } from './store/statements.ts'
 import { migrateFromJson } from './store/legacy.ts'
 import {
-  cleanAmount, cleanBodySample, cleanDayType, cleanGoalNumber, cleanGrams, cleanMinutes, cleanName, cleanNote, cleanNutrients,
+  cleanAmount, cleanBodySample, cleanGoalNumber, cleanGrams, cleanMinutes, cleanName, cleanNote, cleanNutrients,
   cleanPerServing, cleanPlan, cleanSource, cleanSources, cleanWorkoutKinds, MAX_NAME, ValidationError,
 } from './store/clean.ts'
 import { cleanEquipment } from '../src/lib/training/schema.ts'
@@ -31,7 +31,7 @@ import {
   settingsFromRow, workoutFromRow, zeroByKind,
 } from './store/rows.ts'
 import type {
-  AlcoholLogRow, BodyRow, DayTypeRow, DogWalkLogRow, EntryRow, FoodRow, GoalsRow, MeditationLogRow, PresetItemRow, SettingsRow,
+  AlcoholLogRow, BodyRow, DogWalkLogRow, EntryRow, FoodRow, GoalsRow, MeditationLogRow, PresetItemRow, SettingsRow,
   WaterLogRow, WorkoutLogRow,
 } from './store/rows.ts'
 
@@ -183,8 +183,7 @@ export class Store {
     const rows = this.stmts.selectEntriesByDate.all(date) as unknown as EntryRow[]
     const entries = rows.map(entryFromRow)
       .sort((a, b) => MEALS.indexOf(a.meal) - MEALS.indexOf(b.meal) || a.createdAt - b.createdAt)
-    const dayType = this.getDayType(date)
-    const goals = resolveGoals(this.getGoals(), dayType)
+    const goals = resolveGoals(this.getGoals())
     const water = this.getWater(date, goals.water)
     // The drinks' calories are reported (alcohol.calories) but kept out of
     // the day's totals and goals: food is judged on its own.
@@ -193,7 +192,7 @@ export class Store {
     const meditation = this.getMeditation(date, goals.meditationMinutes)
     const dog = this.getDogWalks(date, goals.dogWalks, goals.walkMiles)
     const body = this.getBody(date)
-    return { date, entries, dayType, goals, water, alcohol, workouts, meditation, dog, body, ...sumDay(entries) }
+    return { date, entries, goals, water, alcohol, workouts, meditation, dog, body, ...sumDay(entries) }
   }
 
   /**
@@ -218,20 +217,16 @@ export class Store {
     const workoutsByDate = groupBy(workoutRows, 'date')
     const meditationByDate = groupBy(this.stmts.selectMeditationBetween.all(start, end) as unknown as MeditationLogRow[], 'date')
     const dogByDate = groupBy(this.stmts.selectDogWalksBetween.all(start, end) as unknown as DogWalkLogRow[], 'date')
-    const dayTypeByDate = new Map(
-      (this.stmts.selectDayTypesBetween.all(start, end) as unknown as DayTypeRow[]).map((r) => [r.date, r.type]),
-    )
 
-    const goals = this.getGoals()
+    const goals = resolveGoals(this.getGoals())
     const days: DaySummary[] = []
     for (let date = start; date <= end; date = addDays(date, 1)) {
       const dayEntries = entriesByDate.get(date) ?? []
       const water = (waterByDate.get(date) ?? []).reduce((sum, r) => sum + r.ounces, 0)
-      const dayType: DayType = dayTypeByDate.get(date) === 'training' ? 'training' : 'rest'
       const drinks = alcoholByDate.get(date) ?? []
       const sessions = workoutsByDate.get(date) ?? []
       days.push({
-        date, entryCount: dayEntries.length, dayType, goals: resolveGoals(goals, dayType), water,
+        date, entryCount: dayEntries.length, goals, water,
         alcohol: drinks.length,
         workouts: sessions.length,
         workoutMinutes: sessions.reduce((sum, r) => sum + (r.minutes ?? 0), 0),
@@ -240,10 +235,6 @@ export class Store {
         dogMiles: round1((dogByDate.get(date) ?? []).reduce((sum, r) => sum + r.miles, 0)),
         ...sumDay(dayEntries),
       })
-    }
-    const dayTypes: Record<DayType, number> = {
-      training: days.filter((d) => d.dayType === 'training').length,
-      rest: days.filter((d) => d.dayType === 'rest').length,
     }
 
     const totalDays = days.length
@@ -295,7 +286,7 @@ export class Store {
     const dogThrough = lastDay === today && !dogToday ? addDays(today, -1) : lastDay
 
     return {
-      start, end, days, goals: blendGoals(days.map((d) => d.goals)), dayTypes, scorecard: scoreDays(basis),
+      start, end, days, goals, scorecard: scoreDays(basis),
       charts: this.getSettings().charts,
       totalDays, loggedDays, averagedDays: basis.length, totals, averages,
       water: { total: round1(waterTotal), average: per(basis.reduce((s, d) => s + d.water, 0)), ...scoreWater(basis, goals.water) }, // each day against its own goal (see scoreWater)
@@ -431,13 +422,7 @@ export class Store {
     return { sessions, minutes: sessions.reduce((sum, s) => sum + s.minutes, 0), goal, lastLogId: sessions[0]?.id ?? null }
   }
 
-  /**
-   * One workout session. An activity marked "training" in Settings (a WOD
-   * or lifting session, as set up) is what a training day is, so logging
-   * one ticks the day as training -- the extra carbs apply without a second
-   * tap. Other kinds (a ride, yoga) leave the day type alone, and the box in
-   * Day view can still be changed by hand.
-   */
+  /** One workout session, of an activity in Settings. */
   addWorkout(input: { date?: unknown; kind?: unknown; minutes?: unknown; note?: unknown }): WorkoutLog {
     const { date, kind } = input
     if (typeof date !== 'string' || !isDateString(date)) throw new ValidationError('date must be YYYY-MM-DD')
@@ -451,7 +436,6 @@ export class Store {
       ...(note ? { note } : {}),
     }
     this.stmts.insertWorkout.run(log.id, log.date, log.kind, log.minutes, log.note ?? null, log.createdAt)
-    if (isTrainingKind(kinds, log.kind)) this.stmts.upsertDayType.run(date, 'training')
     return log
   }
 
@@ -938,11 +922,9 @@ export class Store {
   /** Change any of the goals; fields left out stay as they were. */
   setGoals(input: Partial<Goals>): Goals {
     const next = this.getGoals()
+    if (input.calories !== undefined) next.calories = cleanGoalNumber(input.calories, 'calories', 10000)
     if (input.protein !== undefined) next.protein = cleanGoalNumber(input.protein, 'protein')
     if (input.fat !== undefined) next.fat = cleanGoalNumber(input.fat, 'fat')
-    if (input.carbs !== undefined) next.carbs = cleanGoalNumber(input.carbs, 'carbs')
-    if (input.trainingCarbs !== undefined) next.trainingCarbs = cleanGoalNumber(input.trainingCarbs, 'trainingCarbs')
-    if (input.calorieBuffer !== undefined) next.calorieBuffer = cleanGoalNumber(input.calorieBuffer, 'calorieBuffer', 2000)
     if (input.fiber !== undefined) next.fiber = cleanGoalNumber(input.fiber, 'fiber', 1000)
     if (input.water !== undefined) next.water = cleanGoalNumber(input.water, 'water', 1000)
     if (input.alcoholWeekly !== undefined) next.alcoholWeekly = cleanGoalNumber(input.alcoholWeekly, 'alcoholWeekly', 1000)
@@ -952,23 +934,6 @@ export class Store {
     if (input.walkMiles !== undefined) next.walkMiles = cleanGoalNumber(input.walkMiles, 'walkMiles', 50)
     this.stmts.updateGoals.run(...goalsParams(next))
     return next
-  }
-
-  /**
-   * No row for a date means it was never marked -- a rest day. Training is
-   * the thing you tick off (the "Training day" box in Day view), so a day
-   * nobody touched can't claim the higher targets by default.
-   */
-  getDayType(date: string): DayType {
-    const row = this.stmts.selectDayType.get(date) as unknown as DayTypeRow | undefined
-    return row?.type === 'training' ? 'training' : 'rest'
-  }
-
-  setDayType(date: string, type: unknown): DayType {
-    if (!isDateString(date)) throw new ValidationError('date must be YYYY-MM-DD')
-    const clean = cleanDayType(type)
-    this.stmts.upsertDayType.run(date, clean)
-    return clean
   }
 
   getSettings(): Settings {

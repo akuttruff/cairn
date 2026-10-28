@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Minus, Pencil, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
-import { isTrainingKind, localDate } from '../lib/nutrition.ts'
+import { localDate } from '../lib/nutrition.ts'
 import { dayLabel } from '../lib/format.ts'
 import { kindView } from '../lib/workoutIcons.ts'
 import type { DayView, WorkoutKind, WorkoutLog, WorkoutPlan } from '../types.ts'
@@ -37,7 +37,6 @@ export default function WorkoutTracker({ date, workouts, onLogged, onOpenPlan }:
   const add = async (kind: WorkoutKind): Promise<void> => {
     try {
       await api.addWorkout({ date, kind, minutes: null })
-      if (isTrainingKind(kinds, kind)) toast(`${kindView(kinds, kind).label} logged -- marked as a training day`)
       onLogged()
     } catch (err) {
       toast.error((err as Error).message)
