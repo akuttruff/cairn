@@ -5,7 +5,7 @@ import type { RangeView, Settings } from '../src/types.ts'
 
 const ZERO = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 }
 const GOALS = {
-  calories: { min: 1850, max: 1850 }, protein: { min: 130, max: 130 }, fat: { min: 50, max: 50 },
+  calories: { min: 0, max: 1850 }, protein: { min: 130, max: 130 }, fat: { min: 50, max: 50 },
   fiber: 25, water: 96, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1,
 } as RangeView['goals']
 const PLAN = { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 0, pilates: 0 }

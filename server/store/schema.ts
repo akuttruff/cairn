@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS goals (id INTEGER PRIMARY KEY CHECK (id = 1),
   fiber REAL NOT NULL, water_ounces REAL NOT NULL DEFAULT 72, alcohol_weekly REAL NOT NULL DEFAULT 7,
   workouts_weekly REAL NOT NULL DEFAULT 4, meditation_minutes REAL NOT NULL DEFAULT 10,
   calorie_buffer REAL NOT NULL DEFAULT 100, workout_plan TEXT, training_water REAL NOT NULL DEFAULT 32,
-  dog_walks REAL NOT NULL DEFAULT 2, walk_miles REAL NOT NULL DEFAULT 1, max_calories REAL NOT NULL DEFAULT 1800);
+  dog_walks REAL NOT NULL DEFAULT 2, walk_miles REAL NOT NULL DEFAULT 1, max_calories REAL NOT NULL DEFAULT 1800, min_calories REAL NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK (id = 1),
   usda_api_key TEXT NOT NULL DEFAULT '', lm_studio_url TEXT NOT NULL DEFAULT 'http://127.0.0.1:1234',
   lm_studio_token TEXT NOT NULL DEFAULT '', research_model TEXT NOT NULL DEFAULT '', auto_lookup INTEGER NOT NULL DEFAULT 1,
@@ -358,5 +358,11 @@ function migrateSchema(db: DatabaseSync): void {
       }
     }
     db.exec('PRAGMA user_version = 22')
+  }
+  if (version < 23) {
+    // Calories became a range again: a minimum beside the cap, 0 (a cap alone) until one is set.
+    const cols = db.prepare('PRAGMA table_info(goals)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'min_calories')) db.exec('ALTER TABLE goals ADD COLUMN min_calories REAL NOT NULL DEFAULT 0')
+    db.exec('PRAGMA user_version = 23')
   }
 }

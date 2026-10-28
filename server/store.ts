@@ -923,6 +923,8 @@ export class Store {
   setGoals(input: Partial<Goals>): Goals {
     const next = this.getGoals()
     if (input.calories !== undefined) next.calories = cleanGoalNumber(input.calories, 'calories', 10000)
+    if (input.minCalories !== undefined) next.minCalories = cleanGoalNumber(input.minCalories, 'minCalories', 10000)
+    if (next.minCalories > next.calories) throw new ValidationError('the calorie minimum must be at or below the maximum')
     if (input.protein !== undefined) next.protein = cleanGoalNumber(input.protein, 'protein')
     if (input.fat !== undefined) next.fat = cleanGoalNumber(input.fat, 'fat')
     if (input.fiber !== undefined) next.fiber = cleanGoalNumber(input.fiber, 'fiber', 1000)

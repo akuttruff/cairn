@@ -6,6 +6,7 @@ import type {
 /** A starting point for Settings, not a fixed target: edit it to fit. */
 export const DEFAULT_GOALS: Goals = {
   calories: 1800,
+  minCalories: 0,
   protein: 130,
   fat: 60,
   fiber: 30,
@@ -196,26 +197,29 @@ export const OVER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['calories'])
 /** Floors: the goal is to reach them, and going over is fine. */
 export const UNDER_IS_BAD: ReadonlySet<NutrientKey> = new Set(['protein', 'fat', 'fiber'])
 
-/** Which way a nutrient's goal points, in words: "stay under" a cap, "reach" a floor. */
-export const goalDirection = (key: NutrientKey): string => (OVER_IS_BAD.has(key) ? 'stay under' : 'reach')
+/** Which way a nutrient's goal points, in words: "stay under" a cap, "stay within" a calorie range, "reach" a floor. */
+export const goalDirection = (key: NutrientKey, range?: MacroRange | null): string =>
+  (OVER_IS_BAD.has(key) ? (range && range.min > 0 ? 'stay within' : 'stay under') : 'reach')
 
-/** The goal as it reads beside a total: "max 1800", "min 130". */
+/** The goal as it reads beside a total: "max 1800", "1500–1800", "min 130". */
 export function goalLabel(key: NutrientKey, range: MacroRange): string {
   const n = (v: number): string => String(Math.round(v * 10) / 10)
-  return OVER_IS_BAD.has(key) ? `max ${n(range.max)}` : `min ${n(range.min)}`
+  if (OVER_IS_BAD.has(key)) return range.min > 0 ? `${n(range.min)}–${n(range.max)}` : `max ${n(range.max)}`
+  return `min ${n(range.min)}`
 }
 
 /**
  * Where a day's total stands against its goal, in words that follow the
  * goal's direction: a cap has some "left" or is "over"; a floor has some
- * "to go" until it's "Goal met". `bad` only for a cap that's been passed.
+ * "to go" until it's "Goal met". A calorie range is "to go" below its
+ * bottom, then "left" up to its top. `bad` only for a cap that's been passed.
  */
 export function goalStatus(key: NutrientKey, total: number, range: MacroRange, unit = ''): { text: string; bad: boolean; met: boolean } {
   const amount = (v: number): string => `${Math.round(v)}${unit ? ` ${unit}` : ''}`
   if (OVER_IS_BAD.has(key)) {
-    return total > range.max
-      ? { text: `${amount(total - range.max)} over`, bad: true, met: false }
-      : { text: `${amount(range.max - total)} left`, bad: false, met: true }
+    if (total > range.max) return { text: `${amount(total - range.max)} over`, bad: true, met: false }
+    if (total < range.min) return { text: `${amount(range.min - total)} to go`, bad: false, met: false }
+    return { text: `${amount(range.max - total)} left`, bad: false, met: true }
   }
   return total >= range.min
     ? { text: 'Goal met', bad: false, met: true }
@@ -232,13 +236,12 @@ export function goalRangeFor(goals: ResolvedGoals, key: NutrientKey): MacroRange
 export const hasGoal = (key: NutrientKey): key is GoalKey => key !== 'carbs'
 
 /**
- * Whether a day's total hit its goal. The goals are caps and floors, not
- * targets to land on: calories are met at or under the cap (coming in under
- * is a win, not a miss); protein, fat and fiber at or over their floors
- * (going over is fine). Exactly on the line counts.
+ * Whether a day's total hit its goal. Calories are met within their range
+ * (at or under the cap, when there's no minimum); protein, fat and fiber at
+ * or over their floors (going over is fine). Exactly on the line counts.
  */
 export function goalMet(total: number, range: MacroRange, kind: NutrientKey): boolean {
-  if (OVER_IS_BAD.has(kind) && total > range.max) return false
+  if (OVER_IS_BAD.has(kind) && (total > range.max || total < range.min)) return false
   if (UNDER_IS_BAD.has(kind) && total < range.min) return false
   return true
 }
@@ -319,7 +322,7 @@ export function streakThrough<T extends { date: string }>(days: T[], logged: (d:
 export function resolveGoals(goals: Goals): ResolvedGoals {
   const exact = (n: number): MacroRange => ({ min: n, max: n })
   return {
-    calories: exact(goals.calories), protein: exact(goals.protein), fat: exact(goals.fat),
+    calories: { min: Math.min(goals.minCalories ?? 0, goals.calories), max: goals.calories }, protein: exact(goals.protein), fat: exact(goals.fat),
     fiber: goals.fiber, water: goals.water, alcoholWeekly: goals.alcoholWeekly,
     meditationMinutes: goals.meditationMinutes,
     dogWalks: goals.dogWalks, walkMiles: goals.walkMiles,

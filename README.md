@@ -53,7 +53,7 @@ The app has two sections, along the bottom: Nutrition, which it opens on, and Tr
 
 ### Nutrition
 
-- **Meals** log calories, protein, carbs, fat and fiber per entry, in a day, week and month view. Goals are a daily calorie cap and minimums for protein, fat and fiber; carbs are counted, with no goal.
+- **Meals** log calories, protein, carbs, fat and fiber per entry, in a day, week and month view. Goals are a daily calorie range (or just a cap) and minimums for protein, fat and fiber; carbs are counted, with no goal.
 - **Food lookup** works three ways. Search the USDA FoodData Central and Open Food Facts databases, scan a nutrition label from a photo for a local vision model to read, or ask for an online lookup, where a local model with a web-research tool reads the restaurant's or brand's own page.
 - **Label scanning** turns a picture into a food. Upload a photo or screenshot of a nutrition label, paste one, or drop it anywhere on the page. A local vision model reads it and fills in the Manual tab: name, brand, serving and macros. The food is ticked to save to My foods, so it is there for next time once you have checked it.
 - **My foods** keeps anything you have typed or confirmed, for one-tap logging, and saved meals log several at once.

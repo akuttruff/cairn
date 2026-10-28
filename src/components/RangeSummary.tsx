@@ -6,7 +6,7 @@ import { fmt, milesLabel } from '../lib/format.ts'
 import { kindView } from '../lib/workoutIcons.ts'
 import { SIT_MINUTES } from './MeditationTracker.tsx'
 import { BodyRangeCard } from './BodyCard.tsx'
-import type { ChartKey, DaySummary, MacroRange, NutrientKey, RangeView } from '../types.ts'
+import type { ChartKey, DaySummary, MacroRange, NutrientKey, RangeView, ResolvedGoals } from '../types.ts'
 
 interface RangeSummaryProps {
   view: RangeView
@@ -21,7 +21,7 @@ interface Series {
   /** Also the CSS class that colours it. */
   key: NutrientKey | 'water'
   label: string
-  /** Which way the goal points: "stay under" or "reach"; empty when there's no goal (carbs). */
+  /** Which way the goal points: "stay under", "stay within" or "reach"; empty when there's no goal (carbs). */
   direction: string
   unit: string
   value: (d: DaySummary) => number
@@ -34,10 +34,10 @@ interface Series {
   average: (view: RangeView) => number
 }
 
-const nutrientSeries = (key: NutrientKey): Series => ({
+const nutrientSeries = (key: NutrientKey, goals?: ResolvedGoals): Series => ({
   key,
   label: LABELS[key],
-  direction: hasGoal(key) ? goalDirection(key) : '',
+  direction: hasGoal(key) ? goalDirection(key, goals ? goalRangeFor(goals, key) : null) : '',
   unit: UNITS[key],
   value: (d) => d.totals[key],
   goal: (d) => goalRangeFor(d.goals, key),
@@ -115,7 +115,7 @@ interface RangeChartProps {
  *
  * Both draw the goal the same way: a line at the day's target, and a
  * faint band on the side of it that counts as
- * good -- below a max, above a min -- so a bar or point inside the band is
+ * good -- below a max, above a min, between the two lines of a calorie range -- so a bar or point inside the band is
  * a hit at a glance. Hits take the series colour; misses are rust, like an
  * over-the-max bar in Day view.
  *
@@ -129,8 +129,10 @@ function RangeChart({ series, view, today, selected, onPick }: RangeChartProps) 
   const { days } = view
   const n = days.length
   const bars = n <= 7
-  const under = series.direction === 'stay under'
+  // A cap or a calorie range: the good side is below the top (and above the bottom, for a range).
+  const under = series.direction.startsWith('stay')
   const goalOf = (d: DaySummary): number => { const g = series.goal(d); return !g ? 0 : under ? g.max : g.min }
+  const floorOf = (d: DaySummary): number => (under ? series.goal(d)?.min ?? 0 : 0)
   // Headroom above the tallest thing, so a value label has somewhere to sit.
   const max = Math.max(...days.map(goalOf), ...days.map((d) => series.value(d)), 1) * (bars ? 1.22 : 1.1)
   const slot = 100 / n
@@ -170,11 +172,13 @@ function RangeChart({ series, view, today, selected, onPick }: RangeChartProps) 
           {days.map((d, i) => {
             const g = yPct(goalOf(d))
             if (g <= 0) return null
+            const f = yPct(floorOf(d))
             return (
               <g key={d.date}>
-                {/* The good side of the goal: under a max, over a min. */}
-                <rect className="range-band" x={i * slot} width={slot} y={under ? 100 - g : 0} height={under ? g : 100 - g} />
+                {/* The good side of the goal: under a max (and over a calorie minimum), over a min. */}
+                <rect className="range-band" x={i * slot} width={slot} y={under ? 100 - g : 0} height={under ? g - f : 100 - g} />
                 <line className="range-goal-mark" x1={i * slot} x2={(i + 1) * slot} y1={100 - g} y2={100 - g} />
+                {f > 0 && <line className="range-goal-mark" x1={i * slot} x2={(i + 1) * slot} y1={100 - f} y2={100 - f} />}
               </g>
             )
           })}
@@ -321,7 +325,7 @@ export default function RangeSummary({ view, onSelectDay, part = 'nutrition' }: 
     <section className="range-summary" aria-label="Range summary">
       {part === 'nutrition' && (
         <>
-      {(view.charts ?? DEFAULT_CHARTS).map((key) => SERIES[key]).map((series) => (
+      {(view.charts ?? DEFAULT_CHARTS).map((key) => (key === 'calories' ? nutrientSeries('calories', goals) : SERIES[key])).map((series) => (
         <RangeChart key={series.key} series={series} view={view} today={today} selected={selected} onPick={pick} />
       ))}
       {!isWeek && (view.charts ?? DEFAULT_CHARTS).length > 0 && <div className="range-hint">Tap a day for its numbers; tap it again to open that day.</div>}

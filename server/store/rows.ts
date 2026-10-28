@@ -161,19 +161,19 @@ export function presetItemColumnParams(item: MealPresetItem): SQLInputValue[] {
 }
 
 export interface GoalsRow {
-  max_calories: number; base_protein: number; base_fat: number
+  max_calories: number; min_calories: number; base_protein: number; base_fat: number
   fiber: number; water_ounces: number; alcohol_weekly: number; meditation_minutes: number
   workout_plan: string | null
   dog_walks: number; walk_miles: number
 }
 
-export const GOALS_COLUMNS = 'max_calories,base_protein,base_fat,fiber,water_ounces,alcohol_weekly,meditation_minutes,workout_plan,dog_walks,walk_miles'
+export const GOALS_COLUMNS = 'max_calories,min_calories,base_protein,base_fat,fiber,water_ounces,alcohol_weekly,meditation_minutes,workout_plan,dog_walks,walk_miles'
 export const GOALS_PLACEHOLDERS = GOALS_COLUMNS.split(',').map(() => '?').join(',')
 export const GOALS_ASSIGNMENTS = GOALS_COLUMNS.split(',').map((c) => `${c}=?`).join(', ')
 
 export function goalsFromRow(row: GoalsRow, kinds: string[]): Goals {
   return {
-    calories: row.max_calories, protein: row.base_protein, fat: row.base_fat,
+    calories: row.max_calories, minCalories: row.min_calories, protein: row.base_protein, fat: row.base_fat,
     fiber: row.fiber, water: row.water_ounces, alcoholWeekly: row.alcohol_weekly,
     meditationMinutes: row.meditation_minutes,
     // Every kind in Settings gets an entry; the built-in plan only where the stored one has none.
@@ -184,7 +184,7 @@ export function goalsFromRow(row: GoalsRow, kinds: string[]): Goals {
 
 /** In GOALS_COLUMNS order. */
 export function goalsParams(g: Goals): SQLInputValue[] {
-  return [g.calories, g.protein, g.fat, g.fiber, g.water, g.alcoholWeekly, g.meditationMinutes, JSON.stringify(g.workoutPlan), g.dogWalks, g.walkMiles]
+  return [g.calories, g.minCalories, g.protein, g.fat, g.fiber, g.water, g.alcoholWeekly, g.meditationMinutes, JSON.stringify(g.workoutPlan), g.dogWalks, g.walkMiles]
 }
 export interface AlcoholLogRow { id: string; date: string; kind: string; created_at: number }
 export interface WaterLogRow { id: string; date: string; ounces: number; drink: string; created_at: number }

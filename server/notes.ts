@@ -30,7 +30,7 @@ export function notesInput(view: RangeView, today: string = localDate()): string
   lines.push(ahead > 0
     ? `Today is ${today}. This ${kind.toLowerCase()} is still under way: ${ahead} day${ahead === 1 ? '' : 's'} still ahead, so weekly targets are not final.`
     : `This ${kind.toLowerCase()} is over (today is ${today}).`)
-  lines.push(`Daily goals: calories max ${n(g.calories.max)}, protein min ${n(g.protein.min)} g, fat min ${n(g.fat.min)} g, fiber min ${n(g.fiber)} g (carbs are counted but have no goal), water ${n(g.water)} oz (mugs of tea count); alcohol at most ${n(g.alcoholWeekly)} drinks a week; meditation ${n(g.meditationMinutes)} min a day; dog walks ${n(g.dogWalks)} a day.`)
+  lines.push(`Daily goals: calories ${g.calories.min > 0 ? `${n(g.calories.min)}-${n(g.calories.max)} (a range to land in)` : `max ${n(g.calories.max)}`}, protein min ${n(g.protein.min)} g, fat min ${n(g.fat.min)} g, fiber min ${n(g.fiber)} g (carbs are counted but have no goal), water ${n(g.water)} oz (mugs of tea count); alcohol at most ${n(g.alcoholWeekly)} drinks a week; meditation ${n(g.meditationMinutes)} min a day; dog walks ${n(g.dogWalks)} a day.`)
   lines.push(`Averages over ${view.averagedDays} finished days: ${n(view.averages.calories)} kcal, protein ${n(view.averages.protein)} g, fat ${n(view.averages.fat)} g, carbs ${n(view.averages.carbs)} g, fiber ${n(view.averages.fiber)} g; water ${n(view.water.average)} oz a day (goal met ${view.water.met} of ${view.water.of} logged days).`)
   const sc = view.scorecard
   lines.push(`Goal days met: calories ${sc.calories.met}/${sc.calories.of}, protein ${sc.protein.met}/${sc.protein.of}, fat ${sc.fat.met}/${sc.fat.of}, fiber ${sc.fiber.met}/${sc.fiber.of}.`)

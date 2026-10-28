@@ -42,9 +42,10 @@ export default function SettingsSheet({ open, session, onClose, onSaved }: Setti
 }
 
 /** The number fields, as typed; each is parsed and checked on every render. */
-type NumberField = 'calories' | 'protein' | 'fat' | 'fiber' | 'water' | 'alcoholWeekly' | 'meditationMinutes' | 'dogWalks' | 'walkMiles'
+type NumberField = 'minCalories' | 'calories' | 'protein' | 'fat' | 'fiber' | 'water' | 'alcoholWeekly' | 'meditationMinutes' | 'dogWalks' | 'walkMiles'
 const NUMBER_FIELDS: { key: NumberField; label: string; hint?: string }[] = [
-  // The two-by-two grid: a cap on calories, and the floors to reach every day.
+  // The grid: the calorie range, then the floors to reach every day.
+  { key: 'minCalories', label: 'Calories (kcal, min)' },
   { key: 'calories', label: 'Calories (kcal, max)' },
   { key: 'protein', label: 'Protein (g, min)' },
   { key: 'fat', label: 'Fat (g, min)' },
@@ -119,7 +120,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     api.goals().then((g) => {
       setGoals(g)
       setDrafts({
-        calories: String(g.calories), protein: String(g.protein), fat: String(g.fat), fiber: String(g.fiber), water: String(g.water), alcoholWeekly: String(g.alcoholWeekly),
+        minCalories: String(g.minCalories), calories: String(g.calories), protein: String(g.protein), fat: String(g.fat), fiber: String(g.fiber), water: String(g.water), alcoholWeekly: String(g.alcoholWeekly),
         meditationMinutes: String(g.meditationMinutes),
         dogWalks: String(g.dogWalks), walkMiles: String(g.walkMiles),
       })
@@ -175,6 +176,8 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     v == null || v < 0 || (key.startsWith('plan:') && (!Number.isInteger(v) || v > 14))
     || (key === 'dogWalks' && (!Number.isInteger(v) || v > 20)) || (key === 'walkMiles' && (v === 0 || v > 50))
   const invalid = parsed ? NUMBER_FIELDS.filter((f) => badValue(f.key, parsed[f.key])).map((f) => f.key) : []
+  // A range's bottom can't sit above its top.
+  if (parsed && !invalid.length && parsed.minCalories! > parsed.calories!) invalid.push('minCalories')
   const formInvalid = !parsed || invalid.length > 0 || kindsInvalid || placesInvalid
 
   const save = async (): Promise<void> => {
@@ -212,7 +215,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       // Settings first: the plan is checked against the activities in force.
       if (Object.keys(changes).length) await api.setSettings(changes)
       const next: Goals = {
-        calories: parsed.calories!, protein: parsed.protein!, fat: parsed.fat!, fiber: parsed.fiber!, water: parsed.water!, alcoholWeekly: parsed.alcoholWeekly!,
+        calories: parsed.calories!, minCalories: parsed.minCalories!, protein: parsed.protein!, fat: parsed.fat!, fiber: parsed.fiber!, water: parsed.water!, alcoholWeekly: parsed.alcoholWeekly!,
         meditationMinutes: parsed.meditationMinutes!,
         dogWalks: parsed.dogWalks!, walkMiles: parsed.walkMiles!,
         workoutPlan: planNext,
@@ -256,10 +259,10 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
           <div className="drawer-scroll" data-vaul-no-drag>
             {!drafts && <div className="hint">Loading…</div>}
             <div className="nutrient-fields">
-              {NUMBER_FIELDS.slice(0, 4).map(field)}
+              {NUMBER_FIELDS.slice(0, 5).map(field)}
             </div>
-            <div className="hint">The same every day. Carbs are counted in Day view, with no goal.</div>
-            {NUMBER_FIELDS.slice(4).map(field)}
+            <div className="hint">The same every day. A calorie minimum of 0 makes the maximum a cap alone. Carbs are counted in Day view, with no goal.</div>
+            {NUMBER_FIELDS.slice(5).map(field)}
 
             <h3 className="sheet-h">Workout activities</h3>
             <div className="hint">

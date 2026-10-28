@@ -109,13 +109,16 @@ export interface MacroRange {
 }
 
 /**
- * What Settings edits. The nutrition goals are floors and a cap: protein,
- * fat and fiber each have a daily minimum to reach, and calories a daily
- * maximum to stay under. Carbs are counted but have no goal.
+ * What Settings edits. The nutrition goals are floors and a calorie range:
+ * protein, fat and fiber each have a daily minimum to reach, and calories a
+ * daily range to land in (or just a maximum, when the minimum is 0). Carbs
+ * are counted but have no goal.
  */
 export interface Goals {
   /** Calories per day, at most. */
   calories: number
+  /** Calories per day, at least; 0 for a cap alone. */
+  minCalories: number
   /** Grams per day, at least. */
   protein: number
   fat: number

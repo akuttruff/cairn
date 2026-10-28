@@ -231,7 +231,7 @@ describe('foods', () => {
     const day = store.getDay(DAY)
     expect(day.alcohol).toMatchObject({ drinks: 2, calories: 225 })
     expect(day.totals.calories).toBe(105) // food only
-    expect(day.goals.calories).toEqual({ min: 1800, max: 1800 }) // and the goal is untouched (1700 + the 100 buffer)
+    expect(day.goals.calories).toEqual({ min: 0, max: 1800 }) // and the goal is untouched (1700 + the 100 buffer)
   })
 
   it('does not snapshot a saved food into history', () => {
@@ -276,6 +276,13 @@ describe('goals and settings', () => {
     expect(() => store.setGoals({ fiber: -1 })).toThrow(ValidationError)
     expect(() => store.setGoals({ protein: 'lots' as unknown as number })).toThrow(ValidationError)
     expect(() => store.setGoals({ calories: Number.NaN })).toThrow(ValidationError)
+    expect(() => store.setGoals({ minCalories: 2000, calories: 1800 })).toThrow(/at or below the maximum/)
+  })
+
+  it('keeps a calorie range, and judges a day short of its bottom as a miss', () => {
+    store.setGoals({ minCalories: 1500, calories: 1900 })
+    expect(new Store({ dir }).getGoals()).toMatchObject({ minCalories: 1500, calories: 1900 })
+    expect(store.getDay('2026-10-01').goals.calories).toEqual({ min: 1500, max: 1900 })
   })
 
   it('never exposes the USDA key', () => {

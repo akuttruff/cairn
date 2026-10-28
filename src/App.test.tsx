@@ -16,7 +16,7 @@ vi.mock('./lib/image.ts', () => ({ shrinkImage: vi.fn<() => Promise<string>>(asy
 const TODAY = localDate()
 const RANGE = (n: number): { min: number; max: number } => ({ min: n, max: n })
 const GOALS = {
-  calories: RANGE(2000), protein: RANGE(150), fat: RANGE(65),
+  calories: { min: 0, max: 2000 }, protein: RANGE(150), fat: RANGE(65),
   fiber: 30, water: 96, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1,
 }
 /** Lifting 2, yoga 4, pilates 1, WOD 2 a week -- 9 sessions. */
@@ -29,7 +29,7 @@ const WORKOUTS_DAY = {
 }
 /** What Settings edits and /api/goals returns -- separate shape from GOALS above (a resolved, per-day view). */
 const STORED_GOALS: Goals = {
-  calories: 1800, protein: 130, fat: 60, fiber: 30, water: 72, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1, workoutPlan: PLAN,
+  calories: 1800, minCalories: 0, protein: 130, fat: 60, fiber: 30, water: 72, alcoholWeekly: 7, meditationMinutes: 10, dogWalks: 2, walkMiles: 1, workoutPlan: PLAN,
 }
 /** A range day's workout and meditation fields, with nothing logged. */
 const DAY_ACTIVITY = { workouts: 0, workoutMinutes: 0, meditationMinutes: 0, dogWalks: 0, dogMiles: 0 }
@@ -1202,9 +1202,24 @@ describe('App', () => {
     expect(screen.queryByLabelText(/Calorie buffer|Carbs \(g|Extra carbs/)).not.toBeInTheDocument()
     await user.clear(field)
     await user.type(field, '1950')
+    const min = screen.getByLabelText('Calories (kcal, min)')
+    expect(min).toHaveValue('0')
+    // A bottom above the top can't be saved.
+    await user.clear(min)
+    await user.type(min, '2000')
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    await user.clear(min)
+    await user.type(min, '1600')
     await user.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/targets')).toBe(true))
-    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({ calories: 1950, protein: 130, fat: 60, fiber: 30 })
+    expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/targets')!.body).toMatchObject({ calories: 1950, minCalories: 1600, protein: 130, fat: 60, fiber: 30 })
+  })
+
+  it('shows calories against a range: so much to go below it, and the range beside the total', async () => {
+    stubApi({ [`GET /api/day/${TODAY}`]: day([], { goals: { ...GOALS, calories: { min: 1600, max: 1900 } } }) })
+    render(<App />)
+    expect(await screen.findByText(/1600–1900 kcal/)).toBeInTheDocument()
+    expect(screen.getByText('1410 to go')).toBeInTheDocument()
   })
 
   it('sets up the workout activities in Settings: rename one, add one, remove one', async () => {
