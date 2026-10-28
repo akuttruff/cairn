@@ -69,6 +69,9 @@ export function reviseSchema(schema: TrainingSchema, edits: RevisionEdit[], curr
   for (const e of edits) {
     const from = Math.max(e.fromWeek ?? currentWeek, out.firstWeek)
     if (from > out.weeks) { errors.push(`${e.op}: fromWeek ${from} is after the schema's last week (${out.weeks})`); continue }
+    // An addition can stop at a week (toWeek = fromWeek for just one); without one it runs to the end.
+    const until = 'toWeek' in e && e.toWeek !== undefined ? e.toWeek : out.weeks
+    if (!Number.isInteger(until) || until < from || until > out.weeks) { errors.push(`${e.op}: toWeek must be from ${from} to ${out.weeks}`); continue }
     switch (e.op) {
       case 'replaceItem': {
         const at = findItem(e.itemId)
@@ -83,7 +86,7 @@ export function reviseSchema(schema: TrainingSchema, edits: RevisionEdit[], curr
       case 'addItem': {
         const at = findSession(e.sessionId)
         if (!at) { errors.push(`addItem: no session "${e.sessionId}"`); break }
-        at.day.sessions[at.index]!.items.push(startAt(e.item, from))
+        at.day.sessions[at.index]!.items.push(startAt(e.item, from, until))
         break
       }
       case 'removeItem': {
@@ -98,7 +101,7 @@ export function reviseSchema(schema: TrainingSchema, edits: RevisionEdit[], curr
         if (!day) { day = { weekday: e.weekday, sessions: [] }; out.days.push(day); out.days.sort((a, b) => a.weekday - b.weekday) }
         const session = structuredClone(e.session)
         session.id = freshId(session.id || 'session', sessionIds, from)
-        session.items = (session.items ?? []).map((i) => startAt(i, from))
+        session.items = (session.items ?? []).map((i) => startAt(i, from, until))
         day.sessions.push(session)
         break
       }

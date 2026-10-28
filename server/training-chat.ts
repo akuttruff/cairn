@@ -42,9 +42,11 @@ One-off changes for some days (the plan itself stays as it is):
   { "op": "equipment", "from": date, "to": date, "equipment": { "gear": [...], "dumbbells": [lb], "kettlebells": [lb] } }   traveling
 Lasting changes to the plan from a week on (fromWeek defaults to the current week; an earlier week corrects what has already happened):
   { "op": "replaceItem", "itemId": id, "item": Item, "fromWeek"?: n }
-  { "op": "addItem", "sessionId": id, "item": Item, "fromWeek"?: n }
+  { "op": "addItem", "sessionId": id, "item": Item, "fromWeek"?: n, "toWeek"?: n }
   { "op": "removeItem", "itemId": id, "fromWeek"?: n }
-  { "op": "addSession", "weekday": 1-7 (7 = Sunday), "session": { "id", "title", "kind", "items": [Item] }, "fromWeek"?: n }
+  { "op": "addSession", "weekday": 1-7 (7 = Sunday), "session": { "id", "title", "kind", "items": [Item] }, "fromWeek"?: n, "toWeek"?: n }
+      toWeek ends an addition: toWeek = fromWeek adds it for that one week only (a session done once); without it, it runs to the end of the plan.
+      A session's title says what's in it, the way the plan's do ("Back squat + deadlift", "Strict press") -- never "Strength session" or "Workout".
   { "op": "removeSession", "sessionId": id, "fromWeek"?: n }
   { "op": "moveSession", "sessionId": id, "toWeekday": 1-7, "fromWeek"?: n }
   { "op": "setOptional", "sessionId"?: id, "itemId"?: id, "optional": true | false }   nice to do, not needed for the day to count as done
@@ -80,6 +82,9 @@ function normalize(raw: unknown): PlanEdit[] {
 }
 
 type RecordEdit = Extract<PlanEdit, { op: (typeof RECORD_OPS)[number] }>
+
+/** Titles that say a session happens but not what's in it. */
+const GENERIC_TITLE = /^(?:(?:extra|new|another|bonus|make-?up|short|quick)\s+)?(?:strength|lifting|weights?|training|workout|session|exercise|conditioning|cardio)(?:\s+(?:session|workout|day|block))?$|^$/i
 type BankEdit = Extract<PlanEdit, { op: 'addWod' | 'hideWod' | 'showWod' }>
 
 interface Checked { places: Place[] | null; bank: BankEdit[]; records: RecordEdit[]; overrides: OverrideEdit[]; revisions: RevisionEdit[]; rewrite: Extract<PlanEdit, { op: 'rewrite' }> | null; revised: TrainingSchema | null; errors: string[] }
@@ -110,7 +115,15 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
       else out.rewrite = { op: 'rewrite', instruction: e.instruction.trim().slice(0, 500), fromWeek: e.fromWeek }
       return
     }
-    if (isRevision(e)) { out.revisions.push(e); return }
+    if (isRevision(e)) {
+      // Named by what's in it, like the plan's sessions, so the week reads the same way throughout.
+      if (e.op === 'addSession' && GENERIC_TITLE.test(e.session?.title?.trim() ?? '')) {
+        errors.push(`${w}: title "${e.session.title}" says nothing -- name the session by what's in it, e.g. "Back squat + deadlift"`)
+        return
+      }
+      out.revisions.push(e)
+      return
+    }
     if (e.op === 'setPlaces') {
       const cleaned = cleanEquipment({ places: e.places })
       if (!cleaned.places?.length) errors.push(`${w}: places needs at least one place with gear in it`)

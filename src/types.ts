@@ -828,9 +828,9 @@ export type PlanEdit =
   | { op: 'swap'; from: string; to: string; itemId: string; item: TrainingItem }
   | { op: 'equipment'; from: string; to: string; equipment: Equipment }
   | { op: 'replaceItem'; itemId: string; item: TrainingItem; fromWeek?: number }
-  | { op: 'addItem'; sessionId: string; item: TrainingItem; fromWeek?: number }
+  | { op: 'addItem'; sessionId: string; item: TrainingItem; fromWeek?: number; toWeek?: number }
   | { op: 'removeItem'; itemId: string; fromWeek?: number }
-  | { op: 'addSession'; weekday: number; session: TrainingSession; fromWeek?: number }
+  | { op: 'addSession'; weekday: number; session: TrainingSession; fromWeek?: number; toWeek?: number }
   | { op: 'removeSession'; sessionId: string; fromWeek?: number }
   | { op: 'moveSession'; sessionId: string; toWeekday: number; fromWeek?: number }
   | { op: 'setOptional'; sessionId?: string; itemId?: string; optional: boolean; fromWeek?: number }

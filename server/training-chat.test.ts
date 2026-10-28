@@ -166,6 +166,17 @@ describe('the record', () => {
   })
 })
 
+describe('session titles', () => {
+  it('refuses a session named for nothing in it, and takes one named for what it is', () => {
+    const session = (title: string) => ({ id: 'extra', title, kind: 'weightlifting', items: [{ id: 'dl', name: 'Deadlift', check: true as const }] })
+    for (const title of ['Strength session', 'Workout', 'extra lifting', '']) {
+      const { errors } = checkEdits(store.training, plan(), [{ op: 'addSession', weekday: 7, session: session(title), toWeek: 1 }], MON, store.getSettings())
+      expect(errors.join()).toMatch(/name the session by what's in it/)
+    }
+    expect(checkEdits(store.training, plan(), [{ op: 'addSession', weekday: 7, session: session('Back squat + deadlift') }], MON, store.getSettings()).errors).toEqual([])
+  })
+})
+
 describe('the WOD bank and the places', () => {
   it('sets the places, adds a WOD and hides one, all undone together', () => {
     const edits: PlanEdit[] = [

@@ -38,6 +38,17 @@ describe('lasting changes', () => {
     expect(cleanSchema(moved, ctx).errors).toEqual([])
   })
 
+  it('adds a session for just one week with toWeek, and refuses a toWeek before fromWeek', () => {
+    const once = reviseSchema(SAMPLE_SCHEMA, [{ op: 'addSession', weekday: 7, session: { id: 'extra', title: 'Back squat + deadlift', kind: 'weightlifting', items: [{ id: 'dl', name: 'Deadlift', check: true }] }, fromWeek: 2, toWeek: 2 }], 1)
+    expect(once.errors).toEqual([])
+    const sunday = once.schema.days.find((d) => d.weekday === 7)!
+    expect(sunday.sessions[0]!.items[0]!.onlyWeeks).toEqual([2, 2])
+    expect(itemOn(sunday.sessions[0]!.items[0]!, 3, once.schema)).toBe(false)
+    expect(cleanSchema(once.schema, ctx).errors).toEqual([])
+    expect(reviseSchema(SAMPLE_SCHEMA, [{ op: 'addItem', sessionId: 'ride', item: { id: 'x', name: 'X', check: true }, fromWeek: 3, toWeek: 2 }], 1).errors)
+      .toEqual(['addItem: toWeek must be from 3 to 4'])
+  })
+
   it('removes what has no weeks left, and says what it can\'t find', () => {
     const { schema, errors } = reviseSchema(SAMPLE_SCHEMA, [
       { op: 'removeSession', sessionId: 'wod-wed', fromWeek: 1 },
