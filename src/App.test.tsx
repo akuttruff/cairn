@@ -102,6 +102,13 @@ function stubApi(routes: Record<string, unknown>) {
   return calls
 }
 
+/** Go to a section from the bottom bar, and optionally one of its views. */
+async function goTo(section: 'Nutrition' | 'Train', view?: string): Promise<void> {
+  const user = userEvent.setup()
+  await user.click(await screen.findByRole('button', { name: section }))
+  if (view) await user.click(await screen.findByRole('tab', { name: view }))
+}
+
 beforeEach(() => { vi.unstubAllGlobals(); vi.mocked(chime).mockClear() })
 
 describe('App', () => {
@@ -142,6 +149,7 @@ describe('App', () => {
       }),
     })
     render(<App />)
+    await goTo('Train', 'Block')
     const card = await screen.findByRole('region', { name: 'Body' })
     expect(within(card).getByText('150.0')).toBeInTheDocument() // 68.04 kg
     expect(within(card).getByText('−1.0 · today')).toBeInTheDocument() // -0.45 kg is about 1 lb
@@ -950,6 +958,7 @@ describe('App', () => {
       'POST /api/workouts': { id: 'w2', date: TODAY, kind: 'wod', minutes: null, createdAt: 2 },
     })
     render(<App />)
+    await goTo('Train')
     const card = await screen.findByRole('region', { name: 'Workouts' })
     expect(within(card).getByRole('progressbar', { name: 'Workouts this week' })).toHaveAttribute('aria-valuenow', '2')
     expect(within(card).getByText('/ 9')).toBeInTheDocument()
@@ -970,6 +979,7 @@ describe('App', () => {
       'PUT /api/workout-plan/': { weekStart: startOfWeek(TODAY), plan: { ...PLAN, yoga: 3, cycling: 1 }, custom: true },
     })
     render(<App />)
+    await goTo('Train')
     const card = await screen.findByRole('region', { name: 'Workouts' })
     const rows = within(within(card).getByRole('list', { name: 'This week by activity' })).getAllByRole('listitem')
     // Every activity has a row, to log from: planned ones count against the plan, the rest just count.
@@ -994,6 +1004,7 @@ describe('App', () => {
       'DELETE /api/workout-plan/': { weekStart: startOfWeek(TODAY), plan: PLAN, custom: false },
     })
     render(<App />)
+    await goTo('Train')
     const card = await screen.findByRole('region', { name: 'Workouts' })
     expect(within(card).getByText('own plan')).toBeInTheDocument()
     await user.click(within(card).getByRole('button', { name: 'Adjust this week' }))
@@ -1014,6 +1025,7 @@ describe('App', () => {
       'DELETE /api/workouts/w1': { ok: true },
     })
     render(<App />)
+    await goTo('Train')
     const card = await screen.findByRole('region', { name: 'Workouts' })
     await user.click(within(card).getByRole('button', { name: 'Log Cycling' }))
     await waitFor(() => expect(calls.some((c) => c.url === '/api/workouts')).toBe(true))
@@ -1039,6 +1051,7 @@ describe('App', () => {
       'DELETE /api/meditation/m1': { ok: true },
     })
     render(<App />)
+    await goTo('Train')
     const card = await screen.findByRole('region', { name: 'Meditation' })
     expect(within(card).getByRole('progressbar', { name: 'Meditation' })).toHaveAttribute('aria-valuenow', '25')
     expect(within(card).getByText('/ 2 sits')).toBeInTheDocument() // two 25-minute sits make the 50-minute goal
@@ -1060,6 +1073,7 @@ describe('App', () => {
       'DELETE /api/dog-walks/d1': { ok: true },
     })
     render(<App />)
+    await goTo('Train')
     const card = await screen.findByRole('region', { name: 'Dog walks' })
     expect(within(card).getByRole('progressbar', { name: 'Dog walks' })).toHaveAttribute('aria-valuenow', '1')
     expect(within(card).getByText('/ 2 walks')).toBeInTheDocument()
@@ -1074,6 +1088,7 @@ describe('App', () => {
   it('names the walk by its length from Settings', async () => {
     stubApi({ [`GET /api/day/${TODAY}`]: day([], { dog: { walks: [], miles: 0, goal: 2, walkMiles: 1.5, lastLogId: null } }) })
     render(<App />)
+    await goTo('Train')
     const card = await screen.findByRole('region', { name: 'Dog walks' })
     expect(within(card).getByRole('button', { name: /\+ 1\.5-mile walk/ })).toBeInTheDocument()
     expect(within(card).getByText('No walks yet today')).toBeInTheDocument()
@@ -1225,6 +1240,7 @@ describe('App', () => {
       }),
     })
     render(<App />)
+    await goTo('Train')
     const card = await screen.findByRole('region', { name: 'Workouts' })
     const rows = within(within(card).getByRole('list', { name: 'This week by activity' })).getAllByRole('listitem')
     expect(rows.map((r) => r.textContent)).toEqual(['WOD0 / 2', 'Lifting0 / 2', 'Cycling', 'Yoga0 / 4', 'Pilates0 / 1', 'run1'])
@@ -2087,7 +2103,7 @@ describe('App', () => {
         }, start),
       })
       render(<App />)
-      await user.click(await screen.findByRole('tab', { name: 'Week' }))
+      await goTo('Train', 'Week')
       const workouts = await screen.findByRole('region', { name: 'Workouts' })
       expect(within(workouts).queryByRole('progressbar')).not.toBeInTheDocument()
       expect(within(workouts).getByRole('button', { name: `${start}: 2 workouts` })).toHaveClass('full')
@@ -2111,7 +2127,6 @@ describe('App', () => {
     })
 
     it("shows the dog's walks as day boxes: full for every walk, half for some, with the miles", async () => {
-      const user = userEvent.setup()
       const start = startOfWeek(addDays(TODAY, -7))
       const base = range({}, start)
       stubApi({
@@ -2122,7 +2137,7 @@ describe('App', () => {
         }, start),
       })
       render(<App />)
-      await user.click(await screen.findByRole('tab', { name: 'Week' }))
+      await goTo('Train', 'Week')
       const dog = await screen.findByRole('region', { name: 'Dog walks' })
       expect(within(dog).getByText('1 of 2 days')).toBeInTheDocument()
       expect(within(dog).getByRole('button', { name: `${start}: 2 walks, 2 miles` })).toHaveClass('full')
@@ -2132,11 +2147,10 @@ describe('App', () => {
     })
 
     it('draws the days still ahead faintly, never as misses', async () => {
-      const user = userEvent.setup()
       const start = startOfWeek(addDays(TODAY, 7)) // next week: every day is ahead
       stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/range': range({}, start) })
       render(<App />)
-      await user.click(await screen.findByRole('tab', { name: 'Week' }))
+      await goTo('Train', 'Week')
       const workouts = await screen.findByRole('region', { name: 'Workouts' })
       expect(within(workouts).getByRole('button', { name: `${start}: still ahead` })).toHaveClass('future')
     })
@@ -2236,11 +2250,11 @@ describe('App', () => {
       lifts: [{ id: 'squat', name: 'Back squat', increment: 5, pr: 100, prDate: '2026-10-01' }],
       ...over,
     })
-    const openTrain = async (routes: Record<string, unknown>) => {
+    const openTrain = async (routes: Record<string, unknown>, view?: 'Week' | 'Block') => {
       const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/training/generate': { status: 'idle', startedAt: null, draftId: null, error: null }, ...routes })
       const user = userEvent.setup()
       render(<App />)
-      await user.click(await screen.findByRole('tab', { name: 'Train' }))
+      await goTo('Train', view)
       return { calls, user }
     }
 
@@ -2282,7 +2296,7 @@ describe('App', () => {
       const { calls, user } = await openTrain({
         'GET /api/training': () => (fetched++ === 0 ? training() : after),
         'PUT /api/training/lifts': { id: 'squat', name: 'Back squat', increment: 5, pr: 110, prDate: TODAY },
-      })
+      }, 'Block')
       const prs = await screen.findByRole('region', { name: 'PRs' })
       await user.click(within(prs).getByRole('button', { name: 'Change Back squat PR' }))
       const input = within(prs).getByLabelText('Back squat PR (lb)')
@@ -2304,7 +2318,7 @@ describe('App', () => {
         'GET /api/training/schemas/s1': overview('Sample block', 75),
         'GET /api/training': training({ draft }),
         'POST /api/training/schemas/d1/activate': draft,
-      })
+      }, 'Block')
       const card = await screen.findByRole('region', { name: 'Training schema' })
       await user.click(within(card).getByRole('button', { name: 'Review it' }))
       expect(await within(card).findByText('70 → 85 lb')).toBeInTheDocument()
@@ -2313,13 +2327,29 @@ describe('App', () => {
       await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/training/schemas/d1/activate')).toBe(true))
     })
 
-    it("links from the Day view's workouts to the plan", async () => {
+    it('opens on Nutrition, and links from its day to the day\'s training', async () => {
       const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([], { workouts: { ...WORKOUTS_DAY, planned: ['Legs', 'Yoga'] } }), 'GET /api/training': training() })
       const user = userEvent.setup()
       render(<App />)
-      await user.click(await screen.findByRole('button', { name: 'On the plan: Legs + Yoga →' }))
+      expect(await screen.findByRole('button', { name: 'Nutrition' })).toHaveAttribute('aria-current', 'page')
+      expect(screen.queryByRole('region', { name: 'Workouts' })).not.toBeInTheDocument() // Train's, not Nutrition's
+      expect(screen.queryByRole('region', { name: 'Meditation' })).not.toBeInTheDocument()
+      await user.click(await screen.findByRole('button', { name: /Training\s*Legs \+ Yoga →/ }))
       expect(await screen.findByRole('region', { name: 'Legs' })).toBeInTheDocument()
       expect(calls.some((c) => c.url === `/api/training?date=${TODAY}`)).toBe(true)
+      expect(screen.getByRole('region', { name: 'Workouts' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Train' })).toHaveAttribute('aria-current', 'page')
+    })
+
+    it("lays out the week's plan day by day, with the week's workouts, and opens a day from it", async () => {
+      const { calls, user } = await openTrain({ 'GET /api/training': training(), 'GET /api/range': range() }, 'Week')
+      const plan = await screen.findByRole('region', { name: "The week's plan" })
+      expect(within(plan).getAllByRole('button')).toHaveLength(7)
+      expect(await screen.findByRole('region', { name: 'Workouts' })).toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Goals met' })).not.toBeInTheDocument() // Nutrition's
+      expect(calls.some((c) => c.url.startsWith('/api/range?start='))).toBe(true)
+      await user.click(within(plan).getByRole('button', { name: 'Open Today' }))
+      expect(await screen.findByRole('region', { name: 'Legs' })).toBeInTheDocument()
     })
 
     it('explains how to start when there is no schema', async () => {

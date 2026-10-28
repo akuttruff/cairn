@@ -12,6 +12,8 @@ interface RangeSummaryProps {
   view: RangeView
   /** Tap a day's marker to jump straight to it in Day view. */
   onSelectDay: (date: string) => void
+  /** Nutrition's cards (charts, goals met, water, alcohol) or Train's (workouts, meditation, dog walks, body). */
+  part?: 'nutrition' | 'train'
 }
 
 /** One daily chart: a nutrient, or water, read off each day the same way. */
@@ -240,20 +242,24 @@ interface DayBoxesProps {
   /** What the day had, for its label: "2 sits, 50 min". */
   describe: (d: DaySummary) => string
   onSelectDay: (date: string) => void
+  /** Monday-first columns, for Train's Monday-to-Sunday weeks. */
+  mondayFirst?: boolean
 }
 
 /**
- * One box per day, in Sunday-first weekday columns -- a week is one row, a
+ * One box per day, in Sunday-first weekday columns (Monday-first in Train) -- a week is one row, a
  * month a little calendar. A box is filled for a day that did it, half
  * filled for a day partway there (one sit of two), and empty otherwise;
  * days still ahead are drawn faint, so an unfilled future isn't read as a
  * miss. Tap a box to open that day.
  */
-function DayBoxes({ kind, days, today, state, describe, onSelectDay }: DayBoxesProps) {
-  const lead = days.length ? weekdayIndex(days[0]!.date) : 0
+function DayBoxes({ kind, days, today, state, describe, onSelectDay, mondayFirst = false }: DayBoxesProps) {
+  const first = days.length ? weekdayIndex(days[0]!.date) : 0
+  const lead = mondayFirst ? (first + 6) % 7 : first
+  const heads = mondayFirst ? [...WEEKDAYS.slice(1), WEEKDAYS[0]!] : WEEKDAYS
   return (
     <div className={`day-boxes ${kind}`}>
-      {WEEKDAYS.map((w, i) => <span key={i} className="day-boxes-weekday" aria-hidden="true">{w}</span>)}
+      {heads.map((w, i) => <span key={i} className="day-boxes-weekday" aria-hidden="true">{w}</span>)}
       {Array.from({ length: lead }, (_, i) => <span key={`lead-${i}`} aria-hidden="true" />)}
       {days.map((d) => {
         const future = d.date > today
@@ -283,7 +289,7 @@ function DayBoxes({ kind, days, today, state, describe, onSelectDay }: DayBoxesP
  * Averages are explained in RangeView's own doc comment -- macros average
  * over days actually logged, water and alcohol over every day in the range.
  */
-export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
+export default function RangeSummary({ view, onSelectDay, part = 'nutrition' }: RangeSummaryProps) {
   const { days, goals, dayTypes, scorecard, averages, loggedDays, totalDays, averagedDays, water, alcohol, workouts, meditation, dog } = view
   const today = localDate()
   const isWeek = days.length <= 7
@@ -311,6 +317,8 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
 
   return (
     <section className="range-summary" aria-label="Range summary">
+      {part === 'nutrition' && (
+        <>
       {(view.charts ?? DEFAULT_CHARTS).map((key) => SERIES[key]).map((series) => (
         <RangeChart key={series.key} series={series} view={view} today={today} selected={selected} onPick={pick} />
       ))}
@@ -379,6 +387,11 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
         </div>
       </section>
 
+        </>
+      )}
+
+      {part === 'train' && (
+        <>
       <section className="water-card" aria-label="Workouts">
         <div className="water-head">
           <span className="water-label">Workouts</span>
@@ -388,6 +401,7 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
           </span>
         </div>
         <DayBoxes
+          mondayFirst={part === 'train'}
           kind="workout"
           days={days}
           today={today}
@@ -426,6 +440,7 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
           </span>
         </div>
         <DayBoxes
+          mondayFirst={part === 'train'}
           kind="meditation"
           days={days}
           today={today}
@@ -451,6 +466,7 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
           </span>
         </div>
         <DayBoxes
+          mondayFirst={part === 'train'}
           kind="dog"
           days={days}
           today={today}
@@ -466,8 +482,10 @@ export default function RangeSummary({ view, onSelectDay }: RangeSummaryProps) {
       </section>
 
       <BodyRangeCard body={view.body} />
+        </>
+      )}
 
-      {alcohol.total > 0 && (
+      {part === 'nutrition' && alcohol.total > 0 && (
         <section className="water-card" aria-label="Alcohol">
           <div className="water-head">
             <span className="water-label">Alcohol</span>

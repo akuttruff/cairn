@@ -116,7 +116,8 @@ button:disabled { opacity: 0.45; cursor: default; }
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 14px 14px calc(96px + env(safe-area-inset-bottom, 0px));
+  /* Room under the last card for the add-food button; the section bar below takes the safe area. */
+  padding: 14px 14px 88px;
 }
 
 .error-card {
@@ -491,7 +492,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .fab {
   position: fixed;
   right: 18px;
-  bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+  /* Above the section bar (56px plus the safe area). */
+  bottom: calc(56px + 16px + env(safe-area-inset-bottom, 0px));
   width: 58px;
   height: 58px;
   border-radius: 50%;
@@ -926,3 +928,31 @@ button:disabled { opacity: 0.45; cursor: default; }
   background: var(--bg); border: 1px solid var(--line); color: var(--paper); border-radius: 8px;
 }
 .set-edit input:focus, .lift-edit input:focus, .generate-note:focus { outline: none; border-color: var(--moss-dim); }
+
+/* --- Sections ----------------------------------------------------------------- */
+.section-tabs {
+  flex: 0 0 auto; display: flex; border-top: 1px solid var(--line); background: var(--bg);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.section-tab {
+  flex: 1; height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  background: none; border: none; color: var(--paper-dim); font-size: 11px; font-weight: 600;
+}
+.section-tab.active { color: var(--moss); }
+.plan-teaser {
+  width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 10px; text-align: left; cursor: pointer;
+  padding: 12px 16px;
+}
+.plan-teaser-text { font-size: 14px; color: var(--c-workout); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.week-plan { list-style: none; margin: 0; padding: 0; }
+.week-plan li + li { border-top: 1px solid var(--line); }
+.week-plan-day {
+  width: 100%; display: flex; gap: 12px; align-items: baseline; padding: 10px 0; background: none; border: none; text-align: left; color: var(--paper);
+}
+.week-plan-day.today .week-plan-date { color: var(--paper); font-weight: 600; }
+.week-plan-date { flex: 0 0 92px; font-size: 13px; color: var(--paper-dim); }
+.week-plan-sessions { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 14px; }
+.week-plan-session { display: inline-flex; align-items: center; gap: 3px; color: var(--paper-dim); }
+.week-plan-session.started { color: var(--paper); }
+.week-plan-session.done { color: var(--c-workout); }
+.week-plan-rest { color: var(--paper-dim); font-style: italic; }
