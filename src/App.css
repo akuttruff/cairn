@@ -522,10 +522,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .field.grams input { font-size: 20px; font-variant-numeric: tabular-nums; }
 
 .nutrient-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
-.nutrient-fields .calories { grid-column: 1 / -1; }
 .nf.protein label { color: var(--c-protein); }
 .nf.fat label { color: var(--c-fat); }
-.nf.carbs label { color: var(--c-carbs); }
 .nf.fiber label { color: var(--c-fiber); }
 .auto-tag { font-weight: 400; opacity: 0.6; }
 .nf.calories.auto input { color: var(--paper-dim); font-style: italic; }
