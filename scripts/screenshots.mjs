@@ -46,6 +46,8 @@ const scenarios = [
   // Train: today's sessions set by set, the week's plan, and the coach with a proposed change.
   { name: 'train-phone', view: PHONE, steps: [['click', 'Train'], ['wait', 1500]] },
   { name: 'train-week-phone', view: PHONE, steps: [['click', 'Train'], ['wait', 900], ['click', 'Week'], ['wait', 1500]] },
+  { name: 'library-phone', view: PHONE, steps: [['click', 'Train'], ['wait', 900], ['click', 'Library'], ['wait', 1500]] },
+  { name: 'movements-phone', view: PHONE, steps: [['click', 'Train'], ['wait', 900], ['click', 'Library'], ['wait', 1200], ['click', 'Movements'], ['wait', 600], ['type', 'input[type=search]', 'thruster'], ['wait', 600], ['sel', '#move-thruster .move-head'], ['wait', 900]] },
   { name: 'coach-phone', view: PHONE, steps: [['click', 'Train'], ['wait', 1200], ['click', 'Coach'], ['wait', 1800]] },
   { name: 'desktop', view: DESKTOP, steps: [['click', 'Week'], ['wait', 800], ['aria', 'Previous week'], ['wait', 1500]] },
   { name: 'desktop-day', view: DESKTOP, steps: [['wait', 800]] },

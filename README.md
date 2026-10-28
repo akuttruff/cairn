@@ -33,6 +33,11 @@ network and backed by one SQLite file. No accounts, no cloud.
     <td align="center" valign="top" width="33%"><img src="docs/screenshots/train-week-phone.png" width="200" alt="The week's training plan" /><br /><b>Week</b><br /><sub>The week's plan, and what got done</sub></td>
     <td align="center" valign="top" width="33%"><img src="docs/screenshots/coach-phone.png" width="200" alt="The coach chat with a proposed change" /><br /><b>Coach</b><br /><sub>Ask, get feedback, or change the plan</sub></td>
   </tr>
+  <tr>
+    <td align="center" valign="top" width="33%"><img src="docs/screenshots/library-phone.png" width="200" alt="The Library's WODs, each with the room it's done in" /><br /><b>Library</b><br /><sub>Every WOD as you'd do it, by room</sub></td>
+    <td align="center" valign="top" width="33%"><img src="docs/screenshots/movements-phone.png" width="200" alt="A movement in the Library, with how it's done" /><br /><b>Movements</b><br /><sub>How each one is done, and what stands in</sub></td>
+    <td width="33%"></td>
+  </tr>
 </table>
 
 The screenshots use demo data, a made-up plan included. To regenerate them:

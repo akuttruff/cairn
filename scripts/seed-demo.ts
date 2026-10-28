@@ -118,7 +118,11 @@ const PLAN: TrainingSchema = {
   ],
 }
 store.setSettings({
-  equipment: { gear: ['barbell', 'plates', 'rack', 'dumbbells', 'pullup-bar', 'bands', 'rings', 'ab-mat', 'jump-rope', 'bike'], dumbbells: [15, 20, 25, 35], kettlebells: [] },
+  // Split between two rooms, so WODs show where they're done.
+  equipment: { gear: [], dumbbells: [], kettlebells: [], places: [
+    { name: 'Living room', gear: ['dumbbells', 'ab-mat', 'bike'], dumbbells: [15, 20, 25, 35], kettlebells: [] },
+    { name: 'Garage', gear: ['barbell', 'plates', 'rack', 'pullup-bar', 'bands', 'rings', 'jump-rope'], dumbbells: [], kettlebells: [] },
+  ] },
   workoutKinds: DEFAULT_WORKOUT_KINDS,
 })
 store.training.save(PLAN)
