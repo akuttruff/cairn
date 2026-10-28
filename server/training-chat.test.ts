@@ -75,16 +75,16 @@ describe('one-off changes', () => {
     for (const p of picks) expect(p.lines.join(' ')).not.toMatch(/DB|lb\)/)
   })
 
-  it('refuses edits that name what isn\'t there, or days that have passed', () => {
+  it('refuses edits that name what isn\'t there, or days outside the plan', () => {
     const { errors } = checkEdits(store.training, plan(), [
       { op: 'move', sessionId: 'nope', from: WED, to: SAT },
-      { op: 'skip', date: MON },
+      { op: 'skip', date: '2020-01-01' },
       { op: 'load', from: WED, to: SAT, factor: 3 },
       { op: 'swap', from: WED, to: WED, itemId: 'strict-press', item: { id: 'x', name: 'Mystery' } },
     ] as PlanEdit[], WED, store.getSettings())
     expect(errors).toEqual([
       'edit 1 (move): there\'s no session "nope" on 2026-11-04',
-      'edit 2 (skip): date must be within the plan, from today on',
+      'edit 2 (skip): date must be within the plan, 2026-11-02 to 2026-11-29',
       'edit 3 (load): factor must be 0.5 to 1.2 (0.9 is 10% lighter)',
       expect.stringMatching(/^edit 4 \(swap\): item.*needs exactly one of/),
     ])
@@ -95,6 +95,14 @@ describe('one-off changes', () => {
     const [adj] = store.training.day(WED).adjustments
     store.training.removeOverride(adj!.id)
     expect(titles(WED)).toEqual(['Press', 'WOD'])
+  })
+
+  it('changes a day that has already passed, so the record matches what was done', () => {
+    const checked = checkEdits(store.training, plan(), [{ op: 'removeItem', itemId: 'mobility', fromWeek: 1 }], WED, store.getSettings())
+    expect(checked.errors).toEqual([])
+    expect(previewEdits(store.training, plan(), checked, WED)).toEqual(['Mon, Nov 2, Nov 9, Nov 16, Nov 23 · no Hip mobility'])
+    apply([{ op: 'skip', date: MON, sessionId: 'legs' }], WED)
+    expect(titles(MON)).toEqual([])
   })
 })
 

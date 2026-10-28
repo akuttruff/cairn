@@ -26,6 +26,7 @@ export const COACH_TIMEOUT_MS = 5 * 60_000
 export const COACH_MAX_TOKENS = 12_000
 /** How far ahead the coach sees the plan day by day. */
 const AHEAD_DAYS = 14
+const BEHIND_DAYS = 7
 /** The longest a one-off change can run. */
 const MAX_RANGE_DAYS = 42
 const HISTORY = 12
@@ -37,7 +38,7 @@ One-off changes for some days (the plan itself stays as it is):
   { "op": "load", "from": date, "to": date, "factor": 0.5-1.2, "lifts"?: [lift ids] }   lighter or heavier weights
   { "op": "swap", "from": date, "to": date, "itemId": id, "item": Item }   a stand-in for an item over some days
   { "op": "equipment", "from": date, "to": date, "equipment": { "gear": [...], "dumbbells": [lb], "kettlebells": [lb] } }   traveling
-Lasting changes to the plan from a week on (fromWeek defaults to the current week; weeks already trained never change):
+Lasting changes to the plan from a week on (fromWeek defaults to the current week; an earlier week corrects what has already happened):
   { "op": "replaceItem", "itemId": id, "item": Item, "fromWeek"?: n }
   { "op": "addItem", "sessionId": id, "item": Item, "fromWeek"?: n }
   { "op": "removeItem", "itemId": id, "fromWeek"?: n }
@@ -50,7 +51,8 @@ A rewrite of the rest of the plan, when the person asks for one or for something
 Item = { "id": new unique id, "name", "lift"?: lift id, "notes"?, and exactly one of:
   "sets": { "sets": [{ "reps"?: n | "max", "seconds"?: n, "pct"?: fraction of the PR, "weight"?: lb }] }   the same every week
   "progression": {...} as in the schema, "minutes": { "<week>": n }, "wod": { "maxMinutes": n, "focus"?: [...] }, "check": true }
-Dates are YYYY-MM-DD and from today on. Use only the session ids, item ids and lift ids shown.`
+Dates are YYYY-MM-DD, any day of the plan -- past days too, when the person wants the record to match what they actually did.
+Use only the session ids, item ids and lift ids shown.`
 
 /** The model's edits, tidied: `type` read as `op`, and anything that isn't an object dropped. */
 function normalize(raw: unknown): PlanEdit[] {
@@ -71,7 +73,8 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
   const out: Checked = { overrides: [], revisions: [], rewrite: null, revised: null, errors }
   const ctx = { kinds: settings.workoutKinds.map((k) => k.id), equipment: settings.equipment }
   const end = plan.summary.endDate
-  const inPlan = (d: unknown): d is string => typeof d === 'string' && isDateString(d) && d >= today && d >= plan.schema.startDate && d <= end
+  // Any day of the plan, past ones too: the record should match what was actually done.
+  const inPlan = (d: unknown): d is string => typeof d === 'string' && isDateString(d) && d >= plan.schema.startDate && d <= end
   const where = (i: number, e: PlanEdit): string => `edit ${i + 1} (${e.op})`
   const itemIds = new Set(plan.schema.days.flatMap((d) => d.sessions.flatMap((s) => s.items.map((i) => i.id))))
   const current = weekOf(plan.schema, today, plan.repeats)?.week ?? plan.schema.firstWeek
@@ -85,26 +88,26 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
     if (e.op === 'rewrite') {
       if (edits.length > 1) errors.push(`${w}: a rewrite goes alone, with no other edits`)
       if (typeof e.instruction !== 'string' || !e.instruction.trim()) errors.push(`${w}: instruction says what to change`)
-      if (!Number.isInteger(e.fromWeek) || e.fromWeek < current || e.fromWeek > plan.schema.weeks) errors.push(`${w}: fromWeek must be from ${current} (this week) to ${plan.schema.weeks}`)
+      if (!Number.isInteger(e.fromWeek) || e.fromWeek < plan.schema.firstWeek || e.fromWeek > plan.schema.weeks) errors.push(`${w}: fromWeek must be from ${plan.schema.firstWeek} to ${plan.schema.weeks}`)
       else out.rewrite = { op: 'rewrite', instruction: e.instruction.trim().slice(0, 500), fromWeek: e.fromWeek }
       return
     }
     if (isRevision(e)) { out.revisions.push(e); return }
     const range = (from: unknown, to: unknown): boolean => {
-      if (!inPlan(from) || !inPlan(to)) { errors.push(`${w}: dates must be within the plan, from today (${today}) to ${end}`); return false }
+      if (!inPlan(from) || !inPlan(to)) { errors.push(`${w}: dates must be within the plan, ${plan.schema.startDate} to ${end}`); return false }
       if (to < from) { errors.push(`${w}: "to" is before "from"`); return false }
       if (daysBetween(from, to) > MAX_RANGE_DAYS) { errors.push(`${w}: at most ${MAX_RANGE_DAYS} days; for longer, change the plan itself`); return false }
       return true
     }
     switch (e.op) {
       case 'move': {
-        if (!inPlan(e.from) || !inPlan(e.to) || e.from === e.to) { errors.push(`${w}: from and to must be two different days within the plan, from today on`); return }
+        if (!inPlan(e.from) || !inPlan(e.to) || e.from === e.to) { errors.push(`${w}: from and to must be two different days within the plan`); return }
         if (!training.planOf(plan, e.from).some((s) => s.id === e.sessionId)) { errors.push(`${w}: there's no session "${e.sessionId}" on ${e.from}`); return }
         out.overrides.push({ op: 'move', sessionId: e.sessionId, from: e.from, to: e.to })
         return
       }
       case 'skip': {
-        if (!inPlan(e.date)) { errors.push(`${w}: date must be within the plan, from today on`); return }
+        if (!inPlan(e.date)) { errors.push(`${w}: date must be within the plan, ${plan.schema.startDate} to ${end}`); return }
         if (e.sessionId && !training.planOf(plan, e.date).some((s) => s.id === e.sessionId)) { errors.push(`${w}: there's no session "${e.sessionId}" on ${e.date}`); return }
         out.overrides.push({ op: 'skip', date: e.date, ...(e.sessionId ? { sessionId: e.sessionId } : {}) })
         return
@@ -166,9 +169,8 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
     // From the earliest week a lasting change starts (this week unless it says), four weeks on.
     const current = weekOf(plan.schema, today, plan.repeats)?.week ?? plan.schema.firstWeek
     const week = Math.min(...checked.revisions.map((r) => r.fromWeek ?? current))
-    const index = weekSequence(plan.schema, plan.repeats).indexOf(Math.max(week, current))
-    const begin = index >= 0 ? addDays(plan.schema.startDate, index * 7) : today
-    const from = begin < today ? today : begin
+    const index = weekSequence(plan.schema, plan.repeats).indexOf(week)
+    const from = index >= 0 ? addDays(plan.schema.startDate, index * 7) : today
     span(from, addDays(from, 27))
   }
   const sorted = [...dates].filter((d) => d <= plan.summary.endDate).sort()
@@ -246,12 +248,14 @@ export function coachContext(training: TrainingStore, plan: ActivePlan, today: s
   const at = weekOf(plan.schema, today, plan.repeats)
   const lifts = training.lifts()
   const ahead: string[] = []
-  for (let i = 0; i < AHEAD_DAYS; i++) {
+  // The last week too, so a past day can be put right.
+  for (let i = -BEHIND_DAYS; i < AHEAD_DAYS; i++) {
     const d = addDays(today, i)
+    if (d < plan.schema.startDate) continue
     if (d > plan.summary.endDate) break
     const sessions = training.planOf(plan, d)
     const wk = weekOf(plan.schema, d, plan.repeats)?.week
-    ahead.push(`${shortDate(d)} ${d}${wk !== undefined ? ` (week ${wk})` : ''}: ${sessions.length ? '' : 'rest'}`)
+    ahead.push(`${shortDate(d)} ${d}${d === today ? ' (today)' : ''}${wk !== undefined ? ` (week ${wk})` : ''}: ${sessions.length ? '' : 'rest'}`)
     for (const s of sessions) ahead.push(`  session ${s.id} "${s.title}" [${s.kind}]: ${s.items.map((i) => `${i.name} [item ${i.id}] ${i.text}`).join('; ')}`)
   }
   const changes = plan.overrides.map((o) => `  ${o.edit.op} ${JSON.stringify(o.edit)}`)
@@ -262,7 +266,7 @@ export function coachContext(training: TrainingStore, plan: ActivePlan, today: s
     `Lifts and PRs (lb): ${lifts.map((l) => `${l.id} ${l.pr ?? '?'}`).join(', ')}. Equipment: ${describeGear(settings.equipment)}.`,
     `Activities (session kinds): ${settings.workoutKinds.map((k) => k.id).join(', ')}.`,
     '',
-    `The next ${AHEAD_DAYS} days, with the ids edits use:`,
+    `The past ${BEHIND_DAYS} days and the next ${AHEAD_DAYS}, with the ids edits use:`,
     ...ahead,
     changes.length ? `One-off changes already in place:\n${changes.join('\n')}` : '',
     '',
@@ -282,6 +286,7 @@ const SYSTEM = [
   'progress when asked (what is going well, what to watch, whether the plan fits their goals), and suggest changes when they would help.',
   'Only propose edits when the person asks for a change or agrees to one; a question gets an answer and "edits": [].',
   'Be careful with pain: for sharp or lasting pain, suggest easing off that movement and seeing a professional.',
+  'Past days can be changed too (skip, swap, move, or a lasting change from an earlier week) so the plan matches what really happened; never say you can\'t change the past.',
   'Edits are proposals: the person sees exactly what they would do and applies them, so say what you would change',
   '("I can move…", "Here is a lighter week…"), never that it is done. Describe only the edits you include.',
   'When the gear is limited (traveling), add an "equipment" edit AND swap or skip what that gear cannot do on those days: barbell lifts become',
