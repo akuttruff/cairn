@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Drawer } from 'vaul'
-import { ArrowUp, ImagePlus, RotateCcw, X } from 'lucide-react'
+import { ArrowUp, Eraser, ImagePlus, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api.ts'
 import { localDate } from '../../lib/nutrition.ts'
@@ -164,9 +164,11 @@ export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheet
   }
 
   const clear = async (): Promise<void> => {
-    if (!window.confirm('Start a new conversation? Changes already applied stay.')) return
+    if (!window.confirm('Clear this conversation? The coach starts fresh, without what was said here. Your plan, your logs and any changes you applied stay as they are.')) return
     try {
       setMessages((await api.clearCoach()).messages)
+      setSentShots({})
+      toast.success('Conversation cleared')
     } catch (err) {
       toast.error((err as Error).message)
     }
@@ -181,8 +183,8 @@ export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheet
           <div className="sheet-top coach-top">
             <Drawer.Title className="drawer-title">Coach</Drawer.Title>
             {messages.length > 0 && (
-              <button type="button" className="link-btn accent" onClick={() => void clear()}>
-                <RotateCcw size={13} aria-hidden="true" /> New chat
+              <button type="button" className="coach-clear" onClick={() => void clear()} disabled={thinking}>
+                <Eraser size={14} aria-hidden="true" /> Clear chat
               </button>
             )}
           </div>

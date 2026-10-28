@@ -1024,3 +1024,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .coach-shot { display: block; max-width: 220px; max-height: 260px; border-radius: 10px; margin-bottom: 6px; object-fit: cover; }
 .coach-shot-pending { flex: 0 0 auto; display: flex; align-items: flex-start; gap: 6px; padding-top: 8px; }
 .coach-shot-pending img { max-height: 90px; max-width: 160px; border-radius: 8px; border: 1px solid var(--line); }
+.coach-clear {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--paper); font-size: 13px; font-weight: 600;
+}

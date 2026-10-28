@@ -2383,6 +2383,19 @@ describe('App', () => {
       expect(await screen.findByText('Here is how I would do it.')).toBeInTheDocument()
     })
 
+    it('clears the conversation for a fresh start, after asking', async () => {
+      const said = [{ id: 'u1', role: 'user', text: 'Old question', proposal: null, status: null, note: null, stats: null, image: false, createdAt: 1 }]
+      const { calls, user } = await openTrain({ 'GET /api/training/chat': { messages: said, busy: false }, 'DELETE /api/training/chat': { messages: [] }, 'GET /api/training': training() })
+      vi.spyOn(window, 'confirm').mockReturnValue(true)
+      await user.click(await screen.findByRole('button', { name: 'Coach' }))
+      expect(await screen.findByText('Old question')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Clear chat' }))
+      await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/training/chat')).toBe(true))
+      expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/starts fresh/))
+      await waitFor(() => expect(screen.queryByText('Old question')).not.toBeInTheDocument())
+      expect(screen.getByRole('button', { name: 'How is my training going?' })).toBeInTheDocument()
+    })
+
     it('attaches a screenshot to a message for the coach', async () => {
       const { calls, user } = await openTrain({
         'GET /api/training/chat': { messages: [], busy: false },
