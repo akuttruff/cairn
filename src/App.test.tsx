@@ -2232,8 +2232,8 @@ describe('App', () => {
     const wodView = (id: string, name: string) => ({ id, name, minutes: 12, heading: '5 rounds for time', lines: ['10 push-ups', '12 cal bike'], swaps: [], focus: ['upper' as const, 'bike' as const] })
     const training = (over: Partial<TrainingDay> = {}): TrainingDay => ({
       date: TODAY,
-      schema: { id: 's1', name: 'Sample block', status: 'active', startDate: '2026-11-02', endDate: '2026-11-29', weeks: 4, firstWeek: 1, basedOn: null, createdAt: 1 },
-      draft: null, week: 2, deload: false, test: false, repeat: false,
+      schema: { id: 's1', name: 'Sample block', status: 'active', startDate: '2026-11-02', endDate: '2026-11-29', weeks: 4, firstWeek: 1, basedOn: null, createdAt: 1, rewriteFrom: null },
+      draft: null, week: 2, deload: false, test: false, repeat: false, adjustments: [],
       sessions: [
         {
           id: 'legs', title: 'Legs', kind: 'weightlifting', done: false, items: [
@@ -2308,7 +2308,7 @@ describe('App', () => {
     })
 
     it('follows a reviewed draft', async () => {
-      const draft = { id: 'd1', name: 'Block 2', status: 'draft' as const, startDate: '2026-11-30', endDate: '2026-12-27', weeks: 4, firstWeek: 1 as const, basedOn: 's1', createdAt: 2 }
+      const draft = { id: 'd1', name: 'Block 2', status: 'draft' as const, startDate: '2026-11-30', endDate: '2026-12-27', weeks: 4, firstWeek: 1 as const, basedOn: 's1', createdAt: 2, rewriteFrom: null }
       const overview = (name: string, top: number) => ({
         summary: draft, schema: { name, goals: 'Squat up: every week was done.', days: [{ weekday: 1, sessions: [{ title: 'Legs' }] }] },
         lifts: [{ itemId: 'back-squat', name: 'Back squat', lift: 'squat', weeks: [{ week: 1, text: '5×5 @ 70', top: 70 }, { week: 2, text: '5×5 @ 75', top }] }],
@@ -2327,18 +2327,64 @@ describe('App', () => {
       await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/training/schemas/d1/activate')).toBe(true))
     })
 
-    it('opens on Nutrition, and links from its day to the day\'s training', async () => {
+    it("opens on Nutrition, with no training on its day; Train has the day's sessions and workouts", async () => {
       const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([], { workouts: { ...WORKOUTS_DAY, planned: ['Legs', 'Yoga'] } }), 'GET /api/training': training() })
-      const user = userEvent.setup()
       render(<App />)
       expect(await screen.findByRole('button', { name: 'Nutrition' })).toHaveAttribute('aria-current', 'page')
-      expect(screen.queryByRole('region', { name: 'Workouts' })).not.toBeInTheDocument() // Train's, not Nutrition's
+      await screen.findByRole('region', { name: 'Water' })
+      expect(screen.queryByRole('region', { name: 'Workouts' })).not.toBeInTheDocument()
       expect(screen.queryByRole('region', { name: 'Meditation' })).not.toBeInTheDocument()
-      await user.click(await screen.findByRole('button', { name: /Training\s*Legs \+ Yoga →/ }))
+      expect(screen.queryByText(/Legs \+ Yoga/)).not.toBeInTheDocument()
+      await goTo('Train')
       expect(await screen.findByRole('region', { name: 'Legs' })).toBeInTheDocument()
       expect(calls.some((c) => c.url === `/api/training?date=${TODAY}`)).toBe(true)
       expect(screen.getByRole('region', { name: 'Workouts' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Train' })).toHaveAttribute('aria-current', 'page')
+    })
+
+    it('talks with the coach: a starter asks, a proposal shows what it would do, and Apply applies it', async () => {
+      const proposal = { edits: [{ op: 'move', sessionId: 'legs', from: TODAY, to: addDays(TODAY, 2) }], preview: ['Mon → Wed: Legs'] }
+      const asked = [
+        { id: 'u1', role: 'user', text: 'How is my training going?', proposal: null, status: null, note: null, createdAt: 1 },
+        { id: 'a1', role: 'assistant', text: 'Steady so far. Want to move legs to Wednesday?', proposal, status: 'proposed', note: null, createdAt: 2 },
+      ]
+      const applied = asked.map((m) => (m.id === 'a1' ? { ...m, status: 'applied' } : m))
+      const { calls, user } = await openTrain({
+        'GET /api/training/chat': { messages: [], busy: false },
+        'POST /api/training/chat/a1/apply': { messages: applied, day: training() },
+        'POST /api/training/chat/a1/undo': { messages: asked.map((m) => (m.id === 'a1' ? { ...m, status: 'undone' } : m)), day: training() },
+        'POST /api/training/chat': { messages: asked },
+        'GET /api/training': training(),
+      })
+      await user.click(await screen.findByRole('button', { name: 'Coach' }))
+      const log = await screen.findByRole('log', { name: 'Conversation with the coach' })
+      await user.click(within(log).getByRole('button', { name: 'How is my training going?' }))
+      await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url === '/api/training/chat')?.body).toEqual({ message: 'How is my training going?', today: TODAY }))
+      expect(await within(log).findByText('Steady so far. Want to move legs to Wednesday?')).toBeInTheDocument()
+      const card = within(log).getByLabelText('Proposed change')
+      expect(within(card).getByText('Mon → Wed: Legs')).toBeInTheDocument()
+      await user.click(within(card).getByRole('button', { name: 'Apply' }))
+      await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/training/chat/a1/apply')).toBe(true))
+      expect(await within(card).findByText('Applied')).toBeInTheDocument()
+      await user.click(within(card).getByRole('button', { name: 'Undo' }))
+      expect(await within(card).findByText('Undone')).toBeInTheDocument()
+    })
+
+    it("sends a typed message, and shows the coach's one-off changes on the day with an undo", async () => {
+      const { calls, user } = await openTrain({
+        'GET /api/training/chat': { messages: [], busy: false },
+        'POST /api/training/chat': { messages: [{ id: 'a1', role: 'assistant', text: 'Rest well.', proposal: null, status: null, note: null, createdAt: 1 }] },
+        'DELETE /api/training/overrides/o1': { ok: true },
+        'GET /api/training': training({ adjustments: [{ id: 'o1', text: 'Legs moved here from Mon, Nov 2' }] }),
+      })
+      expect(await screen.findByText('Legs moved here from Mon, Nov 2')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Undo: Legs moved here from Mon, Nov 2' }))
+      await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/training/overrides/o1')).toBe(true))
+      await user.click(screen.getByRole('button', { name: 'Coach' }))
+      await user.type(await screen.findByLabelText('Message the coach'), 'I slept badly')
+      await user.click(screen.getByRole('button', { name: 'Send' }))
+      expect(await screen.findByText('Rest well.')).toBeInTheDocument()
+      expect(calls.find((c) => c.method === 'POST' && c.url === '/api/training/chat')?.body).toEqual({ message: 'I slept badly', today: TODAY })
     })
 
     it("lays out the week's plan day by day, with the week's workouts, and opens a day from it", async () => {

@@ -404,6 +404,21 @@ describe('training', () => {
     expect(res.body.error).toMatch(/startDate: must be a Monday/)
   })
 
+  it('talks with the coach, and acts on its proposals', async () => {
+    await call('PUT', '/api/settings', { equipment: SAMPLE_EQUIPMENT })
+    expect((await call('GET', '/api/training/chat')).body).toEqual({ messages: [], busy: false })
+    await call('POST', '/api/training/schemas', { schema: SAMPLE_SCHEMA })
+    expect((await call('POST', '/api/training/chat', { message: '  ' })).status).toBe(400)
+    // The fake upstream isn't LM Studio: the coach can't answer, and says why.
+    const res = await call('POST', '/api/training/chat', { message: 'How am I doing?', today: '2026-11-02' })
+    expect(res.status).toBe(502)
+    const { messages } = (await call('GET', '/api/training/chat')).body as { messages: { role: string; text: string }[] }
+    expect(messages.map((m) => [m.role, m.text])).toEqual([['user', 'How am I doing?']])
+    expect((await call('POST', '/api/training/chat/nope/apply', { today: '2026-11-02' })).status).toBe(400)
+    expect((await call('DELETE', '/api/training/chat')).body).toEqual({ messages: [] })
+    expect((await call('DELETE', '/api/training/overrides/nope')).status).toBe(400)
+  })
+
   it('writes the next schema in the background and reports how it went', async () => {
     expect((await call('POST', '/api/training/generate', {})).status).toBe(400) // nothing to build on
     await call('PUT', '/api/settings', { equipment: SAMPLE_EQUIPMENT })

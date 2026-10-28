@@ -2,8 +2,9 @@ import { chatText, chooseModel, extractJson } from './research.ts'
 import type { Progression, Settings, SchemaSummary, TrainingItem, TrainingSchema } from '../src/types.ts'
 import { addDays } from '../src/lib/nutrition.ts'
 import { cleanSchema } from '../src/lib/training/schema.ts'
+import { mergeRewrite } from '../src/lib/training/edits.ts'
 import { MOVEMENTS } from '../src/lib/training/movements.ts'
-import { describe, itemOn, planSets, prescriptionFor, weekdayOf } from '../src/lib/training/resolve.ts'
+import { describe, hasSets, itemOn, planSets, prescriptionFor, weekdayOf } from '../src/lib/training/resolve.ts'
 import type { TrainingStore } from './store/training.ts'
 
 /**
@@ -34,7 +35,7 @@ export const SCHEMA_SPEC = `A training schema is one JSON object:
   "testWeek": number (optional; a week where lifts are tested),
   "goals": string (the targets for this schema, and in a sentence or three why you changed what you changed),
   "lifts": [{ "id": string, "name": string, "increment": 2.5 | 5 }]   (the lifts percentages are of; keep the existing ids),
-  "days": [{ "weekday": 1-7 (1 = Monday), "sessions": [Session] }],
+  "days": [{ "weekday": 1-7 (1 = Monday ... 7 = Sunday), "sessions": [Session] }],
   "wods": [Wod] (optional: new WODs; only if the bank lacks what a slot needs)
 }
 Session = { "id": string, "title": string, "kind": activity id, "items": [Item] }
@@ -55,14 +56,14 @@ Wod = { "id", "name", "format": "rft"|"amrap"|"emom"|"chipper"|"ladder"|"interva
 Ids are lowercase letters, digits, - and _. Reuse an item's id when it carries on from the last schema: its how-to notes carry over.`
 
 /** The previous schema in a few lines per item: what it asked for each week, at today's PRs. */
-function outline(schema: TrainingSchema, prs: Map<string, number | null>): string {
+export function outline(schema: TrainingSchema, prs: Map<string, number | null>): string {
   const lines: string[] = []
   for (const day of schema.days) {
     for (const session of day.sessions) {
       lines.push(`${DAYS[day.weekday]} -- ${session.title} [session ${session.id}, kind ${session.kind}]`)
       for (const item of session.items) {
         const head = `  - ${item.name} [item ${item.id}${item.lift ? `, lift ${item.lift}` : ''}]`
-        if (item.weeks || item.progression) {
+        if (hasSets(item)) {
           const increment = schema.lifts.find((l) => l.id === item.lift)?.increment ?? 5
           const weeks: string[] = []
           for (let w = schema.firstWeek; w <= schema.weeks; w++) {
@@ -110,7 +111,7 @@ function asFractions(p: Partial<Progression>): void {
 }
 
 /** Fields the model doesn't decide, and notes carried over to items that kept their id. */
-function finish(raw: unknown, previous: TrainingSchema, basedOn: string, startDate: string, kinds: string[]): unknown {
+function finish(raw: unknown, previous: TrainingSchema, basedOn: string, startDate: string, kinds: string[], firstWeek: 0 | 1 = 1): unknown {
   if (!raw || typeof raw !== 'object') return raw
   const notes = new Map<string, string>()
   for (const d of previous.days) for (const s of d.sessions) for (const i of s.items) if (i.notes) notes.set(i.id, i.notes)
@@ -146,7 +147,7 @@ function finish(raw: unknown, previous: TrainingSchema, basedOn: string, startDa
       }
     }
   }
-  return { ...obj, schemaVersion: 1, startDate, firstWeek: 1, basedOn }
+  return { ...obj, schemaVersion: 1, startDate, firstWeek, basedOn }
 }
 
 export interface GenerateArgs {
@@ -155,14 +156,17 @@ export interface GenerateArgs {
   fetchImpl: typeof fetch
   note?: string
   signal?: AbortSignal
+  /** Rewrite the active schema from a week on, instead of writing the one after it. */
+  rewrite?: { instruction: string; fromWeek: number; messageId: string | null }
 }
 
-export async function generateSchema({ training, settings, fetchImpl, note, signal: abort }: GenerateArgs): Promise<{ draft: SchemaSummary; model: string }> {
+export async function generateSchema({ training, settings, fetchImpl, note, signal: abort, rewrite }: GenerateArgs): Promise<{ draft: SchemaSummary; model: string }> {
   const active = training.activeSchema()
   if (!active) throw new Error('There\'s no active training schema to build on. Import one first.')
   const signal = AbortSignal.any([AbortSignal.timeout(TRAINING_TIMEOUT_MS), ...(abort ? [abort] : [])])
   const { model, reasoning } = await chooseModel(settings, fetchImpl, signal, settings.trainingModel)
-  const startDate = nextStart(active.summary.endDate)
+  const startDate = rewrite ? active.schema.startDate : nextStart(active.summary.endDate)
+  const firstWeek: 0 | 1 = rewrite ? active.schema.firstWeek : 1
   const lifts = training.lifts()
   const prs = new Map(lifts.map((l) => [l.id, l.pr]))
   const kinds = settings.workoutKinds.map((k) => `${k.id} (${k.label})`).join(', ')
@@ -195,8 +199,15 @@ export async function generateSchema({ training, settings, fetchImpl, note, sign
     `Equipment on hand: ${gear.gear.join(', ') || 'none listed'}; dumbbells (lb each): ${gear.dumbbells.join(', ') || 'none'}; kettlebells: ${gear.kettlebells.join(', ') || 'none'}.`,
     `Lift ids (fixed; they're where the PRs are kept): ${active.schema.lifts.map((l) => `${l.id} (${l.name}, PR ${prs.get(l.id) ?? '?'} lb)`).join(', ')}.`,
     `Movement ids for new WODs: ${MOVEMENTS.map((m) => m.id).join(', ')}.`,
-    `The new schema starts ${startDate} (a Monday) as week 1.`,
-    note ? `The person asks: ${note}` : '',
+    rewrite
+      ? [
+        `Rewrite this schema from week ${rewrite.fromWeek} on. Keep its start date (${startDate}) and week numbers (week ${firstWeek} to the end);`,
+        `the weeks before ${rewrite.fromWeek} have been trained and are kept as they are by code, so write the plan for week ${rewrite.fromWeek} onward.`,
+        `Keep the same ${active.schema.weeks - active.schema.firstWeek + 1} weeks, deloads and test week, and change only what the person asks for -- nothing else.`,
+        `The person asks: ${rewrite.instruction}`,
+      ].join('\n')
+      : `The new schema starts ${startDate} (a Monday) as week 1.`,
+    !rewrite && note ? `The person asks: ${note}` : '',
     '',
     'Write the new schema now.',
   ].filter((l) => l !== '').join('\n')
@@ -207,22 +218,27 @@ export async function generateSchema({ training, settings, fetchImpl, note, sign
     return chatText(settings, body, fetchImpl, signal)
   }
 
+  // A rewrite is checked once merged with the weeks already trained, so problems in the join reach the model too.
+  const check = (text: string): ReturnType<typeof cleanSchema> => {
+    const first = cleanSchema(finish(extractJson(text), active.schema, active.id, startDate, ctx.kinds, firstWeek), ctx)
+    return rewrite && first.schema ? cleanSchema(mergeRewrite(active.schema, first.schema, rewrite.fromWeek), ctx) : first
+  }
   let reply = await ask(input)
-  let checked = cleanSchema(finish(extractJson(reply), active.schema, active.id, startDate, ctx.kinds), ctx)
+  let checked = check(reply)
   for (let retry = 0; retry < MAX_RETRIES && !checked.schema; retry++) {
     reply = await ask([
       input, '', 'Your previous reply was:', reply.slice(0, 40_000), '',
       'It has these problems:', ...checked.errors.map((e) => `- ${e}`), '',
       'Reply with the whole corrected schema JSON.',
     ].join('\n'))
-    checked = cleanSchema(finish(extractJson(reply), active.schema, active.id, startDate, ctx.kinds), ctx)
+    checked = check(reply)
   }
   if (!checked.schema) {
     throw new Error(`The model's schema still had problems after ${MAX_RETRIES + 1} tries: ${checked.errors.slice(0, 4).join('; ')}`)
   }
   // Every item it names on a training day should be on in at least one week; one that never is was a mistake.
   const neverOn = checked.schema.days.flatMap((d) => d.sessions.flatMap((s) => s.items))
-    .filter((i) => !Array.from({ length: checked.schema!.weeks }, (_, k) => k + 1).some((w) => itemOn(i, w, checked.schema!)))
+    .filter((i) => !Array.from({ length: checked.schema!.weeks - checked.schema!.firstWeek + 1 }, (_, k) => k + checked.schema!.firstWeek).some((w) => itemOn(i, w, checked.schema!)))
   if (neverOn.length) throw new Error(`The model's schema has items that are never on: ${neverOn.map((i) => i.name).join(', ')}`)
-  return { draft: training.save(checked.schema, 'draft'), model }
+  return { draft: training.save(checked.schema, 'draft', rewrite ? { fromWeek: rewrite.fromWeek, messageId: rewrite.messageId } : undefined), model }
 }

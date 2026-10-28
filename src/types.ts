@@ -507,6 +507,8 @@ export interface Settings {
   workoutKinds: WorkoutKindDef[]
   /** Model that writes the next training schema; blank uses the research model's choice. */
   trainingModel: string
+  /** Model the training coach chats with; blank uses the research model's choice. */
+  planChatModel: string
   equipment: Equipment
 }
 
@@ -533,6 +535,7 @@ export interface PublicSettings {
   /** The workout activities, in the order the cards show them. */
   workoutKinds: WorkoutKindDef[]
   trainingModel: string
+  planChatModel: string
   equipment: Equipment
 }
 
@@ -623,6 +626,8 @@ export interface TrainingItem {
   /** Only in these weeks (inclusive); the item is absent the rest of the time. */
   onlyWeeks?: [number, number]
   // Exactly one of the following says what the item is.
+  /** The same sets every week the item is on. */
+  sets?: Prescription
   weeks?: Record<string, Prescription>
   progression?: Progression
   wod?: WodSlot
@@ -671,6 +676,8 @@ export interface SchemaSummary {
   firstWeek: 0 | 1
   basedOn: string | null
   createdAt: number
+  /** A draft that rewrites the active schema from this week on, rather than following it. */
+  rewriteFrom: number | null
 }
 
 export interface Lift {
@@ -732,6 +739,8 @@ export interface TrainingDay {
   /** This calendar week repeats an earlier week of the schema. */
   repeat: boolean
   sessions: ResolvedSession[]
+  /** One-off changes from the coach that touch this day: a session moved here or away, lighter weights, a stand-in. */
+  adjustments: { id: string; text: string }[]
   /** The calendar week, Monday to Sunday, around `date`. */
   strip: { date: string; sessions: { id: string; title: string; kind: string; done: boolean; started: boolean }[] }[]
   lifts: Lift[]
@@ -795,4 +804,45 @@ export interface WodView {
   lines: string[]
   swaps: string[]
   focus: WodFocus[]
+}
+
+// --- the coach: talking about the plan, and changing it ------------------------
+
+/**
+ * A change the coach can propose. The first five are one-off, dated changes
+ * laid over the schema; the next six change the schema itself from a week on;
+ * `rewrite` has the training model write the rest of the schema afresh.
+ */
+export type PlanEdit =
+  | { op: 'move'; sessionId: string; from: string; to: string }
+  | { op: 'skip'; date: string; sessionId?: string }
+  | { op: 'load'; from: string; to: string; factor: number; lifts?: string[] }
+  | { op: 'swap'; from: string; to: string; itemId: string; item: TrainingItem }
+  | { op: 'equipment'; from: string; to: string; equipment: Equipment }
+  | { op: 'replaceItem'; itemId: string; item: TrainingItem; fromWeek?: number }
+  | { op: 'addItem'; sessionId: string; item: TrainingItem; fromWeek?: number }
+  | { op: 'removeItem'; itemId: string; fromWeek?: number }
+  | { op: 'addSession'; weekday: number; session: TrainingSession; fromWeek?: number }
+  | { op: 'removeSession'; sessionId: string; fromWeek?: number }
+  | { op: 'moveSession'; sessionId: string; toWeekday: number; fromWeek?: number }
+  | { op: 'rewrite'; instruction: string; fromWeek: number }
+
+export const OVERRIDE_OPS = ['move', 'skip', 'load', 'swap', 'equipment'] as const
+export const REVISION_OPS = ['replaceItem', 'addItem', 'removeItem', 'addSession', 'removeSession', 'moveSession'] as const
+
+export interface PlanProposal {
+  edits: PlanEdit[]
+  /** What the edits would do, worked out by resolving the days before and after: "Fri Nov 6 → Sat Nov 7: Olympic lifts". */
+  preview: string[]
+}
+
+export interface CoachMessage {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  proposal: PlanProposal | null
+  status: 'proposed' | 'applied' | 'declined' | 'undone' | null
+  /** Anything worth saying about the proposal: why it couldn't be made, or that a rewrite is being written. */
+  note: string | null
+  createdAt: number
 }

@@ -14,6 +14,7 @@ import BodyCard from './components/BodyCard.tsx'
 import MealList from './components/MealList.tsx'
 import RangeSummary from './components/RangeSummary.tsx'
 import { TrainBlock, TrainToday, TrainWeek } from './components/train/TrainView.tsx'
+import CoachSheet from './components/train/CoachSheet.tsx'
 import AddSheet from './components/AddSheet.tsx'
 import EntrySheet from './components/EntrySheet.tsx'
 import SettingsSheet from './components/SettingsSheet.tsx'
@@ -36,6 +37,7 @@ export default function App() {
   const [section, setSection] = useState<Section>('nutrition')
   const [nutritionMode, setNutritionMode] = useState<NutritionMode>('day')
   const [trainMode, setTrainMode] = useState<TrainMode>('today')
+  const [coachOpen, setCoachOpen] = useState(false)
   const mode = section === 'nutrition' ? nutritionMode : trainMode
   // Both kept mounted (not just the active one) so switching Week -> Month
   // -> Week back doesn't lose either one's navigated position -- each only
@@ -136,12 +138,6 @@ export default function App() {
             {view && (
               <>
                 <Totals totals={view.totals} missing={view.missing} goals={view.goals} dayType={view.dayType} onSetDayType={setDayType} alcoholCalories={alcoholCaloriesLogged(view.entries)} />
-                {view.workouts.planned.length > 0 && (
-                  <button type="button" className="water-card plan-teaser" onClick={() => openTrainDay(day.date)}>
-                    <span className="water-label">Training</span>
-                    <span className="plan-teaser-text">{view.workouts.planned.join(' + ')} →</span>
-                  </button>
-                )}
                 <WaterTracker date={day.date} water={view.water} onLogged={refresh} />
                 <AlcoholTracker date={day.date} alcohol={view.alcohol} onLogged={refresh} />
                 <MealList
@@ -174,7 +170,7 @@ export default function App() {
           </>
         ) : !nutrition && trainMode === 'today' ? (
           <>
-            <TrainToday date={day.date} training={training} onSelectDate={day.setDate} onLogged={trainLogged} />
+            <TrainToday date={day.date} training={training} onSelectDate={day.setDate} onLogged={trainLogged} onCoach={() => setCoachOpen(true)} />
             {view && (
               <>
                 <WorkoutTracker date={day.date} workouts={view.workouts} onLogged={() => { refresh(); void training.refresh() }} />
@@ -196,7 +192,7 @@ export default function App() {
           </>
         ) : !nutrition ? (
           <>
-            <TrainBlock date={day.date} training={training} onLogged={trainLogged} />
+            <TrainBlock date={day.date} training={training} onLogged={trainLogged} onCoach={() => setCoachOpen(true)} />
             {view && <BodyCard date={day.date} body={view.body} />}
           </>
         ) : (
@@ -224,6 +220,13 @@ export default function App() {
       )}
 
       <SectionTabs section={section} onChange={setSection} />
+
+      <CoachSheet
+        open={coachOpen}
+        onClose={() => setCoachOpen(false)}
+        // Applied or undone: the plan, the week and the day's workout dots all fetch afresh.
+        onChanged={() => { void training.refresh(); trainLogged() }}
+      />
 
       <AddSheet
         open={sheet === 'add'}

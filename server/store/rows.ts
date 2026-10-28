@@ -242,7 +242,7 @@ export interface BodyRow { metric: string; measured_at: number; date: string; va
 export interface SettingsRow {
   usda_api_key: string; lm_studio_url: string; lm_studio_token: string; research_model: string; auto_lookup: number
   app_icon: string; charts: string | null; workout_kinds: string | null; notes_model: string | null; label_model: string | null
-  preferred_model: string | null; equipment: string | null; training_model: string | null
+  preferred_model: string | null; equipment: string | null; training_model: string | null; plan_chat_model: string | null
 }
 export function settingsFromRow(row: SettingsRow): Settings {
   return {
@@ -253,6 +253,7 @@ export function settingsFromRow(row: SettingsRow): Settings {
     charts: parseCharts(row.charts),
     workoutKinds: parseWorkoutKinds(row.workout_kinds),
     trainingModel: row.training_model ?? '',
+    planChatModel: row.plan_chat_model ?? '',
     equipment: parseEquipment(row.equipment),
   }
 }

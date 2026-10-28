@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Check, Repeat } from 'lucide-react'
+import { Check, MessageCircle, Repeat, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api.ts'
 import { localDate } from '../../lib/nutrition.ts'
@@ -56,9 +56,10 @@ interface TodayProps {
   onSelectDate: (date: string) => void
   /** Something logged here changes the day's workout dots. */
   onLogged: () => void
+  onCoach: () => void
 }
 
-export function TrainToday({ date, training, onSelectDate, onLogged }: TodayProps) {
+export function TrainToday({ date, training, onSelectDate, onLogged, onCoach }: TodayProps) {
   const kinds = useKinds(true)
   const day = training.day
   if (!day?.schema) return <Pending training={training} />
@@ -73,6 +74,16 @@ export function TrainToday({ date, training, onSelectDate, onLogged }: TodayProp
     try {
       training.setDay(await api.repeatWeek(date))
       toast.success(`Week ${day.week} again next week`)
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
+  const undoAdjustment = async (id: string): Promise<void> => {
+    try {
+      await api.removeAdjustment(id)
+      await training.refresh()
+      onLogged()
     } catch (err) {
       toast.error((err as Error).message)
     }
@@ -106,10 +117,27 @@ export function TrainToday({ date, training, onSelectDate, onLogged }: TodayProp
             )
           })}
         </div>
-        {day.week !== null && (
-          <button type="button" className="link-btn accent train-repeat" onClick={() => void repeat()}>
-            <Repeat size={13} aria-hidden="true" /> Repeat this week
+        <div className="train-head-actions">
+          <button type="button" className="coach-btn" onClick={onCoach}>
+            <MessageCircle size={15} aria-hidden="true" /> Coach
           </button>
+          {day.week !== null && (
+            <button type="button" className="link-btn accent train-repeat" onClick={() => void repeat()}>
+              <Repeat size={13} aria-hidden="true" /> Repeat this week
+            </button>
+          )}
+        </div>
+        {day.adjustments.length > 0 && (
+          <ul className="adjustments" aria-label="Changes from the coach">
+            {day.adjustments.map((a) => (
+              <li key={a.id}>
+                <span>{a.text}</span>
+                <button type="button" className="icon-btn" aria-label={`Undo: ${a.text}`} onClick={() => void undoAdjustment(a.id)}>
+                  <X size={13} aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 
@@ -176,14 +204,19 @@ interface BlockProps {
   date: string
   training: TrainingState
   onLogged: () => void
+  onCoach: () => void
 }
 
 /** The schema as a whole: PRs, progress, the plan week by week, and the next one. */
-export function TrainBlock({ date, training, onLogged }: BlockProps) {
+export function TrainBlock({ date, training, onLogged, onCoach }: BlockProps) {
   const day = training.day
   if (!day?.schema) return <Pending training={training} />
   return (
     <>
+      <button type="button" className="water-card coach-teaser" onClick={onCoach}>
+        <MessageCircle size={16} aria-hidden="true" />
+        <span>Ask the coach about this plan, or for a change to it</span>
+      </button>
       <LiftsCard date={date} day={day} onDay={(next) => { training.setDay(next); onLogged() }} />
       <ProgressCard />
       <SchemaCard day={day} onChanged={() => void training.refresh()} />

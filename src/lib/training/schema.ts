@@ -1,6 +1,6 @@
 import { GEAR, WOD_FOCUSES } from '../../types.ts'
 import type {
-  Equipment, Gear, Prescription, Progression, SetTarget, TrainingItem, TrainingSchema, TrainingSession, Wod, WodFocus, WodPart, WodSlot,
+  Equipment, Prescription, Progression, SetTarget, TrainingItem, TrainingSchema, TrainingSession, Wod, WodFocus, WodPart, WodSlot,
 } from '../../types.ts'
 import { isDateString } from '../nutrition.ts'
 import { MOVEMENT } from './movements.ts'
@@ -107,7 +107,7 @@ export function cleanSchema(input: unknown, ctx: SchemaContext): { schema: Train
         if (itemIds.has(item.id)) err(`${sw}.items[${k}]`, `id "${item.id}" is used by two items`)
         itemIds.add(item.id)
         items.push(item)
-        if (testWeek !== undefined && (item.weeks || item.progression)) {
+        if (testWeek !== undefined && (item.sets || item.weeks || item.progression)) {
           if (prescriptionFor(item, testWeek as number, schemaish)?.sets.some((x) => x.test)) tested = true
         }
       })
@@ -137,13 +137,21 @@ export function cleanSchema(input: unknown, ctx: SchemaContext): { schema: Train
         err(label, 'onlyWeeks must be [from, to] within the schema\'s weeks')
       } else item.onlyWeeks = [ow[0] as number, ow[1] as number]
     }
-    const kinds = (['weeks', 'progression', 'wod', 'check', 'minutes'] as const).filter((k) => raw[k] !== undefined)
+    const kinds = (['sets', 'weeks', 'progression', 'wod', 'check', 'minutes'] as const).filter((k) => raw[k] !== undefined)
     if (kinds.length !== 1) {
-      err(label, `needs exactly one of weeks, progression, wod, check or minutes${kinds.length ? ` (it has ${kinds.join(' and ')})` : ' (it has none)'}`)
+      err(label, `needs exactly one of sets, weeks, progression, wod, check or minutes${kinds.length ? ` (it has ${kinds.join(' and ')})` : ' (it has none)'}`)
       return item
     }
     const usesPct = (sets: SetTarget[]): boolean => sets.some((s) => s.pct !== undefined || s.test)
     switch (kinds[0]) {
+      case 'sets': {
+        const clean = cleanPrescription(raw.sets, `${label} sets`)
+        if (clean) {
+          if (usesPct(clean.sets) && !item.lift) err(label, 'uses percentages, so it needs a lift')
+          item.sets = clean
+        }
+        break
+      }
       case 'weeks': {
         if (!isObj(raw.weeks)) { err(label, 'weeks must map week numbers to prescriptions'); break }
         const out: Record<string, Prescription> = {}
@@ -330,7 +338,29 @@ export function cleanEquipment(input: unknown): Equipment {
   const gear = Array.isArray(o.gear) ? GEAR.filter((g) => (o.gear as unknown[]).includes(g)) : []
   const bells = (v: unknown): number[] =>
     Array.isArray(v) ? [...new Set(v.filter((n): n is number => isNum(n, 1, 200)).map((n) => Math.round(n * 2) / 2))].sort((a, b) => a - b).slice(0, 30) : []
-  return { gear: gear as Gear[], dumbbells: bells(o.dumbbells), kettlebells: bells(o.kettlebells) }
+  const dumbbells = bells(o.dumbbells)
+  const kettlebells = bells(o.kettlebells)
+  // Bell weights listed mean the bells are there, whether or not the gear list says so.
+  const have = new Set<string>(gear)
+  if (dumbbells.length) have.add('dumbbells')
+  if (kettlebells.length) have.add('kettlebells')
+  return { gear: GEAR.filter((g) => have.has(g)), dumbbells, kettlebells }
 }
 
 export const NO_EQUIPMENT: Equipment = { gear: [], dumbbells: [], kettlebells: [] }
+
+/**
+ * One item checked as a schema would check it -- a stand-in the coach
+ * proposes, say -- by putting it into a copy of the schema it would join.
+ */
+export function cleanItemIn(raw: unknown, schema: TrainingSchema, ctx: SchemaContext): { item: TrainingItem | null; errors: string[] } {
+  const copy = structuredClone(schema)
+  const host = copy.days[0]?.sessions[0]
+  if (!host) return { item: null, errors: ['the schema has no session to check the item in'] }
+  host.items.push(raw as TrainingItem)
+  const { schema: clean, errors } = cleanSchema(copy, ctx)
+  const where = `days[0].sessions[0].items[${host.items.length - 1}]`
+  const mine = errors.filter((e) => e.startsWith(where)).map((e) => e.replace(where, 'item'))
+  if (mine.length || !clean) return { item: null, errors: mine.length ? mine : errors }
+  return { item: clean.days[0]!.sessions[0]!.items.at(-1)!, errors: [] }
+}

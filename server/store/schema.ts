@@ -137,6 +137,23 @@ CREATE TABLE IF NOT EXISTS session_logs (
   PRIMARY KEY (date, session_id)
 );
 
+-- The coach's one-off changes, laid over a schema for a range of dates; each from the chat message that proposed it.
+CREATE TABLE IF NOT EXISTS schema_overrides (
+  id TEXT PRIMARY KEY, schema_id TEXT NOT NULL, kind TEXT NOT NULL, body TEXT NOT NULL,
+  from_date TEXT NOT NULL, to_date TEXT NOT NULL, message_id TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_schema_overrides ON schema_overrides(schema_id, from_date);
+-- A schema's body before each lasting change to it, newest last; undo puts the last one back.
+CREATE TABLE IF NOT EXISTS schema_revisions (
+  id TEXT PRIMARY KEY, schema_id TEXT NOT NULL, body TEXT NOT NULL, reason TEXT NOT NULL, message_id TEXT, created_at INTEGER NOT NULL
+);
+-- Talking to the coach about a schema: what was said, and the change proposed with it.
+CREATE TABLE IF NOT EXISTS training_chat (
+  id TEXT PRIMARY KEY, schema_id TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('user','assistant')), text TEXT NOT NULL,
+  proposal TEXT, status TEXT, note TEXT, created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_training_chat ON training_chat(schema_id, created_at);
+
 -- Readings from the scale (via Apple Health). One per kind and moment, so re-sending the same week is harmless.
 CREATE TABLE IF NOT EXISTS body_measurements (
   metric TEXT NOT NULL, measured_at INTEGER NOT NULL, date TEXT NOT NULL, value REAL NOT NULL, created_at INTEGER NOT NULL,
@@ -306,5 +323,13 @@ function migrateSchema(db: DatabaseSync): void {
     if (!cols.some((c) => c.name === 'equipment')) db.exec('ALTER TABLE settings ADD COLUMN equipment TEXT')
     if (!cols.some((c) => c.name === 'training_model')) db.exec("ALTER TABLE settings ADD COLUMN training_model TEXT NOT NULL DEFAULT ''")
     db.exec('PRAGMA user_version = 18')
+  }
+  if (version < 19) {
+    // The coach: its tables come from the schema above; its model is a setting, and a draft can be a rewrite of the active schema.
+    const settings = db.prepare('PRAGMA table_info(settings)').all() as { name: string }[]
+    if (!settings.some((c) => c.name === 'plan_chat_model')) db.exec("ALTER TABLE settings ADD COLUMN plan_chat_model TEXT NOT NULL DEFAULT ''")
+    const schemas = db.prepare('PRAGMA table_info(training_schemas)').all() as { name: string }[]
+    if (!schemas.some((c) => c.name === 'rewrite')) db.exec('ALTER TABLE training_schemas ADD COLUMN rewrite TEXT')
+    db.exec('PRAGMA user_version = 19')
   }
 }

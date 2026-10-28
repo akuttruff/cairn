@@ -44,9 +44,13 @@ export function weekdayOf(date: string): number {
 const inWeeks = (item: TrainingItem, week: number): boolean =>
   !item.onlyWeeks || (week >= item.onlyWeeks[0] && week <= item.onlyWeeks[1])
 
+/** An item logged set by set (rather than a tick, minutes or a WOD). */
+export const hasSets = (item: TrainingItem): boolean => Boolean(item.sets || item.weeks || item.progression)
+
 /** What a sets item asks for in a week: spelled out, or worked out from its progression. Null when it's off that week. */
 export function prescriptionFor(item: TrainingItem, week: number, schema: Pick<TrainingSchema, 'deloadWeeks' | 'testWeek'>): Prescription | null {
   if (!inWeeks(item, week)) return null
+  if (item.sets) return item.sets
   if (item.weeks) return item.weeks[String(week)] ?? null
   const p = item.progression
   if (!p) return null
@@ -67,7 +71,7 @@ export function prescriptionFor(item: TrainingItem, week: number, schema: Pick<T
 export function itemOn(item: TrainingItem, week: number, schema: Pick<TrainingSchema, 'deloadWeeks' | 'testWeek'>): boolean {
   if (!inWeeks(item, week)) return false
   if (item.minutes) return item.minutes[String(week)] !== undefined
-  if (item.weeks || item.progression) return prescriptionFor(item, week, schema) !== null
+  if (hasSets(item)) return prescriptionFor(item, week, schema) !== null
   return true
 }
 

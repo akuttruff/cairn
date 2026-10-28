@@ -136,7 +136,9 @@ export default function SchemaCard({ day, onChanged }: SchemaCardProps) {
       {day.draft ? (
         <div className="draft">
           <div className="hint">
-            <strong>{day.draft.name}</strong> is ready: {day.draft.startDate} to {day.draft.endDate}, written from how this one went.
+            {day.draft.rewriteFrom !== null
+              ? <><strong>A rewrite of this plan</strong> from week {day.draft.rewriteFrom} is ready. Weeks before it stay as they were.</>
+              : <><strong>{day.draft.name}</strong> is ready: {day.draft.startDate} to {day.draft.endDate}, written from how this one went.</>}
           </div>
           {!draft && <button type="button" className="link-btn accent" onClick={() => void review()}>Review it</button>}
           {draft && overview && (

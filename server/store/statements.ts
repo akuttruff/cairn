@@ -164,7 +164,7 @@ export function prepareStatements(db: DatabaseSync): Stmts {
     ),
     selectSettings: db.prepare('SELECT * FROM settings WHERE id = 1'),
     updateSettings: db.prepare(
-      'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=?, app_icon=?, charts=?, workout_kinds=?, notes_model=?, label_model=?, preferred_model=?, equipment=?, training_model=? WHERE id=1',
+      'UPDATE settings SET usda_api_key=?, lm_studio_url=?, lm_studio_token=?, research_model=?, auto_lookup=?, app_icon=?, charts=?, workout_kinds=?, notes_model=?, label_model=?, preferred_model=?, equipment=?, training_model=?, plan_chat_model=? WHERE id=1',
     ),
     selectWaterByDate: db.prepare('SELECT * FROM water_logs WHERE date = ? ORDER BY created_at DESC, rowid DESC'),
     selectWaterBetween: db.prepare('SELECT * FROM water_logs WHERE date >= ? AND date <= ?'),

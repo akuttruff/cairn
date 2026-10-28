@@ -1,6 +1,6 @@
 import type {
   DayType, DayView, Entry, Food, Goals, LabelReading, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeNotes, RangeView, Serving,
-  AlcoholKind, AlcoholLog, AppIcon, ChartKey, Drink, Equipment, GenerateStatus, Lift, ProgressSeries, SchemaOverview, SchemaSummary, TrainingDay, WaterLog, LmModelOption, MeditationLog, DogWalkLog, WorkoutKind, WorkoutKindDef, WorkoutLog, WorkoutPlan,
+  AlcoholKind, AlcoholLog, AppIcon, ChartKey, CoachMessage, Drink, Equipment, GenerateStatus, Lift, ProgressSeries, SchemaOverview, SchemaSummary, TrainingDay, WaterLog, LmModelOption, MeditationLog, DogWalkLog, WorkoutKind, WorkoutKindDef, WorkoutLog, WorkoutPlan,
 } from '../types.ts'
 import { noReply, reachFetch } from './reach.ts'
 
@@ -93,7 +93,7 @@ export const api = {
   addDogWalk: (w: { date: string; miles?: number }) => request<DogWalkLog>('POST', '/api/dog-walks', w),
   deleteDogWalk: (id: string) => request<{ ok: true }>('DELETE', `/api/dog-walks/${encodeURIComponent(id)}`),
   settings: () => request<PublicSettings>('GET', '/api/settings'),
-  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; notesModel?: string; labelModel?: string; preferredModel?: string; autoLookup?: boolean; appIcon?: AppIcon; charts?: ChartKey[]; workoutKinds?: WorkoutKindDef[]; trainingModel?: string; equipment?: Equipment }) =>
+  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; notesModel?: string; labelModel?: string; preferredModel?: string; autoLookup?: boolean; appIcon?: AppIcon; charts?: ChartKey[]; workoutKinds?: WorkoutKindDef[]; trainingModel?: string; planChatModel?: string; equipment?: Equipment }) =>
     request<PublicSettings>('PUT', '/api/settings', s),
   /** The Train tab: what the active schema has on a date, with what's been logged. `shuffle` offers other WODs. */
   training: (date: string, shuffle = 0) => request<TrainingDay>('GET', `/api/training?date=${date}${shuffle ? `&shuffle=${shuffle}` : ''}`),
@@ -111,6 +111,15 @@ export const api = {
   /** Start writing the next schema with the local model; poll generation() for the draft. */
   generateSchema: (note?: string) => request<GenerateStatus>('POST', '/api/training/generate', note ? { note } : {}),
   generation: () => request<GenerateStatus>('GET', '/api/training/generate'),
+  /** The coach: the conversation about the active plan, and its proposed changes. */
+  coach: () => request<{ messages: CoachMessage[]; busy: boolean }>('GET', '/api/training/chat'),
+  /** Say something to the coach; seconds on a mid-size model. Answers with the whole conversation. */
+  askCoach: (message: string, today: string) => request<{ messages: CoachMessage[] }>('POST', '/api/training/chat', { message, today }),
+  coachAction: (id: string, action: 'apply' | 'decline' | 'undo', today: string) =>
+    request<{ messages: CoachMessage[]; day: TrainingDay }>('POST', `/api/training/chat/${encodeURIComponent(id)}/${action}`, { today }),
+  clearCoach: () => request<{ messages: CoachMessage[] }>('DELETE', '/api/training/chat'),
+  /** Take back one of the coach's one-off changes. */
+  removeAdjustment: (id: string) => request<{ ok: true }>('DELETE', `/api/training/overrides/${encodeURIComponent(id)}`),
   /** Read a photographed nutrition label (a JPEG/PNG/WebP data URL) into the Manual tab's fields. Seconds, once the model is loaded. */
   readLabel: (image: string) => request<{ reading: LabelReading }>('POST', '/api/label', { image }),
   /** LLMs LM Studio has downloaded, for the model picker. `error` says why the list is empty. */

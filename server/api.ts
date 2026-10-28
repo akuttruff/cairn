@@ -9,6 +9,7 @@ import { ResearchJobs, listLlms } from './research.ts'
 import { fingerprint, writeNotes } from './notes.ts'
 import { LABEL_MAX_BYTES, isImageDataUrl, readLabel } from './label.ts'
 import { generateSchema } from './training-gen.ts'
+import { applyProposal, coachReply, undoProposal } from './training-chat.ts'
 import type { SearchResult } from './foods.ts'
 import type { GenerateStatus, RangeNotes, Serving } from '../src/types.ts'
 
@@ -90,6 +91,19 @@ export function createApi(options: ApiOptions = {}) {
   let readingLabel = false
   /** The next training schema being written: minutes on a big model, so the page polls rather than waits. */
   let generating: GenerateStatus = { status: 'idle', startedAt: null, draftId: null, error: null }
+  /** The coach is writing a reply: one at a time, like a person would. */
+  let coaching = false
+  /** Write the next schema (or a rewrite of this one) in the background; the page polls GET /api/training/generate. */
+  const startGenerating = (args: { note?: string; rewrite?: { instruction: string; fromWeek: number; messageId: string } }): void => {
+    generating = { status: 'running', startedAt: Date.now(), draftId: null, error: null }
+    const startedAt = generating.startedAt
+    void generateSchema({ training: store.training, settings: store.getSettings(), fetchImpl, ...args })
+      .then(({ draft }) => { generating = { status: 'done', startedAt, draftId: draft.id, error: null } })
+      .catch((err: Error) => {
+        generating = { status: 'error', startedAt, draftId: null, error: err.message }
+        if (args.rewrite) store.training.setMessage(args.rewrite.messageId, 'proposed', `Couldn't write the new plan: ${err.message}`)
+      })
+  }
   const searchCache = new TtlCache<SearchResult>(DAY_MS)
   const portionCache = new TtlCache<Serving[]>(7 * DAY_MS)
   const research = new ResearchJobs(() => store.getSettings(), fetchImpl, {
@@ -100,7 +114,7 @@ export function createApi(options: ApiOptions = {}) {
   const health = new HealthCheck({
     app: 'cairn',
     dataFile: path.join(path.resolve(options.dir ?? '.data'), 'macros.sqlite'),
-    busy: () => ({ notes: writing.size, research: research.running, training: generating.status === 'running' ? 1 : 0 }),
+    busy: () => ({ notes: writing.size, research: research.running, training: generating.status === 'running' ? 1 : 0, coach: coaching ? 1 : 0 }),
     deps: { model: () => listLlms(store.getSettings(), fetchImpl) },
   })
 
@@ -347,14 +361,64 @@ export function createApi(options: ApiOptions = {}) {
         if (generating.status === 'running') return json(res, 409, { error: 'Already writing the next schema.' })
         const { note } = await readBody(req) as { note?: unknown }
         if (!store.training.activeSchema()) throw new ValidationError('there\'s no active training schema to build on')
-        generating = { status: 'running', startedAt: Date.now(), draftId: null, error: null }
-        const startedAt = generating.startedAt
         // Not tied to this request: it carries on if the phone locks, and the page polls GET for the result.
-        void generateSchema({ training: store.training, settings: store.getSettings(), fetchImpl, note: typeof note === 'string' ? note.trim().slice(0, 500) : undefined })
-          .then(({ draft }) => { generating = { status: 'done', startedAt, draftId: draft.id, error: null } })
-          .catch((err: Error) => { generating = { status: 'error', startedAt, draftId: null, error: err.message } })
+        startGenerating({ note: typeof note === 'string' ? note.trim().slice(0, 500) : undefined })
         return json(res, 202, generating)
       }
+    }
+    // The coach: a conversation about the active plan, and the changes it proposes.
+    if (p === '/api/training/chat') {
+      const plan = store.training.activeSchema()
+      if (method === 'GET') {
+        // A rewrite whose writing was lost (the server restarted mid-way) goes back to waiting, to be started again.
+        if (plan && generating.status !== 'running') {
+          for (const m of store.training.messages(plan.id)) {
+            if (m.status === 'applied' && m.note?.startsWith('Writing the new plan') && store.training.draft()?.rewriteFrom == null) store.training.setMessage(m.id, 'proposed', 'The new plan wasn\'t finished; start it again.')
+          }
+        }
+        return json(res, 200, { messages: plan ? store.training.messages(plan.id) : [], busy: coaching })
+      }
+      if (method === 'DELETE') {
+        if (plan) store.training.clearChat(plan.id)
+        return json(res, 200, { messages: [] })
+      }
+      if (method === 'POST') {
+        const { message, today } = await readBody(req) as { message?: unknown; today?: unknown }
+        if (typeof message !== 'string' || !message.trim()) throw new ValidationError('say something to the coach')
+        if (coaching) return json(res, 409, { error: 'The coach is still answering.' })
+        coaching = true
+        try {
+          const day = typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today) ? today : new Date().toISOString().slice(0, 10)
+          return json(res, 200, { messages: await coachReply({ training: store.training, settings: store.getSettings(), fetchImpl, text: message.trim().slice(0, 2000), today: day, signal: clientGone(res) }) })
+        } catch (err) {
+          return json(res, 502, { error: (err as Error).message })
+        } finally {
+          coaching = false
+        }
+      }
+    }
+    if ((m = /^\/api\/training\/chat\/([^/]+)\/(apply|decline|undo)$/.exec(p)) && method === 'POST') {
+      const id = decodeURIComponent(m[1]!)
+      const { today } = await readBody(req) as { today?: unknown }
+      const day = typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today) ? today : new Date().toISOString().slice(0, 10)
+      try {
+        if (m[2] === 'apply') {
+          applyProposal(store.training, id, day, store.getSettings(), (rewrite) => {
+            if (generating.status === 'running') throw new Error('A new plan is already being written; wait for it first.')
+            startGenerating({ rewrite })
+          })
+        } else if (m[2] === 'undo') undoProposal(store.training, id)
+        else store.training.setMessage(id, 'declined')
+      } catch (err) {
+        if (err instanceof ValidationError) throw err
+        return json(res, 400, { error: (err as Error).message })
+      }
+      const plan = store.training.activeSchema()
+      return json(res, 200, { messages: plan ? store.training.messages(plan.id) : [], day: store.training.day(day) })
+    }
+    if ((m = /^\/api\/training\/overrides\/([^/]+)$/.exec(p)) && method === 'DELETE') {
+      store.training.removeOverride(decodeURIComponent(m[1]!))
+      return json(res, 200, { ok: true })
     }
     if (p === '/api/training/sets' && method === 'PUT') return json(res, 200, store.training.logSet(await readBody(req) as never))
     if (p === '/api/training/wod' && method === 'PUT') return json(res, 200, store.training.setWod(await readBody(req) as never))

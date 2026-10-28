@@ -109,6 +109,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const [labelModel, setLabelModel] = useState<string | null>(null)
   const [preferredModel, setPreferredModel] = useState<string | null>(null)
   const [trainingModel, setTrainingModel] = useState<string | null>(null)
+  const [planChatModel, setPlanChatModel] = useState<string | null>(null)
   // The gear on hand, as edited; null until the first change.
   const [gear, setGear] = useState<Gear[] | null>(null)
   const [dumbbellText, setDumbbellText] = useState<string | null>(null)
@@ -155,6 +156,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const chosenLabelModel = labelModel ?? settings?.labelModel ?? ''
   const chosenPreferredModel = preferredModel ?? settings?.preferredModel ?? ''
   const chosenTrainingModel = trainingModel ?? settings?.trainingModel ?? ''
+  const chosenPlanChatModel = planChatModel ?? settings?.planChatModel ?? ''
   const chosenGear = gear ?? settings?.equipment?.gear ?? []
   const shownDumbbells = dumbbellText ?? (settings?.equipment?.dumbbells ?? []).join(', ')
   const shownKettlebells = kettlebellText ?? (settings?.equipment?.kettlebells ?? []).join(', ')
@@ -210,6 +212,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       if (labelModel != null && labelModel.trim() !== settings?.labelModel) changes.labelModel = labelModel.trim()
       if (preferredModel != null && preferredModel.trim() !== settings?.preferredModel) changes.preferredModel = preferredModel.trim()
       if (trainingModel != null && trainingModel.trim() !== settings?.trainingModel) changes.trainingModel = trainingModel.trim()
+      if (planChatModel != null && planChatModel.trim() !== settings?.planChatModel) changes.planChatModel = planChatModel.trim()
       if ((gear != null || dumbbellText != null || kettlebellText != null) && dumbbells && kettlebells) {
         changes.equipment = { gear: chosenGear, dumbbells, kettlebells }
       }
@@ -520,6 +523,17 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
               </select>
               <div className="hint">
                 Writes the next training schema from how the last one went (Train tab). A large model plans better; it can take several minutes.
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="plan-chat-model">Coach model</label>
+              <select id="plan-chat-model" value={chosenPlanChatModel} onChange={(e) => setPlanChatModel(e.target.value)}>
+                <option value="">Same as the lookup model</option>
+                {chosenPlanChatModel && !models.some((m) => m.key === chosenPlanChatModel) && <option value={chosenPlanChatModel}>{chosenPlanChatModel}</option>}
+                {models.map((m) => <option key={m.key} value={m.key}>{m.key}{m.loaded ? ' (loaded)' : ''}</option>)}
+              </select>
+              <div className="hint">
+                Talks with you about your training and proposes changes to the plan (Train, Coach). A mid-size model answers in seconds.
               </div>
             </div>
             <div className="field">

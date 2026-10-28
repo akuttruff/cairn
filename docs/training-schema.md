@@ -69,7 +69,7 @@ A **session** is `{ "id", "title", "kind", "items": [...] }`.
 - Logging any part of a session also logs one session of that activity on the Workouts card.
 - For an activity marked as training, that also makes the day a training day.
 
-An **item** is `{ "id", "name", "lift"?, "notes"?, "onlyWeeks"?: [from, to] }` plus **exactly one** of the five types below. `notes` are the how-to, shown under "How to". `onlyWeeks` limits the item to a range of weeks.
+An **item** is `{ "id", "name", "lift"?, "notes"?, "onlyWeeks"?: [from, to] }` plus **exactly one** of the six types below. `notes` are the how-to, shown under "How to". `onlyWeeks` limits the item to a range of weeks.
 
 ### `progression`: a lift in percentages, by rule
 
@@ -99,6 +99,14 @@ Generated schemas use this form.
 - **Sets:** each set has `reps` (a number or `"max"`) or `seconds`, plus either `pct` of the item's lift or a fixed `weight` in lb.
 - **Missing weeks:** a week that isn't listed means the item is off that week.
 - **`note`:** shown under the item's name for that week, e.g. the variation or the load.
+
+### `sets`: the same sets every week
+
+```json
+"sets": { "sets": [{ "reps": 10, "weight": 25 }, { "reps": 10, "weight": 25 }] }
+```
+
+For accessories, and for stand-ins the coach swaps in. Sets can use `pct` of the item's lift, like the other forms.
 
 ### `minutes`: timed work
 
@@ -148,3 +156,31 @@ From the Train tab, **Write the next schema** has the training model (set in Set
 - **Start date:** the draft starts the Monday after the active schema ends.
 - **Carried over:** items that keep their id keep their how-to notes.
 - **Review:** you compare it with the current schema and choose **Follow it** or **Discard**.
+
+## The coach
+
+On the Train tab, **Coach** opens a chat with the coach model (set in Settings). You can ask how your training is going, get feedback on the plan, or ask for a change. Questions just get answers.
+
+**Proposed changes.** A change comes back as a card that spells out what it would do. The card's lines are worked out by resolving the affected days before and after the change, not taken from the model's wording, for example "Fri, Nov 6 → Sat, Nov 7: Olympic lifts". Nothing changes until you tap **Apply**, and every change can be undone.
+
+**One-off changes** sit on top of the schema for some days; the schema itself is untouched.
+
+| Change | What it does |
+|---|---|
+| `move` | Does a session on another day |
+| `skip` | Skips a session, or the whole day |
+| `load` | Scales the planned weights, for example 90% |
+| `swap` | Puts a stand-in item in place of another for a few days |
+| `equipment` | Sets the gear on hand for some days, for travel |
+
+They show on the day as "Adjusted" lines, each with an undo.
+
+**Lasting changes** apply from a week on: `replaceItem`, `addItem`, `removeItem`, `addSession`, `removeSession` and `moveSession`.
+- Weeks already trained are never rewritten. A changed item keeps its earlier weeks, and what replaces it is a new item with a new id, so logged sets stay with the item they were logged against.
+- Each lasting change saves the schema's previous body, and undo restores it. Changes are undone newest first.
+
+**A rewrite** has the training model write the rest of the plan from a week on.
+- The weeks before that are copied over unchanged, and the dates and week numbers stay the same.
+- It arrives as a draft to review on Block. Following it replaces the active schema's body, so this block's logs stay with it, and undo puts the old body back.
+
+**Feeding the next schema.** What you tell the coach, and the one-off changes you make, go into the report the next schema is written from.

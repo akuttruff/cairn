@@ -179,7 +179,7 @@ describe('validating a schema', () => {
   })
 
   it('cleans equipment to known gear and sensible weights', () => {
-    expect(cleanEquipment({ gear: ['bike', 'hovercraft', 'barbell'], dumbbells: [25, 15, 15, -3, 'x'] })).toEqual({ gear: ['barbell', 'bike'], dumbbells: [15, 25], kettlebells: [] })
+    expect(cleanEquipment({ gear: ['bike', 'hovercraft', 'barbell'], dumbbells: [25, 15, 15, -3, 'x'] })).toEqual({ gear: ['barbell', 'dumbbells', 'bike'], dumbbells: [15, 25], kettlebells: [] }) // weights listed: the bells are there
     expect(cleanEquipment(null)).toEqual({ gear: [], dumbbells: [], kettlebells: [] })
   })
 })

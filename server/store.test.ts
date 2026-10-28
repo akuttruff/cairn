@@ -283,7 +283,7 @@ describe('goals and settings', () => {
     const pub = store.getPublicSettings()
     expect(pub).toEqual({ hasUsdaKey: true, hasLmStudioToken: true, lmStudioUrl: 'http://127.0.0.1:1234', researchModel: '', notesModel: '', labelModel: '', preferredModel: '', autoLookup: true, appIcon: 'ring',
       charts: ['calories', 'protein', 'fiber', 'water'], workoutKinds: DEFAULT_WORKOUT_KINDS,
-      trainingModel: '', equipment: { gear: [], dumbbells: [], kettlebells: [] },
+      trainingModel: '', planChatModel: '', equipment: { gear: [], dumbbells: [], kettlebells: [] },
     })
     expect(JSON.stringify(pub)).not.toMatch(/SECRET/)
   })

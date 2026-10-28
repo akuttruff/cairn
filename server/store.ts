@@ -977,6 +977,7 @@ export class Store {
       charts: s.charts,
       workoutKinds: s.workoutKinds,
       trainingModel: s.trainingModel,
+      planChatModel: s.planChatModel,
       equipment: s.equipment,
     }
   }
@@ -990,6 +991,7 @@ export class Store {
     if (typeof input.labelModel === 'string') next.labelModel = input.labelModel.trim().slice(0, 200)
     if (typeof input.preferredModel === 'string') next.preferredModel = input.preferredModel.trim().slice(0, 200)
     if (typeof input.trainingModel === 'string') next.trainingModel = input.trainingModel.trim().slice(0, 200)
+    if (typeof input.planChatModel === 'string') next.planChatModel = input.planChatModel.trim().slice(0, 200)
     if (input.equipment !== undefined) next.equipment = cleanEquipment(input.equipment)
     if (typeof input.autoLookup === 'boolean') next.autoLookup = input.autoLookup
     if (input.appIcon !== undefined) {
@@ -1019,7 +1021,7 @@ export class Store {
       if (nextUrl !== next.lmStudioUrl && typeof input.lmStudioToken !== 'string') next.lmStudioToken = ''
       next.lmStudioUrl = nextUrl
     }
-    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon, JSON.stringify(next.charts), JSON.stringify(next.workoutKinds), next.notesModel, next.labelModel, next.preferredModel, JSON.stringify(next.equipment), next.trainingModel)
+    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon, JSON.stringify(next.charts), JSON.stringify(next.workoutKinds), next.notesModel, next.labelModel, next.preferredModel, JSON.stringify(next.equipment), next.trainingModel, next.planChatModel)
     return this.getPublicSettings()
   }
 }
