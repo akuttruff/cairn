@@ -5,15 +5,9 @@ import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import { parseNum } from '../lib/format.ts'
 import { WORKOUT_ICON, kindIdFor } from '../lib/workoutIcons.ts'
-import { APP_ICONS, CHARTABLE, DEFAULT_CHARTS, DEFAULT_WORKOUT_KINDS, GEAR, WORKOUT_ICONS } from '../types.ts'
+import { APP_ICONS, CHARTABLE, DEFAULT_CHARTS, DEFAULT_WORKOUT_KINDS, GEAR, GEAR_NAMES, WORKOUT_ICONS } from '../types.ts'
 import type { AppIcon, ChartKey, Gear, Goals, LmModelOption, PublicSettings, WorkoutIcon, WorkoutKindDef, WorkoutPlan } from '../types.ts'
 
-/** How each piece of gear reads in the Equipment section. */
-const GEAR_NAMES: Record<Gear, string> = {
-  barbell: 'Barbell', plates: 'Plates', bumpers: 'Bumper plates', rack: 'Squat rack', dumbbells: 'Dumbbells', kettlebells: 'Kettlebells',
-  'pullup-bar': 'Pull-up bar', rings: 'Rings', bands: 'Bands', 'ab-mat': 'Ab mat', 'jump-rope': 'Jump rope', bike: 'Bike (Peloton)',
-  rower: 'Rower', box: 'Box',
-}
 
 /** "15, 20, 25" -> [15, 20, 25]; null if any of it isn't a weight. */
 function parseWeights(text: string): number[] | null {

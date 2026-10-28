@@ -2271,13 +2271,34 @@ describe('App', () => {
       lifts: [{ id: 'squat', name: 'Back squat', increment: 5, pr: 100, prDate: '2026-10-01' }],
       ...over,
     })
-    const openTrain = async (routes: Record<string, unknown>, view?: 'Week' | 'Block') => {
+    const openTrain = async (routes: Record<string, unknown>, view?: 'Week' | 'Block' | 'Library') => {
       const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/training/generate': { status: 'idle', startedAt: null, draftId: null, error: null }, ...routes })
       const user = userEvent.setup()
       render(<App />)
       await goTo('Train', view)
       return { calls, user }
     }
+
+    it('lists the WODs by place in the Library, and opens a movement from one', async () => {
+      const { user } = await openTrain({
+        'GET /api/training/schemas/s1': { summary: {}, schema: { wods: [{ id: 'cindy', name: 'Cindy', format: 'amrap', minutes: 20, parts: [{ move: 'pull-up', amount: 5 }, { move: 'push-up', amount: 10 }, { move: 'air-squat', amount: 15 }] }], hiddenWods: [] }, lifts: [] },
+        'GET /api/training': training(),
+        'GET /api/settings': { hasUsdaKey: false, workoutKinds: DEFAULT_WORKOUT_KINDS, equipment: { gear: [], dumbbells: [], kettlebells: [], places: [
+          { name: 'Living room', gear: ['bike', 'dumbbells', 'ab-mat'], dumbbells: [15, 20, 25, 30], kettlebells: [] },
+          { name: 'Garage', gear: ['barbell', 'plates', 'rack', 'pullup-bar', 'rings', 'bands', 'jump-rope'], dumbbells: [], kettlebells: [] },
+        ] } },
+      }, 'Library')
+      expect(screen.getByRole('heading', { name: 'Library' })).toBeInTheDocument()
+      const cindy = (await screen.findAllByText(/^Cindy/))[0]!.closest('.wod') as HTMLElement
+      expect(within(cindy).getByText('Yours')).toBeInTheDocument()
+      expect(within(cindy).getByText('· Garage')).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Garage' }))
+      expect(screen.queryAllByText(/^Renegade/)).toEqual([])
+      expect(screen.getAllByText(/^Partner-free Fran-ish/).length).toBeGreaterThan(0)
+      await user.click(within(cindy).getByRole('button', { name: '5 pull-ups' }))
+      expect(await screen.findByRole('button', { name: /Pull-ups/, expanded: true })).toBeInTheDocument()
+      expect(screen.getByText(/Hang from the bar with straight arms/)).toBeInTheDocument()
+    })
 
     it("shows the day's sessions set by set, and ticks a set with the planned numbers", async () => {
       const { calls, user } = await openTrain({ 'GET /api/training': training(), 'PUT /api/training/sets': { day: training(), newPr: null } })

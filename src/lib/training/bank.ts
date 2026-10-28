@@ -22,7 +22,7 @@ interface Placed {
   cost: number
 }
 
-const has = (equipment: Pick<Equipment, 'gear'>, m: Movement): boolean =>
+export const has = (equipment: Pick<Equipment, 'gear'>, m: Movement): boolean =>
   m.needs.length === 0 || m.needs.some((set) => set.every((g) => equipment.gear.includes(g)))
 
 /** The nearest weight there is to the one asked for, or the one asked for when the list says nothing. */
@@ -138,6 +138,7 @@ function viewIn(wod: Wod, equipment: Pick<Equipment, 'gear' | 'dumbbells' | 'ket
     lines: [...placed.map((p) => line(p.move, p.amount, p.weight)), ...(wod.notes ? [wod.notes] : [])],
     swaps,
     focus,
+    moves: placed.map((p) => p.move.id),
   }
   return { view, cost }
 }

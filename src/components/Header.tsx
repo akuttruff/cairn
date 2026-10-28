@@ -2,12 +2,12 @@ import { ChevronLeft, ChevronRight, Settings } from 'lucide-react'
 
 export type Section = 'nutrition' | 'train'
 export type NutritionMode = 'day' | 'week' | 'month'
-export type TrainMode = 'today' | 'week' | 'block'
+export type TrainMode = 'today' | 'week' | 'block' | 'library'
 
 /** Each section's views, in tab order. */
 export const MODES = {
   nutrition: [{ value: 'day', label: 'Day' }, { value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }],
-  train: [{ value: 'today', label: 'Today' }, { value: 'week', label: 'Week' }, { value: 'block', label: 'Block' }],
+  train: [{ value: 'today', label: 'Today' }, { value: 'week', label: 'Week' }, { value: 'block', label: 'Block' }, { value: 'library', label: 'Library' }],
 } as const satisfies Record<Section, { value: string; label: string }[]>
 
 interface HeaderProps {
@@ -24,6 +24,8 @@ interface HeaderProps {
   onNext: () => void
   onJumpToCurrent: () => void
   onSettings: () => void
+  /** A view with no dates to walk (the Library) shows its name instead of the arrows. */
+  title?: string
 }
 
 /**
@@ -33,11 +35,11 @@ interface HeaderProps {
  * sections (Nutrition and Train) are the bottom bar's; these tabs are the
  * views within the one on screen.
  */
-export default function Header({ section, mode, onModeChange, unit, label, isCurrent, onPrev, onNext, onJumpToCurrent, onSettings }: HeaderProps) {
+export default function Header({ section, mode, onModeChange, unit, label, isCurrent, onPrev, onNext, onJumpToCurrent, onSettings, title }: HeaderProps) {
   return (
     <>
       <header className="app-header">
-        <div className="date-nav">
+        {title ? <h1 className="date-label header-title">{title}</h1> : <div className="date-nav">
           <button type="button" className="icon-btn" aria-label={`Previous ${unit}`} onClick={onPrev}>
             <ChevronLeft size={20} aria-hidden="true" />
           </button>
@@ -58,7 +60,7 @@ export default function Header({ section, mode, onModeChange, unit, label, isCur
               Today
             </button>
           )}
-        </div>
+        </div>}
         <button type="button" className="icon-btn" aria-label="Settings" onClick={onSettings}>
           <Settings size={19} aria-hidden="true" />
         </button>

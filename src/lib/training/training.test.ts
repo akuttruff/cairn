@@ -1,3 +1,4 @@
+import { GUIDES } from './guides.ts'
 import { describe, expect, it } from 'vitest'
 import type { Equipment, TrainingSchema } from '../../types.ts'
 import { describe as describeSets, e1rm, itemOn, planSets, prescriptionFor, roundTo, schemaEnd, weekOf, weekdayOf } from './resolve.ts'
@@ -131,6 +132,11 @@ describe('the WOD bank', () => {
     expect(viewWod(WOD_BANK.find((w) => w.id === 'fran-ish')!, split)).toMatchObject({ place: 'Garage', lines: ['thrusters @ 50 lb', 'ring rows'] })
     // The closest stand-in wins: bike calories become single-unders directly, so the barbell WOD stays in the garage.
     expect(viewWod(WOD_BANK.find((w) => w.id === 'quick-cycle')!, split)!.place).toBe('Garage')
+  })
+
+  it('says how every movement is done, and nothing else', () => {
+    expect(MOVEMENTS.filter((m) => !GUIDES[m.id]?.how || !GUIDES[m.id]!.cues.length).map((m) => m.id)).toEqual([])
+    expect(Object.keys(GUIDES).filter((id) => !MOVEMENT.has(id))).toEqual([])
   })
 
   it('leaves out WODs a schema hides', () => {

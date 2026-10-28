@@ -1032,3 +1032,25 @@ button:disabled { opacity: 0.45; cursor: default; }
 .place-head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
 .place-name { flex: 1; padding: 7px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); color: var(--paper); font-size: 15px; font-weight: 600; }
 .wod-place { font-size: 11px; font-family: var(--mono); color: var(--paper-dim); margin-left: 6px; font-weight: 400; }
+
+/* ====== Library ====== */
+.header-title { margin: 0; padding: 6px 8px; cursor: default; }
+.library { display: flex; flex-direction: column; gap: 10px; }
+.library-tabs, .library-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.library-search { background: var(--bg-raised); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; }
+.library-list { display: flex; flex-direction: column; gap: 10px; }
+.library-list .water-card { margin: 0; }
+.library-tags { display: flex; gap: 6px; margin-top: 4px; }
+.library-tag { font-size: 11px; font-family: var(--mono); color: var(--paper-dim); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+.library-swaps { font-size: 12px; color: var(--paper-dim); margin-top: 6px; }
+.move-link { background: none; border: none; padding: 0; color: inherit; font: inherit; text-align: left; text-decoration: underline dotted var(--paper-dim); text-underline-offset: 3px; cursor: pointer; }
+.move-list { padding: 0; }
+.move { border-top: 1px solid var(--line); scroll-margin-top: 12px; }
+.move:first-child { border-top: none; }
+.move-head { display: flex; align-items: center; gap: 8px; width: 100%; background: none; border: none; color: var(--paper); padding: 12px 14px; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; }
+.move-head > span:first-child { flex: 1; }
+.move-where { font-size: 11px; font-weight: 400; font-family: var(--mono); color: var(--paper-dim); text-align: right; }
+.move-body { padding: 0 14px 12px; font-size: 13px; line-height: 1.5; }
+.move-body p { margin: 0 0 6px; }
+.move-body ul { margin: 0 0 6px; padding-left: 18px; }
+.move-meta { font-size: 12px; color: var(--paper-dim); }

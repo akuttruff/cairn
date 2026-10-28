@@ -14,6 +14,7 @@ import BodyCard from './components/BodyCard.tsx'
 import MealList from './components/MealList.tsx'
 import RangeSummary from './components/RangeSummary.tsx'
 import { TrainBlock, TrainToday, TrainWeek } from './components/train/TrainView.tsx'
+import Library from './components/train/Library.tsx'
 import CoachSheet from './components/train/CoachSheet.tsx'
 import AddSheet from './components/AddSheet.tsx'
 import EntrySheet from './components/EntrySheet.tsx'
@@ -129,6 +130,7 @@ export default function App() {
         mode={mode}
         onModeChange={(m) => (nutrition ? setNutritionMode(m as NutritionMode) : setTrainMode(m as TrainMode))}
         onSettings={() => open('settings')}
+        title={!nutrition && trainMode === 'library' ? 'Library' : undefined}
         {...header}
       />
 
@@ -196,6 +198,8 @@ export default function App() {
             )}
             {trainWeek.view && <RangeSummary view={trainWeek.view} onSelectDay={openTrainDay} part="train" />}
           </>
+        ) : !nutrition && trainMode === 'library' ? (
+          <Library training={training} />
         ) : !nutrition ? (
           <>
             <TrainBlock date={day.date} training={training} onLogged={trainLogged} onCoach={openCoach} />

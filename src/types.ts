@@ -577,6 +577,13 @@ export const GEAR = [
   'barbell', 'plates', 'bumpers', 'rack', 'dumbbells', 'kettlebells', 'pullup-bar', 'rings', 'bands',
   'ab-mat', 'jump-rope', 'bike', 'rower', 'box',
 ] as const
+
+/** How each piece of gear reads: in Settings and the Library. */
+export const GEAR_NAMES: Record<Gear, string> = {
+  barbell: 'Barbell', plates: 'Plates', bumpers: 'Bumper plates', rack: 'Squat rack', dumbbells: 'Dumbbells', kettlebells: 'Kettlebells',
+  'pullup-bar': 'Pull-up bar', rings: 'Rings', bands: 'Bands', 'ab-mat': 'Ab mat', 'jump-rope': 'Jump rope', bike: 'Bike (Peloton)',
+  rower: 'Rower', box: 'Box',
+}
 export type Gear = (typeof GEAR)[number]
 
 /** What's on hand to train with. Dumbbell and kettlebell weights are per bell, in lb. */
@@ -825,6 +832,8 @@ export interface WodView {
   focus: WodFocus[]
   /** Where it's done, when the gear is in more than one place. */
   place?: string
+  /** The movements as done, in order, for the Library to link to. */
+  moves?: string[]
 }
 
 // --- the coach: talking about the plan, and changing it ------------------------
