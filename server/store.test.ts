@@ -283,6 +283,7 @@ describe('goals and settings', () => {
     const pub = store.getPublicSettings()
     expect(pub).toEqual({ hasUsdaKey: true, hasLmStudioToken: true, lmStudioUrl: 'http://127.0.0.1:1234', researchModel: '', notesModel: '', labelModel: '', preferredModel: '', autoLookup: true, appIcon: 'ring',
       charts: ['calories', 'protein', 'fiber', 'water'], workoutKinds: DEFAULT_WORKOUT_KINDS,
+      trainingModel: '', equipment: { gear: [], dumbbells: [], kettlebells: [] },
     })
     expect(JSON.stringify(pub)).not.toMatch(/SECRET/)
   })
@@ -801,7 +802,7 @@ describe('workouts', () => {
       sessions: [], minutes: 0, weekStart: startOfWeek(DAY), planIsCustom: false, kinds: DEFAULT_WORKOUT_KINDS,
       plan: { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 },
       weekByKind: { wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 0, pilates: 0 },
-      weekTotal: 0, weekGoal: 9, lastLogId: null, weekSessions: [],
+      weekTotal: 0, weekGoal: 9, lastLogId: null, weekSessions: [], planned: [],
     })
   })
 

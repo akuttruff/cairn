@@ -5,8 +5,22 @@ import { toast } from 'sonner'
 import { api } from '../lib/api.ts'
 import { parseNum } from '../lib/format.ts'
 import { WORKOUT_ICON, kindIdFor } from '../lib/workoutIcons.ts'
-import { APP_ICONS, CHARTABLE, DEFAULT_CHARTS, DEFAULT_WORKOUT_KINDS, WORKOUT_ICONS } from '../types.ts'
-import type { AppIcon, ChartKey, Goals, LmModelOption, PublicSettings, WorkoutIcon, WorkoutKindDef, WorkoutPlan } from '../types.ts'
+import { APP_ICONS, CHARTABLE, DEFAULT_CHARTS, DEFAULT_WORKOUT_KINDS, GEAR, WORKOUT_ICONS } from '../types.ts'
+import type { AppIcon, ChartKey, Gear, Goals, LmModelOption, PublicSettings, WorkoutIcon, WorkoutKindDef, WorkoutPlan } from '../types.ts'
+
+/** How each piece of gear reads in the Equipment section. */
+const GEAR_NAMES: Record<Gear, string> = {
+  barbell: 'Barbell', plates: 'Plates', bumpers: 'Bumper plates', rack: 'Squat rack', dumbbells: 'Dumbbells', kettlebells: 'Kettlebells',
+  'pullup-bar': 'Pull-up bar', rings: 'Rings', bands: 'Bands', 'ab-mat': 'Ab mat', 'jump-rope': 'Jump rope', bike: 'Bike (Peloton)',
+  rower: 'Rower', box: 'Box',
+}
+
+/** "15, 20, 25" -> [15, 20, 25]; null if any of it isn't a weight. */
+function parseWeights(text: string): number[] | null {
+  const parts = text.split(/[,\s]+/).filter(Boolean)
+  const nums = parts.map(Number)
+  return nums.every((n) => Number.isFinite(n) && n > 0 && n <= 200) ? nums : null
+}
 
 interface SettingsSheetProps {
   open: boolean
@@ -94,6 +108,11 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const [notesModel, setNotesModel] = useState<string | null>(null)
   const [labelModel, setLabelModel] = useState<string | null>(null)
   const [preferredModel, setPreferredModel] = useState<string | null>(null)
+  const [trainingModel, setTrainingModel] = useState<string | null>(null)
+  // The gear on hand, as edited; null until the first change.
+  const [gear, setGear] = useState<Gear[] | null>(null)
+  const [dumbbellText, setDumbbellText] = useState<string | null>(null)
+  const [kettlebellText, setKettlebellText] = useState<string | null>(null)
   const [appIcon, setAppIcon] = useState<AppIcon | null>(null)
   // Which daily charts Week and Month draw; null until one is toggled.
   const [charts, setCharts] = useState<ChartKey[] | null>(null)
@@ -135,6 +154,12 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const chosenNotesModel = notesModel ?? settings?.notesModel ?? ''
   const chosenLabelModel = labelModel ?? settings?.labelModel ?? ''
   const chosenPreferredModel = preferredModel ?? settings?.preferredModel ?? ''
+  const chosenTrainingModel = trainingModel ?? settings?.trainingModel ?? ''
+  const chosenGear = gear ?? settings?.equipment?.gear ?? []
+  const shownDumbbells = dumbbellText ?? (settings?.equipment?.dumbbells ?? []).join(', ')
+  const shownKettlebells = kettlebellText ?? (settings?.equipment?.kettlebells ?? []).join(', ')
+  const dumbbells = parseWeights(shownDumbbells)
+  const kettlebells = parseWeights(shownKettlebells)
   const visionModels = models.filter((m) => m.vision)
 
   const setKind = (i: number, patch: Partial<KindRow>): void =>
@@ -158,7 +183,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     v == null || v < 0 || (key.startsWith('plan:') && (!Number.isInteger(v) || v > 14))
     || (key === 'dogWalks' && (!Number.isInteger(v) || v > 20)) || (key === 'walkMiles' && (v === 0 || v > 50))
   const invalid = parsed ? NUMBER_FIELDS.filter((f) => badValue(f.key, parsed[f.key])).map((f) => f.key) : []
-  const formInvalid = !parsed || invalid.length > 0 || kindsInvalid
+  const formInvalid = !parsed || invalid.length > 0 || kindsInvalid || !dumbbells || !kettlebells
   // The preview leaves the buffer out while it's being typed wrong, rather than hiding the whole line.
   const buffer = parsed && !invalid.includes('calorieBuffer') ? parsed.calorieBuffer! : 0
 
@@ -184,6 +209,10 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       if (notesModel != null && notesModel.trim() !== settings?.notesModel) changes.notesModel = notesModel.trim()
       if (labelModel != null && labelModel.trim() !== settings?.labelModel) changes.labelModel = labelModel.trim()
       if (preferredModel != null && preferredModel.trim() !== settings?.preferredModel) changes.preferredModel = preferredModel.trim()
+      if (trainingModel != null && trainingModel.trim() !== settings?.trainingModel) changes.trainingModel = trainingModel.trim()
+      if ((gear != null || dumbbellText != null || kettlebellText != null) && dumbbells && kettlebells) {
+        changes.equipment = { gear: chosenGear, dumbbells, kettlebells }
+      }
       if (autoLookup != null && autoLookup !== settings?.autoLookup) changes.autoLookup = autoLookup
       const iconChanged = appIcon != null && appIcon !== settings?.appIcon
       if (iconChanged) changes.appIcon = appIcon
@@ -302,6 +331,34 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
             <button type="button" className="link-btn accent kind-add" onClick={addKind} disabled={!kinds || kinds.length >= 20}>
               <Plus size={14} aria-hidden="true" /> Add activity
             </button>
+
+            <h3 className="sheet-h">Equipment</h3>
+            <div className="hint">
+              What you have to train with. The Train tab only offers WODs this gear can do, swapping in what you have
+              (bike calories for a jump rope, dumbbells for a barbell), and a new training schema is written for it.
+            </div>
+            <div className="gear-picker" role="group" aria-label="Equipment">
+              {GEAR.map((g) => (
+                <label key={g} className="check">
+                  <input
+                    type="checkbox"
+                    checked={chosenGear.includes(g)}
+                    onChange={(e) => setGear(e.target.checked ? GEAR.filter((x) => x === g || chosenGear.includes(x)) : chosenGear.filter((x) => x !== g))}
+                  />
+                  {GEAR_NAMES[g]}
+                </label>
+              ))}
+            </div>
+            <div className="field">
+              <label htmlFor="gear-dumbbells">Dumbbell weights (lb each)</label>
+              <input id="gear-dumbbells" type="text" inputMode="decimal" placeholder="15, 20, 25" value={shownDumbbells} onChange={(e) => setDumbbellText(e.target.value)} />
+              {!dumbbells && <div className="hint bad">List weights separated by commas, e.g. 15, 20, 25.</div>}
+            </div>
+            <div className="field">
+              <label htmlFor="gear-kettlebells">Kettlebell weights (lb each)</label>
+              <input id="gear-kettlebells" type="text" inputMode="decimal" placeholder="None" value={shownKettlebells} onChange={(e) => setKettlebellText(e.target.value)} />
+              {!kettlebells && <div className="hint bad">List weights separated by commas, e.g. 25, 35.</div>}
+            </div>
 
             <h3 className="sheet-h">Charts</h3>
             <div className="hint">Which daily charts the Week and Month views draw.</div>
@@ -452,6 +509,17 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
                 Reads a photographed nutrition label into the Manual tab. Only models that can see images are listed
                 (Gemma 3, Qwen3-VL); a small one reads a label in seconds.
                 {!modelsError && models.length > 0 && visionModels.length === 0 ? ' LM Studio has none downloaded yet.' : ''}
+              </div>
+            </div>
+            <div className="field">
+              <label htmlFor="training-model">Training model</label>
+              <select id="training-model" value={chosenTrainingModel} onChange={(e) => setTrainingModel(e.target.value)}>
+                <option value="">Same as the lookup model</option>
+                {chosenTrainingModel && !models.some((m) => m.key === chosenTrainingModel) && <option value={chosenTrainingModel}>{chosenTrainingModel}</option>}
+                {models.map((m) => <option key={m.key} value={m.key}>{m.key}{m.loaded ? ' (loaded)' : ''}</option>)}
+              </select>
+              <div className="hint">
+                Writes the next training schema from how the last one went (Train tab). A large model plans better; it can take several minutes.
               </div>
             </div>
             <div className="field">

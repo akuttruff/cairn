@@ -23,6 +23,8 @@ import {
   cleanAmount, cleanBodySample, cleanDayType, cleanGoalNumber, cleanGrams, cleanMinutes, cleanName, cleanNote, cleanNutrients,
   cleanPerServing, cleanPlan, cleanSource, cleanSources, cleanWorkoutKinds, MAX_NAME, ValidationError,
 } from './store/clean.ts'
+import { cleanEquipment } from '../src/lib/training/schema.ts'
+import { TrainingStore } from './store/training.ts'
 import {
   countByKind, entryColumnParams, entryFromRow, foodColumnParams, foodFromRow, GOALS_COLUMNS, GOALS_PLACEHOLDERS,
   goalsFromRow, goalsParams, groupBy, meditationFromRow, dogWalkFromRow, parsePlan, planTotal, presetItemColumnParams, presetItemFromRow,
@@ -51,6 +53,8 @@ export class Store {
   private paths: ReturnType<typeof locate>
   private db: DatabaseSync
   private stmts: Stmts
+  /** Training schemas, PRs and logged sets (store/training.ts). */
+  readonly training: TrainingStore
   /** The local date of the last snapshot this process made or found. */
   private backedUpOn = ''
 
@@ -71,6 +75,11 @@ export class Store {
     try { fs.chmodSync(this.paths.sqlite, 0o600) } catch { /* not ours to change */ }
 
     this.stmts = prepareStatements(this.db)
+    this.training = new TrainingStore(this.db, {
+      getSettings: () => this.getSettings(),
+      addWorkout: (input) => this.addWorkout(input),
+      deleteWorkout: (id) => this.deleteWorkout(id),
+    })
 
     if (!this.stmts.selectGoals.get()) {
       this.db.prepare(`INSERT INTO goals (id,${GOALS_COLUMNS}) VALUES (1,${GOALS_PLACEHOLDERS})`)
@@ -384,6 +393,7 @@ export class Store {
       weekTotal: weekRows.length, weekGoal: planTotal(plan), lastLogId: sessions[0]?.id ?? null,
       // The whole week's sessions, latest day first, so any of them can be seen and removed from any day.
       weekSessions: weekRows.map(workoutFromRow).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt),
+      planned: this.training.plannedTitles(date),
     }
   }
 
@@ -966,6 +976,8 @@ export class Store {
       appIcon: s.appIcon,
       charts: s.charts,
       workoutKinds: s.workoutKinds,
+      trainingModel: s.trainingModel,
+      equipment: s.equipment,
     }
   }
 
@@ -977,6 +989,8 @@ export class Store {
     if (typeof input.notesModel === 'string') next.notesModel = input.notesModel.trim().slice(0, 200)
     if (typeof input.labelModel === 'string') next.labelModel = input.labelModel.trim().slice(0, 200)
     if (typeof input.preferredModel === 'string') next.preferredModel = input.preferredModel.trim().slice(0, 200)
+    if (typeof input.trainingModel === 'string') next.trainingModel = input.trainingModel.trim().slice(0, 200)
+    if (input.equipment !== undefined) next.equipment = cleanEquipment(input.equipment)
     if (typeof input.autoLookup === 'boolean') next.autoLookup = input.autoLookup
     if (input.appIcon !== undefined) {
       if (!(APP_ICONS as readonly string[]).includes(input.appIcon)) throw new ValidationError(`appIcon must be one of ${APP_ICONS.join(', ')}`)
@@ -1005,7 +1019,7 @@ export class Store {
       if (nextUrl !== next.lmStudioUrl && typeof input.lmStudioToken !== 'string') next.lmStudioToken = ''
       next.lmStudioUrl = nextUrl
     }
-    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon, JSON.stringify(next.charts), JSON.stringify(next.workoutKinds), next.notesModel, next.labelModel, next.preferredModel)
+    this.stmts.updateSettings.run(next.usdaApiKey, next.lmStudioUrl, next.lmStudioToken, next.researchModel, next.autoLookup ? 1 : 0, next.appIcon, JSON.stringify(next.charts), JSON.stringify(next.workoutKinds), next.notesModel, next.labelModel, next.preferredModel, JSON.stringify(next.equipment), next.trainingModel)
     return this.getPublicSettings()
   }
 }

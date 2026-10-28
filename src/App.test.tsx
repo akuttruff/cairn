@@ -7,7 +7,7 @@ import App from './App.tsx'
 import { chime } from './lib/chime.ts'
 import { addDays, localDate, startOfWeek } from './lib/nutrition.ts'
 import { DEFAULT_WORKOUT_KINDS } from './types.ts'
-import type { DayView, Entry, Food, Goals, RangeView } from './types.ts'
+import type { DayView, Entry, Food, Goals, RangeView, TrainingDay } from './types.ts'
 
 vi.mock('./lib/chime.ts', () => ({ chime: vi.fn(), listenForChimeUnlock: vi.fn() }))
 // jsdom has no canvas: the shrink is faked, and the test checks what is sent and filled in.
@@ -25,7 +25,7 @@ const NO_KINDS = { wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 0, pilate
 /** A day's workouts: nothing today, nothing yet this week, on the default plan. */
 const WORKOUTS_DAY = {
   sessions: [], minutes: 0, weekStart: startOfWeek(TODAY), kinds: DEFAULT_WORKOUT_KINDS, plan: PLAN, planIsCustom: false, weekByKind: NO_KINDS,
-  weekTotal: 0, weekGoal: 9, lastLogId: null, weekSessions: [],
+  weekTotal: 0, weekGoal: 9, lastLogId: null, planned: [], weekSessions: [],
 }
 /** What Settings edits and /api/goals returns -- separate shape from GOALS above (a resolved, per-day view). */
 const STORED_GOALS: Goals = {
@@ -941,7 +941,7 @@ describe('App', () => {
         workouts: {
           ...WORKOUTS_DAY, sessions: [{ id: 'w1', date: TODAY, kind: 'run', minutes: 30, createdAt: 1 }], minutes: 30,
           weekByKind: { ...NO_KINDS, run: 1, weightlifting: 1 }, weekTotal: 2, lastLogId: 'w1',
-          weekSessions: [
+          planned: [], weekSessions: [
             { id: 'w1', date: TODAY, kind: 'run', minutes: 30, createdAt: 3 },
             { id: 'w0', date: twoAgo, kind: 'weightlifting', minutes: null, createdAt: 1 },
           ],
@@ -1007,7 +1007,7 @@ describe('App', () => {
       [`GET /api/day/${TODAY}`]: day([], {
         workouts: {
           ...WORKOUTS_DAY, sessions: [{ id: 'w1', date: TODAY, kind: 'yoga', minutes: null, createdAt: 1 }], weekByKind: { ...NO_KINDS, yoga: 1 }, weekTotal: 1, lastLogId: 'w1',
-          weekSessions: [{ id: 'w1', date: TODAY, kind: 'yoga', minutes: null, createdAt: 1 }],
+          planned: [], weekSessions: [{ id: 'w1', date: TODAY, kind: 'yoga', minutes: null, createdAt: 1 }],
         },
       }),
       'POST /api/workouts': { id: 'w2', date: TODAY, kind: 'cycling', minutes: null, createdAt: 2 },
@@ -1078,6 +1078,32 @@ describe('App', () => {
     expect(within(card).getByRole('button', { name: /\+ 1\.5-mile walk/ })).toBeInTheDocument()
     expect(within(card).getByText('No walks yet today')).toBeInTheDocument()
     expect(within(card).queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the equipment on hand in Settings, for the WOD bank', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/targets': STORED_GOALS,
+      'PUT /api/targets': STORED_GOALS,
+      'GET /api/settings': { hasUsdaKey: false, workoutKinds: DEFAULT_WORKOUT_KINDS, equipment: { gear: ['dumbbells', 'bike'], dumbbells: [15, 20], kettlebells: [] } },
+      'PUT /api/settings': {},
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    const gear = await screen.findByRole('group', { name: 'Equipment' })
+    await waitFor(() => expect(within(gear).getByLabelText('Dumbbells')).toBeChecked())
+    await user.click(within(gear).getByLabelText('Jump rope'))
+    const bells = screen.getByLabelText('Dumbbell weights (lb each)')
+    expect(bells).toHaveValue('15, 20')
+    await user.type(bells, ', x')
+    expect(screen.getByText('List weights separated by commas, e.g. 15, 20, 25.')).toBeInTheDocument()
+    await user.clear(bells)
+    await user.type(bells, '15, 20, 25')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/settings')?.body).toMatchObject({
+      equipment: { gear: ['dumbbells', 'jump-rope', 'bike'], dumbbells: [15, 20, 25], kettlebells: [] },
+    }))
   })
 
   it('edits the dog walks per day and their length in Settings', async () => {
@@ -1194,7 +1220,7 @@ describe('App', () => {
         workouts: {
           ...WORKOUTS_DAY, kinds, plan: { ...PLAN }, weekByKind: { wod: 0, weightlifting: 0, cycling: 0, yoga: 0, pilates: 0 },
           sessions: [{ id: 'w1', date: TODAY, kind: 'run', minutes: null, createdAt: 1 }],
-          weekSessions: [{ id: 'w1', date: TODAY, kind: 'run', minutes: null, createdAt: 1 }], weekTotal: 1,
+          planned: [], weekSessions: [{ id: 'w1', date: TODAY, kind: 'run', minutes: null, createdAt: 1 }], weekTotal: 1,
         },
       }),
     })
@@ -2185,6 +2211,120 @@ describe('App', () => {
       await user.click(await screen.findByRole('tab', { name: 'Month' }))
       await waitFor(() => expect(calls.some((c) => c.url.startsWith('/api/range'))).toBe(true))
       expect(screen.getByRole('button', { name: 'Previous month' })).toBeInTheDocument()
+    })
+  })
+
+  describe('train', () => {
+    const wodView = (id: string, name: string) => ({ id, name, minutes: 12, heading: '5 rounds for time', lines: ['10 push-ups', '12 cal bike'], swaps: [], focus: ['upper' as const, 'bike' as const] })
+    const training = (over: Partial<TrainingDay> = {}): TrainingDay => ({
+      date: TODAY,
+      schema: { id: 's1', name: 'Sample block', status: 'active', startDate: '2026-11-02', endDate: '2026-11-29', weeks: 4, firstWeek: 1, basedOn: null, createdAt: 1 },
+      draft: null, week: 2, deload: false, test: false, repeat: false,
+      sessions: [
+        {
+          id: 'legs', title: 'Legs', kind: 'weightlifting', done: false, items: [
+            {
+              id: 'back-squat', name: 'Back squat', lift: 'squat', type: 'sets', done: false, notes: 'Pins just below the bottom.',
+              sets: [0, 1].map((index) => ({ index, reps: 5, seconds: null, weight: 75, log: null })),
+            },
+            { id: 'mobility', name: 'Hip mobility', type: 'check', done: false },
+          ],
+        },
+        { id: 'wod-wed', title: 'WOD', kind: 'wod', done: false, items: [{ id: 'wod-slot', name: 'Short WOD', type: 'wod', done: false, wod: { slot: { maxMinutes: 15 }, chosen: null, picks: [wodView('core-spin', 'Core Spin'), wodView('renegade', 'Renegade')] } }] },
+      ],
+      strip: Array.from({ length: 7 }, (_, i) => ({ date: addDays(TODAY, i - 2), sessions: i === 2 ? [{ id: 'legs', title: 'Legs', kind: 'weightlifting', done: false, started: false }] : [] })),
+      lifts: [{ id: 'squat', name: 'Back squat', increment: 5, pr: 100, prDate: '2026-10-01' }],
+      ...over,
+    })
+    const openTrain = async (routes: Record<string, unknown>) => {
+      const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/training/generate': { status: 'idle', startedAt: null, draftId: null, error: null }, ...routes })
+      const user = userEvent.setup()
+      render(<App />)
+      await user.click(await screen.findByRole('tab', { name: 'Train' }))
+      return { calls, user }
+    }
+
+    it("shows the day's sessions set by set, and ticks a set with the planned numbers", async () => {
+      const { calls, user } = await openTrain({ 'GET /api/training': training(), 'PUT /api/training/sets': { day: training(), newPr: null } })
+      const legs = await screen.findByRole('region', { name: 'Legs' })
+      expect(screen.getByText('Week 2 of 4')).toBeInTheDocument()
+      await user.click(within(legs).getByRole('button', { name: 'Set 1: 5 × 75 lb' }))
+      await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url === '/api/training/sets')).toBe(true))
+      expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/training/sets')!.body).toEqual({ date: TODAY, itemId: 'back-squat', setIndex: 0, reps: 5, weight: 75, seconds: null, done: true })
+    })
+
+    it('takes what was actually lifted, and offers a beaten PR', async () => {
+      const { calls, user } = await openTrain({ 'GET /api/training': training(), 'PUT /api/training/sets': { day: training(), newPr: { lift: 'squat', name: 'Back squat', weight: 105 } } })
+      const legs = await screen.findByRole('region', { name: 'Legs' })
+      await user.click(within(legs).getByRole('button', { name: 'Change what you did in set 2' }))
+      const weight = within(legs).getByLabelText('Weight (lb)')
+      await user.clear(weight)
+      await user.type(weight, '105')
+      await user.clear(within(legs).getByLabelText('Reps'))
+      await user.type(within(legs).getByLabelText('Reps'), '1')
+      await user.click(within(legs).getByRole('button', { name: 'Save' }))
+      await waitFor(() => expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/training/sets')?.body).toEqual({ date: TODAY, itemId: 'back-squat', setIndex: 1, reps: 1, weight: 105, seconds: null, done: true }))
+      expect(await screen.findByText('105 lb beats your Back squat PR')).toBeInTheDocument()
+    })
+
+    it('picks a WOD from the ones that fit', async () => {
+      const { calls, user } = await openTrain({ 'GET /api/training': training(), 'PUT /api/training/wod': training() })
+      const wod = await screen.findByRole('region', { name: 'WOD' })
+      expect(within(wod).getByText('Core Spin')).toBeInTheDocument()
+      await user.click(within(wod).getByRole('button', { name: 'Do Renegade' }))
+      await waitFor(() => expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/training/wod')?.body).toEqual({ date: TODAY, itemId: 'wod-slot', wodId: 'renegade' }))
+    })
+
+    it('sets a new PR and says what it did to today\'s weights', async () => {
+      const after = training()
+      after.sessions[0]!.items[0]!.sets = after.sessions[0]!.items[0]!.sets!.map((x) => ({ ...x, weight: 80 }))
+      let fetched = 0
+      const { calls, user } = await openTrain({
+        'GET /api/training': () => (fetched++ === 0 ? training() : after),
+        'PUT /api/training/lifts': { id: 'squat', name: 'Back squat', increment: 5, pr: 110, prDate: TODAY },
+      })
+      const prs = await screen.findByRole('region', { name: 'PRs' })
+      await user.click(within(prs).getByRole('button', { name: 'Change Back squat PR' }))
+      const input = within(prs).getByLabelText('Back squat PR (lb)')
+      await user.clear(input)
+      await user.type(input, '110')
+      await user.click(within(prs).getByRole('button', { name: 'Save' }))
+      await waitFor(() => expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/training/lifts/squat')?.body).toEqual({ pr: 110, date: TODAY }))
+      expect(await screen.findByText("Back squat PR 110 lb: today's back squat 75 → 80 lb")).toBeInTheDocument()
+    })
+
+    it('follows a reviewed draft', async () => {
+      const draft = { id: 'd1', name: 'Block 2', status: 'draft' as const, startDate: '2026-11-30', endDate: '2026-12-27', weeks: 4, firstWeek: 1 as const, basedOn: 's1', createdAt: 2 }
+      const overview = (name: string, top: number) => ({
+        summary: draft, schema: { name, goals: 'Squat up: every week was done.', days: [{ weekday: 1, sessions: [{ title: 'Legs' }] }] },
+        lifts: [{ itemId: 'back-squat', name: 'Back squat', lift: 'squat', weeks: [{ week: 1, text: '5×5 @ 70', top: 70 }, { week: 2, text: '5×5 @ 75', top }] }],
+      })
+      const { calls, user } = await openTrain({
+        'GET /api/training/schemas/d1': overview('Block 2', 85),
+        'GET /api/training/schemas/s1': overview('Sample block', 75),
+        'GET /api/training': training({ draft }),
+        'POST /api/training/schemas/d1/activate': draft,
+      })
+      const card = await screen.findByRole('region', { name: 'Training schema' })
+      await user.click(within(card).getByRole('button', { name: 'Review it' }))
+      expect(await within(card).findByText('70 → 85 lb')).toBeInTheDocument()
+      expect(within(card).getByText('70 → 75 lb')).toBeInTheDocument()
+      await user.click(within(card).getByRole('button', { name: 'Follow it' }))
+      await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/training/schemas/d1/activate')).toBe(true))
+    })
+
+    it("links from the Day view's workouts to the plan", async () => {
+      const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([], { workouts: { ...WORKOUTS_DAY, planned: ['Legs', 'Yoga'] } }), 'GET /api/training': training() })
+      const user = userEvent.setup()
+      render(<App />)
+      await user.click(await screen.findByRole('button', { name: 'On the plan: Legs + Yoga →' }))
+      expect(await screen.findByRole('region', { name: 'Legs' })).toBeInTheDocument()
+      expect(calls.some((c) => c.url === `/api/training?date=${TODAY}`)).toBe(true)
+    })
+
+    it('explains how to start when there is no schema', async () => {
+      await openTrain({ 'GET /api/training': training({ schema: null, week: null, sessions: [], strip: [], lifts: [] }) })
+      expect(await screen.findByText(/No training schema yet/)).toBeInTheDocument()
     })
   })
 })

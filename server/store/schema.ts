@@ -116,6 +116,27 @@ CREATE TABLE IF NOT EXISTS dog_walk_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_dog_walk_logs_date ON dog_walk_logs(date);
 
+-- Training schemas (docs/training-schema.md): the plan as JSON, and which one is being followed.
+CREATE TABLE IF NOT EXISTS training_schemas (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, body TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('draft','active','done')), based_on TEXT,
+  repeats TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, activated_at INTEGER
+);
+-- PRs, which every schema's percentages are taken of; kept across schemas, with their history.
+CREATE TABLE IF NOT EXISTS lifts (id TEXT PRIMARY KEY, name TEXT NOT NULL, increment REAL NOT NULL, pr REAL, pr_date TEXT);
+CREATE TABLE IF NOT EXISTS lift_prs (lift_id TEXT NOT NULL, date TEXT NOT NULL, weight REAL NOT NULL, created_at INTEGER NOT NULL);
+-- One row per planned set (or check, minutes or WOD item at set 0) that was done.
+CREATE TABLE IF NOT EXISTS set_logs (
+  id TEXT PRIMARY KEY, date TEXT NOT NULL, schema_id TEXT NOT NULL, item_id TEXT NOT NULL, set_index INTEGER NOT NULL,
+  reps REAL, weight REAL, seconds REAL, created_at INTEGER NOT NULL, UNIQUE (date, item_id, set_index)
+);
+CREATE INDEX IF NOT EXISTS idx_set_logs_schema ON set_logs(schema_id, date);
+-- A session's link to the workout log it filled in, and the WOD picked for it.
+CREATE TABLE IF NOT EXISTS session_logs (
+  date TEXT NOT NULL, schema_id TEXT NOT NULL, session_id TEXT NOT NULL, workout_log_id TEXT, wod_id TEXT,
+  PRIMARY KEY (date, session_id)
+);
+
 -- Readings from the scale (via Apple Health). One per kind and moment, so re-sending the same week is harmless.
 CREATE TABLE IF NOT EXISTS body_measurements (
   metric TEXT NOT NULL, measured_at INTEGER NOT NULL, date TEXT NOT NULL, value REAL NOT NULL, created_at INTEGER NOT NULL,
@@ -278,5 +299,12 @@ function migrateSchema(db: DatabaseSync): void {
       db.exec("ALTER TABLE water_logs ADD COLUMN drink TEXT NOT NULL DEFAULT 'water' CHECK (drink IN ('water','tea'))")
     }
     db.exec('PRAGMA user_version = 17')
+  }
+  if (version < 18) {
+    // Training schemas: their tables come from the schema above; the gear on hand and the model that plans are settings.
+    const cols = db.prepare('PRAGMA table_info(settings)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'equipment')) db.exec('ALTER TABLE settings ADD COLUMN equipment TEXT')
+    if (!cols.some((c) => c.name === 'training_model')) db.exec("ALTER TABLE settings ADD COLUMN training_model TEXT NOT NULL DEFAULT ''")
+    db.exec('PRAGMA user_version = 18')
   }
 }

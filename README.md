@@ -42,6 +42,7 @@ npm run screenshots                # another; needs Google Chrome
 - **Label scanning** turns a picture into a food. Upload a photo or screenshot of a nutrition label, paste one, or drop it anywhere on the page. A local vision model reads it and fills in the Manual tab: name, brand, serving and macros. The food is ticked to save to My foods, so it is there for next time once you have checked it.
 - **My foods** keeps anything you have typed or confirmed, for one-tap logging, and saved meals log several at once.
 - **Water, alcohol, workouts, dog walks and meditation** each have their own tracker.
+- **Training** follows a multi-week plan in the Train tab: each day's sessions set by set, with weights worked out from your PRs, WODs picked from a bank that fits your equipment, and progress charts. Plans are written as [training schemas](docs/training-schema.md), and your local model can write the next one from how the last one actually went, for you to review before it's followed.
 - **Notes** are two or three short paragraphs on a week or a month, written from your own numbers against your goals.
 
 Every lookup and scan produces candidates for you to check. Nothing a model
@@ -57,7 +58,7 @@ your phone or desktop browser
         ▼
 Cairn ── one Node process on one computer ── .data/cairn.sqlite
         │
-        ├──▶ a model server on the same computer   (label scanning, online lookups, notes)
+        ├──▶ a model server on the same computer   (label scanning, online lookups, notes, training schemas)
         └──▶ USDA and Open Food Facts              (food search, over the internet)
 ```
 

@@ -53,6 +53,8 @@ export function migrateFromJson(paths: ReturnType<typeof locate>): void {
     notesModel: '',
     labelModel: '',
     preferredModel: '',
+    trainingModel: '',
+    equipment: { gear: [], dumbbells: [], kettlebells: [] },
     autoLookup: typeof rawSettings.autoLookup === 'boolean' ? rawSettings.autoLookup : true,
     appIcon: 'ring',
     charts: [...DEFAULT_CHARTS],

@@ -818,3 +818,111 @@ button:disabled { opacity: 0.45; cursor: default; }
 .notes-text p { margin: 0 0 10px; font-size: 14.5px; line-height: 1.55; }
 .notes-text p:last-of-type { margin-bottom: 6px; }
 .notes-meta { font-family: var(--mono); font-size: 10.5px; color: var(--paper-dim); }
+
+/* --- Train tab ------------------------------------------------------------- */
+.train-week { display: flex; gap: 6px; align-items: center; font-size: 13px; font-family: var(--mono); color: var(--paper); }
+.badge { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--line); color: var(--paper-dim); }
+.badge.test { border-color: var(--amber); color: var(--amber); }
+.train-strip { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 4px; }
+.strip-day {
+  display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 0;
+  background: none; border: 1px solid transparent; border-radius: 10px; color: var(--paper-dim); cursor: pointer;
+}
+.strip-day.today .strip-n { color: var(--paper); font-weight: 600; }
+.strip-day.selected { border-color: var(--c-workout); color: var(--paper); }
+.strip-wd { font-size: 10px; font-family: var(--mono); }
+.strip-n { font-size: 14px; font-variant-numeric: tabular-nums; }
+.strip-dot { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid var(--c-workout); }
+.strip-dot.started { background: linear-gradient(90deg, var(--c-workout) 50%, transparent 50%); }
+.strip-dot.done { background: var(--c-workout); }
+.strip-dot.rest { border-color: var(--line); }
+.train-repeat { display: inline-flex; align-items: center; gap: 4px; margin-top: 8px; padding-left: 0; }
+.rest-day { color: var(--paper-dim); }
+.plan-link { display: block; margin-top: 8px; padding-left: 0; text-align: left; }
+
+.session-title { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15px; color: var(--paper); }
+.session-count { font-family: var(--mono); font-size: 12px; color: var(--paper-dim); }
+.session-count.done { color: var(--c-workout); }
+.plan-item { padding: 10px 0; border-top: 1px solid var(--line); }
+.plan-item:first-of-type { border-top: none; padding-top: 0; }
+.plan-item-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.plan-item-name { font-size: 14px; color: var(--paper); flex: 1 1 auto; min-width: 0; }
+.plan-item.done .plan-item-name { color: var(--paper-dim); }
+.plan-item-head .link-btn { display: inline-flex; align-items: center; gap: 2px; padding: 0; }
+.plan-item-meta { font-family: var(--mono); font-size: 12px; color: var(--paper-dim); }
+.plan-item-note { font-size: 12px; color: var(--amber); margin-top: 2px; }
+.plan-item-notes { font-size: 13px; line-height: 1.45; color: var(--paper-dim); margin: 6px 0; white-space: pre-line; }
+
+.set-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.set-row { display: flex; align-items: center; gap: 4px; }
+.set-tick {
+  flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 10px; color: var(--paper); font-size: 14px; text-align: left; cursor: pointer;
+}
+.set-row.done .set-tick { border-color: var(--c-workout); }
+.set-box {
+  flex: 0 0 auto; width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--paper-dim);
+  display: inline-flex; align-items: center; justify-content: center; color: var(--bg);
+}
+.set-row.done .set-box { background: var(--c-workout); border-color: var(--c-workout); }
+.set-n { font-family: var(--mono); font-size: 11px; color: var(--paper-dim); width: 12px; }
+.set-plan { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.set-plan em { font-style: normal; color: var(--amber); font-size: 12px; margin-left: 6px; }
+.set-did { margin-left: auto; font-size: 12px; color: var(--amber); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.set-pencil { flex: 0 0 auto; color: var(--paper-dim); }
+.set-edit { flex: 1; display: flex; align-items: center; gap: 6px; padding: 4px 0; }
+.set-edit input { width: 64px; padding: 7px 8px; font-size: 15px; }
+.set-x { font-size: 12px; color: var(--paper-dim); }
+.tick-btn {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 7px 12px; border-radius: 10px;
+  background: none; border: 1px solid var(--c-workout); color: var(--c-workout); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.tick-btn.on { background: var(--c-workout); color: var(--bg); }
+
+.wod { padding: 10px 12px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
+.wod-name { font-weight: 600; font-size: 14px; display: flex; justify-content: space-between; gap: 8px; }
+.wod-heading { font-size: 12px; font-family: var(--mono); color: var(--c-workout); margin: 4px 0; }
+.wod-lines { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.5; }
+.wod-swaps { font-size: 12px; color: var(--amber); margin-top: 6px; }
+.wod-picks { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.wod-pick .link-btn { padding-left: 0; }
+.wod-actions { display: flex; gap: 12px; align-items: center; }
+.wod-shuffle { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; padding-left: 0; }
+.wod-chosen { margin-top: 6px; }
+
+.lift-list { list-style: none; margin: 0; padding: 0; }
+.lift-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+.lift-row:first-child { border-top: none; }
+.lift-name { flex: 1; font-size: 14px; }
+.lift-pr { font-family: var(--mono); font-size: 14px; }
+.lift-date { font-size: 11px; color: var(--paper-dim); }
+.lift-edit { display: flex; align-items: center; gap: 6px; }
+.lift-edit input { width: 72px; padding: 6px 8px; font-size: 15px; }
+
+.card-toggle { width: 100%; background: none; border: none; padding: 0; color: inherit; cursor: pointer; align-items: center; margin-bottom: 0; }
+.progress-row { margin-top: 12px; }
+.progress-head { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; flex-wrap: wrap; }
+.spark { width: 100%; height: 44px; display: block; margin-top: 4px; }
+.spark-line { fill: none; stroke: var(--c-workout); stroke-width: 2; }
+
+.schema-name { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.schema-plan { margin-top: 8px; }
+.schema-goals { font-size: 13px; line-height: 1.45; color: var(--paper-dim); white-space: pre-line; }
+.schema-lift { margin-top: 10px; }
+.schema-lift-name { font-size: 13px; font-weight: 600; }
+.schema-weeks { list-style: none; margin: 4px 0 0; padding: 0; font-family: var(--mono); font-size: 12px; line-height: 1.6; color: var(--paper-dim); }
+.schema-weeks li.current { color: var(--paper); }
+.schema-week { display: inline-block; width: 30px; }
+.draft-review { margin: 8px 0; }
+.draft-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+.draft-table th, .draft-table td { text-align: left; padding: 4px 6px 4px 0; border-bottom: 1px solid var(--line); }
+.draft-table th { font-size: 11px; font-family: var(--mono); color: var(--paper-dim); font-weight: 400; }
+.generate-note { width: 100%; min-height: 60px; margin: 8px 0; padding: 10px; font: inherit; font-size: 14px; border-radius: 10px; box-sizing: border-box; }
+.generate-btn { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid var(--moss); background: var(--moss); color: var(--bg); font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; }
+.generate-btn:disabled { opacity: 0.7; cursor: default; }
+.gear-picker { display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; margin-bottom: 8px; }
+.gear-picker .check { margin: 4px 0; }
+.set-edit input, .lift-edit input, .generate-note {
+  background: var(--bg); border: 1px solid var(--line); color: var(--paper); border-radius: 8px;
+}
+.set-edit input:focus, .lift-edit input:focus, .generate-note:focus { outline: none; border-color: var(--moss-dim); }

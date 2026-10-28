@@ -1,11 +1,12 @@
 import { ChevronLeft, ChevronRight, Settings } from 'lucide-react'
 
-export type ViewMode = 'day' | 'week' | 'month'
+export type ViewMode = 'day' | 'week' | 'month' | 'train'
 
 const MODES: { value: ViewMode; label: string }[] = [
   { value: 'day', label: 'Day' },
   { value: 'week', label: 'Week' },
   { value: 'month', label: 'Month' },
+  { value: 'train', label: 'Train' },
 ]
 
 interface HeaderProps {
@@ -31,7 +32,7 @@ export default function Header({ mode, onModeChange, label, isCurrent, onPrev, o
     <>
       <header className="app-header">
         <div className="date-nav">
-          <button type="button" className="icon-btn" aria-label={`Previous ${mode}`} onClick={onPrev}>
+          <button type="button" className="icon-btn" aria-label={`Previous ${mode === 'train' ? 'day' : mode}`} onClick={onPrev}>
             <ChevronLeft size={20} aria-hidden="true" />
           </button>
           <button
@@ -42,12 +43,12 @@ export default function Header({ mode, onModeChange, label, isCurrent, onPrev, o
           >
             {label}
           </button>
-          <button type="button" className="icon-btn" aria-label={`Next ${mode}`} onClick={onNext}>
+          <button type="button" className="icon-btn" aria-label={`Next ${mode === 'train' ? 'day' : mode}`} onClick={onNext}>
             <ChevronRight size={20} aria-hidden="true" />
           </button>
           {/* Only once you've moved off the current day/week/month: there's nowhere to jump otherwise. */}
           {!isCurrent && (
-            <button type="button" className="today-btn" onClick={onJumpToCurrent} aria-label={`Jump to the current ${mode}`}>
+            <button type="button" className="today-btn" onClick={onJumpToCurrent} aria-label={`Jump to the current ${mode === 'train' ? 'day' : mode}`}>
               Today
             </button>
           )}

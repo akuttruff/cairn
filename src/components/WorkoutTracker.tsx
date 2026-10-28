@@ -11,6 +11,8 @@ interface WorkoutTrackerProps {
   date: string
   workouts: DayView['workouts']
   onLogged: () => void
+  /** Open the Train tab, when the training schema has something on this day. */
+  onOpenPlan?: () => void
 }
 
 /**
@@ -20,7 +22,7 @@ interface WorkoutTrackerProps {
  * day being viewed. The pencil adjusts this week's plan only; the default
  * stays in Settings for every other week.
  */
-export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrackerProps) {
+export default function WorkoutTracker({ date, workouts, onLogged, onOpenPlan }: WorkoutTrackerProps) {
   const { kinds, plan, weekByKind, weekTotal, weekGoal, planIsCustom, weekStart, weekSessions } = workouts
   // The activities from Settings, plus any a session this week was logged under that has since been
   // removed there: still shown (dimmed, nothing to log), so a logged session never vanishes.
@@ -96,6 +98,11 @@ export default function WorkoutTracker({ date, workouts, onLogged }: WorkoutTrac
       >
         <div className="bar-fill" style={{ width: `${pct}%` }} />
       </div>
+      {onOpenPlan && workouts.planned.length > 0 && (
+        <button type="button" className="link-btn accent plan-link" onClick={onOpenPlan}>
+          On the plan: {workouts.planned.join(' + ')} →
+        </button>
+      )}
 
       {!draft && (
         <ul className="wk-list" aria-label="This week by activity">

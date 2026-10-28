@@ -316,6 +316,8 @@ export interface DayView extends DayTotals {
     weekTotal: number
     weekGoal: number
     lastLogId: string | null
+    /** Sessions the active training schema has on this day, by title (see the Train tab). */
+    planned: string[]
   }
   meditation: {
     sessions: MeditationLog[]
@@ -503,6 +505,9 @@ export interface Settings {
   charts: ChartKey[]
   /** The workout activities, in the order the cards show them. */
   workoutKinds: WorkoutKindDef[]
+  /** Model that writes the next training schema; blank uses the research model's choice. */
+  trainingModel: string
+  equipment: Equipment
 }
 
 /** An LLM LM Studio has downloaded, whether it's loaded right now, and whether it can see images. */
@@ -527,6 +532,8 @@ export interface PublicSettings {
   charts: ChartKey[]
   /** The workout activities, in the order the cards show them. */
   workoutKinds: WorkoutKindDef[]
+  trainingModel: string
+  equipment: Equipment
 }
 
 /**
@@ -556,4 +563,236 @@ export interface RangeNotes {
   /** When they were written, ms since the epoch. */
   at: number
   stale: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Training schemas (see docs/training-schema.md)
+// ---------------------------------------------------------------------------
+
+/** Gear a home gym can have; the WOD bank only offers what this list allows. */
+export const GEAR = [
+  'barbell', 'plates', 'bumpers', 'rack', 'dumbbells', 'kettlebells', 'pullup-bar', 'rings', 'bands',
+  'ab-mat', 'jump-rope', 'bike', 'rower', 'box',
+] as const
+export type Gear = (typeof GEAR)[number]
+
+/** What's on hand to train with. Dumbbell and kettlebell weights are per bell, in lb. */
+export interface Equipment {
+  gear: Gear[]
+  dumbbells: number[]
+  kettlebells: number[]
+}
+
+/** One planned set. `pct` is of the item's lift PR; `test` expands to a ladder of singles (see resolve.ts). */
+export interface SetTarget {
+  reps?: number | 'max'
+  seconds?: number
+  pct?: number
+  weight?: number
+  /** 'ladder' works up to a PR attempt; 'single' stops at a sure single, for lifts that can't be bailed on iron plates. */
+  test?: 'ladder' | 'single'
+}
+
+export interface Prescription {
+  sets: SetTarget[]
+  note?: string
+}
+
+/** A compact week-by-week rule: what the model writes instead of spelling out every week. */
+export interface Progression {
+  phases: { weeks: [number, number]; sets: number; reps: number; startPct: number; stepPct: number }[]
+  deload?: { sets: number; reps: number; pct: number }
+  test?: 'ladder' | 'single'
+}
+
+/** "A WOD from the bank goes here": what fits, not which one. */
+export interface WodSlot {
+  maxMinutes: number
+  minMinutes?: number
+  /** Allowed focuses; a WOD with any part outside them (core aside) doesn't fit. Omitted allows anything. */
+  focus?: WodFocus[]
+  /** Swap jumping and running for the bike (the ankle rule). */
+  lowImpact?: boolean
+}
+
+export interface TrainingItem {
+  id: string
+  name: string
+  lift?: string
+  notes?: string
+  /** Only in these weeks (inclusive); the item is absent the rest of the time. */
+  onlyWeeks?: [number, number]
+  // Exactly one of the following says what the item is.
+  weeks?: Record<string, Prescription>
+  progression?: Progression
+  wod?: WodSlot
+  check?: true
+  minutes?: Record<string, number>
+}
+
+export interface TrainingSession {
+  id: string
+  title: string
+  /** A workout activity from Settings; logging the session fills that activity's dot. */
+  kind: string
+  items: TrainingItem[]
+}
+
+export interface TrainingSchema {
+  schemaVersion: 1
+  name: string
+  /** The Monday the first week starts. */
+  startDate: string
+  /** 0 when the schema opens with an intro week, else 1. */
+  firstWeek: 0 | 1
+  /** The last week's number. */
+  weeks: number
+  deloadWeeks: number[]
+  testWeek?: number
+  /** The schema this one was generated from. */
+  basedOn?: string
+  /** Free text: the targets, and for a generated schema, why it changed what it did. */
+  goals?: string
+  lifts: { id: string; name: string; increment: number }[]
+  days: { weekday: number; sessions: TrainingSession[] }[]
+  /** WODs written for this schema, in addition to the bank. */
+  wods?: Wod[]
+}
+
+export type SchemaStatus = 'draft' | 'active' | 'done'
+
+export interface SchemaSummary {
+  id: string
+  name: string
+  status: SchemaStatus
+  startDate: string
+  endDate: string
+  weeks: number
+  firstWeek: 0 | 1
+  basedOn: string | null
+  createdAt: number
+}
+
+export interface Lift {
+  id: string
+  name: string
+  increment: number
+  pr: number | null
+  prDate: string | null
+}
+
+export interface SetLog {
+  id: string
+  reps: number | null
+  weight: number | null
+  seconds: number | null
+  done: boolean
+}
+
+/** A set as the plan has it today, with today's PR applied, and what was logged against it. */
+export interface ResolvedSet {
+  index: number
+  reps: number | 'max' | null
+  seconds: number | null
+  weight: number | null
+  /** The last set of a test ladder: the PR attempt. */
+  attempt?: boolean
+  log: SetLog | null
+}
+
+export interface ResolvedItem {
+  id: string
+  name: string
+  lift?: string
+  notes?: string
+  type: 'sets' | 'check' | 'minutes' | 'wod'
+  note?: string
+  sets?: ResolvedSet[]
+  minutes?: number
+  done: boolean
+  wod?: { slot: WodSlot; chosen: string | null; picks: WodView[] }
+}
+
+export interface ResolvedSession {
+  id: string
+  title: string
+  kind: string
+  items: ResolvedItem[]
+  done: boolean
+}
+
+export interface TrainingDay {
+  date: string
+  schema: SchemaSummary | null
+  /** The draft generated from the active schema, waiting to be reviewed. */
+  draft: SchemaSummary | null
+  week: number | null
+  deload: boolean
+  test: boolean
+  /** This calendar week repeats an earlier week of the schema. */
+  repeat: boolean
+  sessions: ResolvedSession[]
+  /** The calendar week, Monday to Sunday, around `date`. */
+  strip: { date: string; sessions: { id: string; title: string; kind: string; done: boolean; started: boolean }[] }[]
+  lifts: Lift[]
+}
+
+/** A whole schema laid out week by week, for the overview and the draft review. */
+export interface SchemaOverview {
+  summary: SchemaSummary
+  schema: TrainingSchema
+  /** For each item with a lift, the top set of each week at today's PRs: "5×5 @ 95". */
+  lifts: { itemId: string; name: string; lift: string; weeks: { week: number; text: string; top: number | null }[] }[]
+}
+
+export interface ProgressSeries {
+  lifts: { id: string; name: string; pr: number | null; points: { date: string; weight: number; reps: number; e1rm: number }[]; prs: { date: string; weight: number }[] }[]
+  baselines: { itemId: string; name: string; unit: 'reps' | 's'; points: { date: string; value: number }[] }[]
+}
+
+export interface GenerateStatus {
+  status: 'idle' | 'running' | 'done' | 'error'
+  startedAt: number | null
+  draftId: string | null
+  error: string | null
+}
+
+// --- the WOD bank ------------------------------------------------------------
+
+export const WOD_FOCUSES = ['upper', 'legs', 'full', 'bike', 'core'] as const
+export type WodFocus = (typeof WOD_FOCUSES)[number]
+
+export interface WodPart {
+  /** A movement id from lib/training/movements.ts. */
+  move: string
+  /** Reps, calories, metres or seconds, as the movement counts; omitted in a ladder, which takes the scheme's. */
+  amount?: number
+  /** lb: the barbell's total, or each dumbbell or kettlebell. */
+  weight?: number
+}
+
+export interface Wod {
+  id: string
+  name: string
+  format: 'rft' | 'amrap' | 'emom' | 'chipper' | 'ladder' | 'intervals'
+  /** About how long it takes. */
+  minutes: number
+  rounds?: number
+  /** A ladder's reps per round, e.g. 21-15-9. */
+  scheme?: number[]
+  /** Spelled out for the formats a name can't carry (intervals). */
+  text?: string
+  parts: WodPart[]
+  notes?: string
+}
+
+/** A WOD as it will be done with the gear at hand: substitutions made, weights matched to what's there. */
+export interface WodView {
+  id: string
+  name: string
+  minutes: number
+  heading: string
+  lines: string[]
+  swaps: string[]
+  focus: WodFocus[]
 }

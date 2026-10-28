@@ -12,6 +12,7 @@ import DogWalkTracker from './components/DogWalkTracker.tsx'
 import BodyCard from './components/BodyCard.tsx'
 import MealList from './components/MealList.tsx'
 import RangeSummary from './components/RangeSummary.tsx'
+import TrainView from './components/train/TrainView.tsx'
 import AddSheet from './components/AddSheet.tsx'
 import EntrySheet from './components/EntrySheet.tsx'
 import SettingsSheet from './components/SettingsSheet.tsx'
@@ -61,7 +62,8 @@ export default function App() {
   }
 
   const today = localDate()
-  const header = mode === 'day'
+  // Train walks the days like Day view does, on the same date.
+  const header = mode === 'day' || mode === 'train'
     ? {
       label: dayLabel(day.date, today),
       isCurrent: day.date === today,
@@ -97,7 +99,7 @@ export default function App() {
                 <Totals totals={view.totals} missing={view.missing} goals={view.goals} dayType={view.dayType} onSetDayType={setDayType} alcoholCalories={alcoholCaloriesLogged(view.entries)} />
                 <WaterTracker date={day.date} water={view.water} onLogged={refresh} />
                 <AlcoholTracker date={day.date} alcohol={view.alcohol} onLogged={refresh} />
-                <WorkoutTracker date={day.date} workouts={view.workouts} onLogged={refresh} />
+                <WorkoutTracker date={day.date} workouts={view.workouts} onLogged={refresh} onOpenPlan={() => setMode('train')} />
                 <MeditationTracker date={day.date} meditation={view.meditation} onLogged={refresh} />
                 <DogWalkTracker date={day.date} dog={view.dog} onLogged={refresh} />
                 <BodyCard date={day.date} body={view.body} />
@@ -129,6 +131,8 @@ export default function App() {
               </>
             )}
           </>
+        ) : mode === 'train' ? (
+          <TrainView date={day.date} active={mode === 'train'} onSelectDate={day.setDate} onLogged={refresh} />
         ) : (
           <>
             {range!.error && !range!.view && (

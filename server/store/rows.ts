@@ -1,11 +1,12 @@
 import type { SQLInputValue } from 'node:sqlite'
 import { ALCOHOL_KINDS, APP_ICONS, CHARTABLE, DEFAULT_CHARTS, DEFAULT_WORKOUT_KINDS } from '../../src/types.ts'
 import type {
-  AlcoholKind, AppIcon, ChartKey, DogWalkLog, Entry, Food, FoodSource, Goals, Meal, MealPresetItem, MeditationLog,
+  AlcoholKind, AppIcon, ChartKey, DogWalkLog, Entry, Equipment, Food, FoodSource, Goals, Meal, MealPresetItem, MeditationLog,
   Nutrients, Serving, Settings, SourceLink, WorkoutKind, WorkoutKindDef, WorkoutLog, WorkoutPlan,
 } from '../../src/types.ts'
 import { DEFAULT_GOALS } from '../../src/lib/nutrition.ts'
 import { cleanWorkoutKinds } from './clean.ts'
+import { cleanEquipment, NO_EQUIPMENT } from '../../src/lib/training/schema.ts'
 
 // ---------------------------------------------------------------------------
 // Row <-> domain mapping
@@ -241,7 +242,7 @@ export interface BodyRow { metric: string; measured_at: number; date: string; va
 export interface SettingsRow {
   usda_api_key: string; lm_studio_url: string; lm_studio_token: string; research_model: string; auto_lookup: number
   app_icon: string; charts: string | null; workout_kinds: string | null; notes_model: string | null; label_model: string | null
-  preferred_model: string | null
+  preferred_model: string | null; equipment: string | null; training_model: string | null
 }
 export function settingsFromRow(row: SettingsRow): Settings {
   return {
@@ -251,7 +252,14 @@ export function settingsFromRow(row: SettingsRow): Settings {
     appIcon: (APP_ICONS as readonly string[]).includes(row.app_icon) ? row.app_icon as AppIcon : 'ring',
     charts: parseCharts(row.charts),
     workoutKinds: parseWorkoutKinds(row.workout_kinds),
+    trainingModel: row.training_model ?? '',
+    equipment: parseEquipment(row.equipment),
   }
+}
+
+function parseEquipment(raw: string | null): Equipment {
+  if (!raw) return { ...NO_EQUIPMENT }
+  try { return cleanEquipment(JSON.parse(raw)) } catch { return { ...NO_EQUIPMENT } }
 }
 
 /** The stored chart list, in CHARTABLE order; never set, or unreadable, is the default. An empty list is a real choice of none. */

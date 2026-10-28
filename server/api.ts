@@ -8,8 +8,9 @@ import { TtlCache, searchFoods, usdaPortions } from './foods.ts'
 import { ResearchJobs, listLlms } from './research.ts'
 import { fingerprint, writeNotes } from './notes.ts'
 import { LABEL_MAX_BYTES, isImageDataUrl, readLabel } from './label.ts'
+import { generateSchema } from './training-gen.ts'
 import type { SearchResult } from './foods.ts'
-import type { RangeNotes, Serving } from '../src/types.ts'
+import type { GenerateStatus, RangeNotes, Serving } from '../src/types.ts'
 
 type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void
 
@@ -87,6 +88,8 @@ export function createApi(options: ApiOptions = {}) {
   const writing = new Set<string>()
   /** A label is being read: one picture at a time, since each occupies the vision model. */
   let readingLabel = false
+  /** The next training schema being written: minutes on a big model, so the page polls rather than waits. */
+  let generating: GenerateStatus = { status: 'idle', startedAt: null, draftId: null, error: null }
   const searchCache = new TtlCache<SearchResult>(DAY_MS)
   const portionCache = new TtlCache<Serving[]>(7 * DAY_MS)
   const research = new ResearchJobs(() => store.getSettings(), fetchImpl, {
@@ -97,7 +100,7 @@ export function createApi(options: ApiOptions = {}) {
   const health = new HealthCheck({
     app: 'cairn',
     dataFile: path.join(path.resolve(options.dir ?? '.data'), 'macros.sqlite'),
-    busy: () => ({ notes: writing.size, research: research.running }),
+    busy: () => ({ notes: writing.size, research: research.running, training: generating.status === 'running' ? 1 : 0 }),
     deps: { model: () => listLlms(store.getSettings(), fetchImpl) },
   })
 
@@ -315,6 +318,54 @@ export function createApi(options: ApiOptions = {}) {
         readingLabel = false
       }
     }
+
+    // Training schemas: the Train tab's day, imports and drafts, logged sets, PRs.
+    if (p === '/api/training' && method === 'GET') {
+      return json(res, 200, store.training.day(url.searchParams.get('date') ?? '', Number(url.searchParams.get('shuffle')) || 0))
+    }
+    if (p === '/api/training/schemas') {
+      if (method === 'GET') return json(res, 200, { schemas: store.training.list() })
+      if (method === 'POST') {
+        const body = await readBody(req, 2_000_000) as { schema?: unknown; activate?: unknown }
+        return json(res, 201, store.training.save(body.schema, body.activate === false ? 'draft' : 'active'))
+      }
+    }
+    if ((m = /^\/api\/training\/schemas\/([^/]+)\/activate$/.exec(p)) && method === 'POST') {
+      return json(res, 200, store.training.activate(decodeURIComponent(m[1]!)))
+    }
+    if ((m = /^\/api\/training\/schemas\/([^/]+)$/.exec(p))) {
+      const id = decodeURIComponent(m[1]!)
+      if (method === 'GET') return json(res, 200, store.training.overview(id))
+      if (method === 'DELETE') {
+        store.training.remove(id)
+        return json(res, 200, { ok: true })
+      }
+    }
+    if (p === '/api/training/generate') {
+      if (method === 'GET') return json(res, 200, generating)
+      if (method === 'POST') {
+        if (generating.status === 'running') return json(res, 409, { error: 'Already writing the next schema.' })
+        const { note } = await readBody(req) as { note?: unknown }
+        if (!store.training.activeSchema()) throw new ValidationError('there\'s no active training schema to build on')
+        generating = { status: 'running', startedAt: Date.now(), draftId: null, error: null }
+        const startedAt = generating.startedAt
+        // Not tied to this request: it carries on if the phone locks, and the page polls GET for the result.
+        void generateSchema({ training: store.training, settings: store.getSettings(), fetchImpl, note: typeof note === 'string' ? note.trim().slice(0, 500) : undefined })
+          .then(({ draft }) => { generating = { status: 'done', startedAt, draftId: draft.id, error: null } })
+          .catch((err: Error) => { generating = { status: 'error', startedAt, draftId: null, error: err.message } })
+        return json(res, 202, generating)
+      }
+    }
+    if (p === '/api/training/sets' && method === 'PUT') return json(res, 200, store.training.logSet(await readBody(req) as never))
+    if (p === '/api/training/wod' && method === 'PUT') return json(res, 200, store.training.setWod(await readBody(req) as never))
+    if (p === '/api/training/repeat-week' && method === 'POST') {
+      const { date } = await readBody(req) as { date?: unknown }
+      return json(res, 200, store.training.repeatWeek(date))
+    }
+    if ((m = /^\/api\/training\/lifts\/([^/]+)$/.exec(p)) && method === 'PUT') {
+      return json(res, 200, store.training.setPr(decodeURIComponent(m[1]!), await readBody(req) as never))
+    }
+    if (p === '/api/training/progress' && method === 'GET') return json(res, 200, store.training.progress())
 
     if (p === '/api/health' && method === 'GET') return json(res, 200, await health.report())
 

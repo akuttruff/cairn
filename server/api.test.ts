@@ -7,7 +7,8 @@ import path from 'node:path'
 import { PassThrough } from 'node:stream'
 import type { IncomingMessage } from 'node:http'
 import api, { createApi, readBody } from './api.ts'
-import type { DayView, Entry } from '../src/types.ts'
+import type { DayView, Entry, GenerateStatus, SchemaSummary, TrainingDay } from '../src/types.ts'
+import { SAMPLE_EQUIPMENT, SAMPLE_SCHEMA } from '../src/lib/training/sample.ts'
 
 let server: Server
 let base: string
@@ -370,6 +371,52 @@ describe('water', () => {
   it('rejects a nonsense amount', async () => {
     const res = await call('POST', '/api/water', { date: DAY, ounces: -5 })
     expect(res.status).toBe(400)
+  })
+})
+
+describe('training', () => {
+  const MON = '2026-11-02'
+
+  it('imports a schema, lays out a day, logs a set and sets a PR', async () => {
+    await call('PUT', '/api/settings', { equipment: SAMPLE_EQUIPMENT })
+    const imported = await call('POST', '/api/training/schemas', { schema: SAMPLE_SCHEMA })
+    expect(imported.status).toBe(201)
+    const id = (imported.body as unknown as SchemaSummary).id
+    expect((await call('PUT', '/api/training/lifts/squat', { pr: 100 })).body).toMatchObject({ id: 'squat', pr: 100 })
+
+    const day = (await call('GET', `/api/training?date=${MON}`)).body as unknown as TrainingDay
+    expect(day).toMatchObject({ week: 1, schema: { id, name: 'Sample block' } })
+    expect(day.sessions[0]!.items[0]!.sets![0]!.weight).toBe(70)
+
+    const logged = await call('PUT', '/api/training/sets', { date: MON, itemId: 'back-squat', setIndex: 0, reps: 5, weight: 70, done: true })
+    expect(logged.status).toBe(200)
+    expect(((await call('GET', `/api/day/${MON}`)).body as unknown as DayView).workouts.sessions).toHaveLength(1)
+
+    expect((await call('GET', `/api/training/schemas/${id}`)).body).toMatchObject({ lifts: [{ itemId: 'back-squat' }, { itemId: 'strict-press' }] })
+    expect((await call('POST', '/api/training/repeat-week', { date: MON })).body).toMatchObject({ week: 1 })
+    expect((await call('GET', '/api/training/progress')).body).toMatchObject({ lifts: [{ id: 'squat', points: [{ weight: 70 }] }, { id: 'press' }] })
+    expect((await call('DELETE', `/api/training/schemas/${id}`)).status).toBe(400) // the active one
+  })
+
+  it('refuses a broken schema, with its problems', async () => {
+    const res = await call('POST', '/api/training/schemas', { schema: { schemaVersion: 1, name: 'x' } })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toMatch(/startDate: must be a Monday/)
+  })
+
+  it('writes the next schema in the background and reports how it went', async () => {
+    expect((await call('POST', '/api/training/generate', {})).status).toBe(400) // nothing to build on
+    await call('PUT', '/api/settings', { equipment: SAMPLE_EQUIPMENT })
+    await call('POST', '/api/training/schemas', { schema: SAMPLE_SCHEMA })
+    const started = await call('POST', '/api/training/generate', { note: 'more pressing' })
+    expect(started.status).toBe(202)
+    expect(started.body).toMatchObject({ status: 'running' })
+    // The fake upstream isn't LM Studio, so this one fails -- and says so.
+    await vi.waitFor(async () => {
+      const s = (await call('GET', '/api/training/generate')).body as unknown as GenerateStatus
+      expect(s.status).toBe('error')
+      expect(s.error).toBeTruthy()
+    })
   })
 })
 

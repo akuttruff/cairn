@@ -1,6 +1,6 @@
 import type {
   DayType, DayView, Entry, Food, Goals, LabelReading, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeNotes, RangeView, Serving,
-  AlcoholKind, AlcoholLog, AppIcon, ChartKey, Drink, WaterLog, LmModelOption, MeditationLog, DogWalkLog, WorkoutKind, WorkoutKindDef, WorkoutLog, WorkoutPlan,
+  AlcoholKind, AlcoholLog, AppIcon, ChartKey, Drink, Equipment, GenerateStatus, Lift, ProgressSeries, SchemaOverview, SchemaSummary, TrainingDay, WaterLog, LmModelOption, MeditationLog, DogWalkLog, WorkoutKind, WorkoutKindDef, WorkoutLog, WorkoutPlan,
 } from '../types.ts'
 import { noReply, reachFetch } from './reach.ts'
 
@@ -93,8 +93,24 @@ export const api = {
   addDogWalk: (w: { date: string; miles?: number }) => request<DogWalkLog>('POST', '/api/dog-walks', w),
   deleteDogWalk: (id: string) => request<{ ok: true }>('DELETE', `/api/dog-walks/${encodeURIComponent(id)}`),
   settings: () => request<PublicSettings>('GET', '/api/settings'),
-  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; notesModel?: string; labelModel?: string; preferredModel?: string; autoLookup?: boolean; appIcon?: AppIcon; charts?: ChartKey[]; workoutKinds?: WorkoutKindDef[] }) =>
+  setSettings: (s: { usdaApiKey?: string; lmStudioUrl?: string; lmStudioToken?: string; researchModel?: string; notesModel?: string; labelModel?: string; preferredModel?: string; autoLookup?: boolean; appIcon?: AppIcon; charts?: ChartKey[]; workoutKinds?: WorkoutKindDef[]; trainingModel?: string; equipment?: Equipment }) =>
     request<PublicSettings>('PUT', '/api/settings', s),
+  /** The Train tab: what the active schema has on a date, with what's been logged. `shuffle` offers other WODs. */
+  training: (date: string, shuffle = 0) => request<TrainingDay>('GET', `/api/training?date=${date}${shuffle ? `&shuffle=${shuffle}` : ''}`),
+  /** Tick a set done with what was lifted, or untick it (`done: false`). `newPr` when it beat the lift's PR. */
+  logSet: (s: { date: string; itemId: string; setIndex: number; reps?: number | null; weight?: number | null; seconds?: number | null; done: boolean }) =>
+    request<{ day: TrainingDay; newPr: { lift: string; name: string; weight: number } | null }>('PUT', '/api/training/sets', s),
+  setWod: (date: string, itemId: string, wodId: string | null) => request<TrainingDay>('PUT', '/api/training/wod', { date, itemId, wodId }),
+  repeatWeek: (date: string) => request<TrainingDay>('POST', '/api/training/repeat-week', { date }),
+  setPr: (lift: string, pr: number, date?: string) => request<Lift>('PUT', `/api/training/lifts/${encodeURIComponent(lift)}`, { pr, date }),
+  trainingProgress: () => request<ProgressSeries>('GET', '/api/training/progress'),
+  schemas: () => request<{ schemas: SchemaSummary[] }>('GET', '/api/training/schemas'),
+  schema: (id: string) => request<SchemaOverview>('GET', `/api/training/schemas/${encodeURIComponent(id)}`),
+  activateSchema: (id: string) => request<SchemaSummary>('POST', `/api/training/schemas/${encodeURIComponent(id)}/activate`),
+  deleteSchema: (id: string) => request<{ ok: true }>('DELETE', `/api/training/schemas/${encodeURIComponent(id)}`),
+  /** Start writing the next schema with the local model; poll generation() for the draft. */
+  generateSchema: (note?: string) => request<GenerateStatus>('POST', '/api/training/generate', note ? { note } : {}),
+  generation: () => request<GenerateStatus>('GET', '/api/training/generate'),
   /** Read a photographed nutrition label (a JPEG/PNG/WebP data URL) into the Manual tab's fields. Seconds, once the model is loaded. */
   readLabel: (image: string) => request<{ reading: LabelReading }>('POST', '/api/label', { image }),
   /** LLMs LM Studio has downloaded, for the model picker. `error` says why the list is empty. */

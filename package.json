@@ -15,6 +15,7 @@
     "check": "tsc --noEmit && oxlint && vitest run",
     "deploy": "sh scripts/deploy.sh",
     "seed:demo": "node --experimental-transform-types --no-warnings scripts/seed-demo.ts",
+    "import:schema": "node --experimental-transform-types --no-warnings scripts/import-schema.ts",
     "screenshots": "node scripts/screenshots.mjs"
   },
   "dependencies": {
