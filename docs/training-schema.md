@@ -62,6 +62,7 @@ A schema that doesn't validate is refused, with a list of every problem.
 | `lifts` | The lifts that percentages refer to, and the step weights round to: 5 lb for squat and deadlift, 2.5 lb for press and the Olympic lifts. PRs are kept separately and carry over from one schema to the next. |
 | `days` | One entry per training day. `weekday` runs from 1 (Monday) to 7 (Sunday). A day that isn't listed is a rest day. |
 | `wods` | Optional WODs written for this schema, in addition to the bank. |
+| `hiddenWods` | Optional ids of bank WODs this schema leaves out of the picks. |
 
 A **session** is `{ "id", "title", "kind", "items": [...] }`.
 
@@ -123,6 +124,7 @@ For accessories, and for stand-ins the coach swaps in. Sets can use `pct` of the
 - **Picks:** the Train tab offers three WODs from the bank that fit the slot.
 - **Focus:** lists what the WOD may work: `upper`, `legs`, `full`, `bike` or `core` (core is always allowed).
 - **Low impact:** swaps jumping and running for bike calories.
+- **Places:** when the equipment is split between rooms (Settings, or the coach's `setPlaces`), a WOD is only offered if one place has everything it needs, and its card says where.
 - **Equipment:** WODs are adjusted to the equipment in Settings. A barbell becomes dumbbells and a jump rope becomes bike calories, and dumbbell weights snap to the pairs you have. WODs done in the last two weeks are left out.
 
 ### `check`: a simple tick
@@ -178,6 +180,8 @@ They show on the day as "Adjusted" lines, each with an undo.
 **Lasting changes** apply from a week on: `replaceItem`, `addItem`, `removeItem`, `addSession`, `removeSession` and `moveSession`.
 - Weeks already trained are never rewritten. A changed item keeps its earlier weeks, and what replaces it is a new item with a new id, so logged sets stay with the item they were logged against.
 - Each lasting change saves the schema's previous body, and undo restores it. Changes are undone newest first.
+
+**The record and the bank.** The coach can also correct what was logged (remove a workout, untick or tick off a session), add a WOD to the bank or hide one, and set where the gear is, room by room. These preview, apply and undo the same way.
 
 **A rewrite** has the training model write the rest of the plan from a week on.
 - The weeks before that are copied over unchanged, and the dates and week numbers stay the same.
