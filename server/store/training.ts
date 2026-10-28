@@ -317,12 +317,12 @@ export class TrainingStore {
     return factor === 1 || !item.lift ? sets : sets.map((x) => (x.weight === null ? x : { ...x, weight: roundTo(x.weight * factor, increment) }))
   }
 
-  /** The sessions a schema has on a date, with only the items that are on that week. */
+  /** The sessions a schema has on a date, with only the items that are on that week, each under that week's name. */
   private sessionsOn(schema: TrainingSchema, date: string, week: number): TrainingSession[] {
     const day = schema.days.find((d) => d.weekday === weekdayOf(date))
     if (!day) return []
     return day.sessions
-      .map((s) => ({ ...s, items: s.items.filter((i) => itemOn(i, week, schema)) }))
+      .map((s) => ({ ...s, title: s.weekTitles?.[week] ?? s.title, items: s.items.filter((i) => itemOn(i, week, schema)) }))
       .filter((s) => s.items.length > 0)
   }
 

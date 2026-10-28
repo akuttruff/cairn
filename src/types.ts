@@ -636,6 +636,8 @@ export interface TrainingItem {
 export interface TrainingSession {
   id: string
   title: string
+  /** The name for particular weeks, when what's in the session changes ({ "0": "Overhead squat" }); other weeks use `title`. */
+  weekTitles?: Record<string, string>
   /** A workout activity from Settings; logging the session fills that activity's dot. */
   kind: string
   /** Nice to do, not part of what makes the day done (yoga, say). */
@@ -834,7 +836,7 @@ export type PlanEdit =
   | { op: 'removeSession'; sessionId: string; fromWeek?: number }
   | { op: 'moveSession'; sessionId: string; toWeekday: number; fromWeek?: number }
   | { op: 'setOptional'; sessionId?: string; itemId?: string; optional: boolean; fromWeek?: number }
-  | { op: 'renameSession'; sessionId: string; title: string; fromWeek?: number }
+  | { op: 'renameSession'; sessionId: string; title: string; fromWeek?: number; toWeek?: number }
   | { op: 'rewrite'; instruction: string; fromWeek: number }
   | { op: 'removeWorkout'; workoutId: string }
   | { op: 'unlogSession'; date: string; sessionId: string }

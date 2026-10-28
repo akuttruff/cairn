@@ -149,12 +149,16 @@ export function reviseSchema(schema: TrainingSchema, edits: RevisionEdit[], curr
         break
       }
       case 'renameSession': {
-        // A label, not what's trained: the new name holds for every week, and each week's items keep their own names.
+        // A label, not what's trained: with no weeks given the new name holds for every week;
+        // with them, just those weeks, for a session whose contents change partway.
         const at = findSession(e.sessionId)
         if (!at) { errors.push(`renameSession: no session "${e.sessionId}"`); break }
         const title = typeof e.title === 'string' ? e.title.trim().slice(0, 80) : ''
         if (!title) { errors.push('renameSession: title is the new name'); break }
-        at.day.sessions[at.index]!.title = title
+        const session = at.day.sessions[at.index]!
+        if (e.fromWeek === undefined && e.toWeek === undefined) { session.title = title; delete session.weekTitles; break }
+        session.weekTitles ??= {}
+        for (let w = from; w <= until; w++) session.weekTitles[w] = title
         break
       }
     }

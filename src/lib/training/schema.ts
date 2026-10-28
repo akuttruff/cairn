@@ -113,7 +113,16 @@ export function cleanSchema(input: unknown, ctx: SchemaContext): { schema: Train
           if (prescriptionFor(item, testWeek as number, schemaish)?.sets.some((x) => x.test)) tested = true
         }
       })
-      if (title && typeof sid === 'string' && typeof rawSession.kind === 'string') sessions.push({ id: sid, title, kind: rawSession.kind, ...(rawSession.optional === true ? { optional: true } : {}), items })
+      let weekTitles: Record<string, string> | undefined
+      if (rawSession.weekTitles !== undefined) {
+        if (!isObj(rawSession.weekTitles)) err(sw, 'weekTitles must map week numbers to titles')
+        else for (const [w, t] of Object.entries(rawSession.weekTitles)) {
+          const name = text(t, 80)
+          if (!/^\d+$/.test(w) || Number(w) > lastWeek || !name) { err(sw, `weekTitles: "${w}" must be a week from 0 to ${lastWeek} with a title`); continue }
+          ;(weekTitles ??= {})[w] = name
+        }
+      }
+      if (title && typeof sid === 'string' && typeof rawSession.kind === 'string') sessions.push({ id: sid, title, ...(weekTitles ? { weekTitles } : {}), kind: rawSession.kind, ...(rawSession.optional === true ? { optional: true } : {}), items })
     })
     days.push({ weekday: rawDay.weekday, sessions })
   })

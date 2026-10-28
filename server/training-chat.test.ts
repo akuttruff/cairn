@@ -129,6 +129,14 @@ describe('naming and focus', () => {
     expect(checkEdits(store.training, plan(), [{ op: 'renameSession', sessionId: 'press-day', title: 'Workout' }], MON, store.getSettings()).errors.join()).toMatch(/name the session by what's in it/)
   })
 
+  it('renames a session for only some weeks, when what is in it changes', () => {
+    const checked = checkEdits(store.training, plan(), [{ op: 'renameSession', sessionId: 'press-day', title: 'Press test', fromWeek: 1, toWeek: 1 }], MON, store.getSettings())
+    expect(checked.errors).toEqual([])
+    store.training.revise(plan().id, checked.revised!, 'coach', null)
+    expect(titles(WED)[0]).toBe('Press test')
+    expect(titles('2026-11-11')[0]).toBe('Press')
+  })
+
 })
 
 describe('the record', () => {

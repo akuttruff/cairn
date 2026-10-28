@@ -49,7 +49,8 @@ Lasting changes to the plan from a week on (fromWeek defaults to the current wee
       A session's title says what's in it, the way the plan's do ("Back squat + deadlift", "Strict press") -- never "Strength session" or "Workout".
   { "op": "removeSession", "sessionId": id, "fromWeek"?: n }
   { "op": "moveSession", "sessionId": id, "toWeekday": 1-7, "fromWeek"?: n }
-  { "op": "renameSession", "sessionId": id, "title": "Overhead squat" }   a session's name, when what's in it has changed
+  { "op": "renameSession", "sessionId": id, "title": "Overhead squat", "fromWeek"?: n, "toWeek"?: n }   a session's name, when what's in it has changed;
+      with no weeks, for every week; with them, only those weeks (a session whose items differ in some weeks)
   { "op": "setOptional", "sessionId"?: id, "itemId"?: id, "optional": true | false }   nice to do, not needed for the day to count as done
 Changes to the RECORD -- what was logged -- not the plan (use these to untick or tick off what was done):
   { "op": "removeWorkout", "workoutId": id }            take a workout off the Workouts card (and untick its session, if it came from one)

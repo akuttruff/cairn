@@ -67,6 +67,7 @@ A schema that doesn't validate is refused, with a list of every problem.
 A **session** is `{ "id", "title", "kind", "items": [...] }`.
 
 - `kind` is a workout activity from Settings (`weightlifting`, `wod`, `cycling`, `yoga` and so on).
+- `weekTitles` optionally names the session differently in particular weeks, when what's in it changes: `{ "0": "Barbell technique", "12": "Snatch + clean & jerk singles" }`. Other weeks use `title`.
 - Logging any part of a session also logs one session of that activity on the Workouts card.
 
 An **item** is `{ "id", "name", "lift"?, "notes"?, "onlyWeeks"?: [from, to] }` plus **exactly one** of the six types below. `notes` are the how-to, shown under "How to". `onlyWeeks` limits the item to a range of weeks.
