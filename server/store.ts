@@ -79,6 +79,8 @@ export class Store {
       getSettings: () => this.getSettings(),
       addWorkout: (input) => this.addWorkout(input),
       deleteWorkout: (id) => this.deleteWorkout(id),
+      workoutRowsOn: (date) => this.workoutRowsOn(date),
+      replaceWorkoutsOn: (date, rows) => this.replaceWorkoutsOn(date, rows),
     })
 
     if (!this.stmts.selectGoals.get()) {
@@ -450,6 +452,17 @@ export class Store {
     this.stmts.insertWorkout.run(log.id, log.date, log.kind, log.minutes, log.note ?? null, log.createdAt)
     if (isTrainingKind(kinds, log.kind)) this.stmts.upsertDayType.run(date, 'training')
     return log
+  }
+
+  /** A day's workout logs as stored, for the coach to see and to put back exactly. */
+  workoutRowsOn(date: string): WorkoutLogRow[] {
+    return this.stmts.selectWorkoutsByDate.all(date) as unknown as WorkoutLogRow[]
+  }
+
+  /** Put a day's workout logs back to these rows (undoing a change the coach made). */
+  replaceWorkoutsOn(date: string, rows: WorkoutLogRow[]): void {
+    for (const r of this.workoutRowsOn(date)) this.stmts.deleteWorkout.run(r.id)
+    for (const r of rows) this.stmts.insertWorkout.run(r.id, r.date, r.kind, r.minutes, r.note, r.created_at)
   }
 
   deleteWorkout(id: string): void {

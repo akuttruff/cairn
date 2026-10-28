@@ -59,15 +59,22 @@ export function overrideText(e: OverrideEdit): string {
     case 'equipment': return `traveling gear ${e.from} to ${e.to}: ${describeGear(e.equipment)}`
   }
 }
-interface SetRow { id: string; date: string; schema_id: string; item_id: string; set_index: number; reps: number | null; weight: number | null; seconds: number | null }
+interface SetRow { id: string; date: string; schema_id: string; item_id: string; set_index: number; reps: number | null; weight: number | null; seconds: number | null; created_at?: number }
 interface SessionRow { date: string; schema_id: string; session_id: string; workout_log_id: string | null; wod_id: string | null }
 interface LiftRow { id: string; name: string; increment: number; pr: number | null; pr_date: string | null }
+
+export interface WorkoutRow { id: string; date: string; kind: string; minutes: number | null; note: string | null; created_at: number }
 
 export interface TrainingDeps {
   getSettings: () => Settings
   addWorkout: (input: { date: string; kind: string; note?: string }) => WorkoutLog
   deleteWorkout: (id: string) => void
+  workoutRowsOn: (date: string) => WorkoutRow[]
+  replaceWorkoutsOn: (date: string, rows: WorkoutRow[]) => void
 }
+
+/** A day's record as it stood: what a record change by the coach is undone to. */
+interface RecordSnapshot { sets: SetRow[]; sessions: SessionRow[]; workouts: WorkoutRow[] }
 
 const WOD_RECENT_DAYS = 14
 
@@ -105,6 +112,14 @@ export class TrainingStore {
       updateChat: db.prepare('UPDATE training_chat SET status = ?, note = ? WHERE id = ?'),
       supersede: db.prepare("UPDATE training_chat SET status = 'declined' WHERE schema_id = ? AND status = 'proposed'"),
       clearChat: db.prepare('DELETE FROM training_chat WHERE schema_id = ?'),
+      insertSnapshot: db.prepare('INSERT OR IGNORE INTO record_snapshots (message_id, date, body) VALUES (?,?,?)'),
+      snapshotsOf: db.prepare('SELECT date, body FROM record_snapshots WHERE message_id = ?'),
+      deleteSnapshots: db.prepare('DELETE FROM record_snapshots WHERE message_id = ?'),
+      allSetsOn: db.prepare('SELECT * FROM set_logs WHERE date = ?'),
+      allSessionsOn: db.prepare('SELECT * FROM session_logs WHERE date = ?'),
+      deleteSetsOn: db.prepare('DELETE FROM set_logs WHERE date = ?'),
+      deleteSessionsOn: db.prepare('DELETE FROM session_logs WHERE date = ?'),
+      insertSetRow: db.prepare('INSERT INTO set_logs (id,date,schema_id,item_id,set_index,reps,weight,seconds,created_at) VALUES (?,?,?,?,?,?,?,?,?)'),
       setStatus: db.prepare('UPDATE training_schemas SET status = ?, activated_at = ? WHERE id = ?'),
       retireActive: db.prepare("UPDATE training_schemas SET status = 'done' WHERE status = 'active'"),
       setRepeats: db.prepare('UPDATE training_schemas SET repeats = ? WHERE id = ?'),
@@ -125,6 +140,7 @@ export class TrainingStore {
         + 'ON CONFLICT(date,item_id,set_index) DO UPDATE SET reps=excluded.reps, weight=excluded.weight, seconds=excluded.seconds, schema_id=excluded.schema_id',
       ),
       deleteSet: db.prepare('DELETE FROM set_logs WHERE date = ? AND item_id = ? AND set_index = ?'),
+      deleteSetsOf: db.prepare('DELETE FROM set_logs WHERE date = ? AND item_id = ?'),
       session: db.prepare('SELECT * FROM session_logs WHERE date = ? AND session_id = ?'),
       sessionsOn: db.prepare('SELECT * FROM session_logs WHERE schema_id = ? AND date = ?'),
       sessionsOf: db.prepare('SELECT * FROM session_logs WHERE schema_id = ?'),
@@ -626,6 +642,7 @@ export class TrainingStore {
       this.s.deleteRevision!.run(rev.id)
     }
     this.s.deleteOverridesOf!.run(messageId)
+    this.restoreRecord(messageId)
     // A rewrite still waiting as a draft goes too.
     for (const row of this.s.schemas!.all() as unknown as SchemaRow[]) {
       if (row.status === 'draft' && row.rewrite && (JSON.parse(row.rewrite) as { messageId: string | null }).messageId === messageId) this.s.deleteSchema!.run(row.id)
@@ -664,6 +681,92 @@ export class TrainingStore {
 
   clearChat(schemaId: string): void {
     this.s.clearChat!.run(schemaId)
+  }
+
+  // --- the record: what was logged, which the coach can see and put right --------
+
+  /**
+   * What was logged on a day, as the coach sees it: each workout on the
+   * Workouts card (from a session of the plan, or added with its + button),
+   * and each planned session with how much of it was ticked off.
+   */
+  recordOf(plan: ActivePlan, date: string): { workouts: { id: string; kind: string; note: string | null; session: string | null }[]; sessions: { id: string; title: string; done: boolean; started: boolean }[] } {
+    const links = new Map((this.s.allSessionsOn!.all(date) as unknown as SessionRow[]).filter((r) => r.workout_log_id).map((r) => [r.workout_log_id!, r.session_id]))
+    const strip = this.strip(plan, date).find((d) => d.date === date)
+    return {
+      workouts: this.deps.workoutRowsOn(date).map((w) => ({ id: w.id, kind: w.kind, note: w.note, session: links.get(w.id) ?? null })),
+      sessions: (strip?.sessions ?? []).map((x) => ({ id: x.id, title: x.title, done: x.done, started: x.started })),
+    }
+  }
+
+  /** Keep a day's record as it is now, once per message, so a change to it can be undone. */
+  private snapshot(messageId: string, date: string): void {
+    const body: RecordSnapshot = {
+      sets: this.s.allSetsOn!.all(date) as unknown as SetRow[],
+      sessions: this.s.allSessionsOn!.all(date) as unknown as SessionRow[],
+      workouts: this.deps.workoutRowsOn(date),
+    }
+    this.s.insertSnapshot!.run(messageId, date, JSON.stringify(body))
+  }
+
+  /** Remove a workout from the Workouts card; one a session of the plan logged takes that session's ticks with it. */
+  removeWorkout(id: string, messageId: string | null): void {
+    {
+      const plan = this.activePlan()
+      const row = (plan ? (this.s.sessionsOf!.all(plan.id) as unknown as SessionRow[]) : []).find((r) => r.workout_log_id === id)
+      const date = row?.date ?? this.workoutDate(id)
+      if (!date) throw new ValidationError('no such workout')
+      if (messageId) this.snapshot(messageId, date)
+      if (row && plan) {
+        const session = this.sessionsFor(plan, date).find((p) => p.session.id === row.session_id)
+        for (const item of session?.session.items ?? []) this.s.deleteSetsOf!.run(date, item.id)
+        this.s.upsertSession!.run(date, row.schema_id, row.session_id, null, row.wod_id)
+      }
+      try { this.deps.deleteWorkout(id) } catch { /* already gone */ }
+    }
+  }
+
+  /** The day a workout was logged on, or null. */
+  workoutDate(id: string): string | null {
+    const row = this.db.prepare('SELECT date FROM workout_logs WHERE id = ?').get(id) as { date: string } | undefined
+    return row?.date ?? null
+  }
+
+  /** Untick a whole session on a day: its sets and its workout go. */
+  unlogSession(date: string, sessionId: string, messageId: string | null): void {
+    const plan = this.activePlan()
+    if (!plan) throw new ValidationError('no training plan is active')
+    const session = this.sessionsFor(plan, date).find((p) => p.session.id === sessionId)
+    if (!session) throw new ValidationError(`there's no session "${sessionId}" on ${date}`)
+    if (messageId) this.snapshot(messageId, date)
+    for (const item of session.session.items) this.s.deleteSetsOf!.run(date, item.id)
+    this.syncSession(date, plan.id, session.session)
+  }
+
+  /** Tick a whole session off on a day, every set at what the plan had. */
+  logSession(date: string, sessionId: string, messageId: string | null): void {
+    const plan = this.activePlan()
+    if (!plan) throw new ValidationError('no training plan is active')
+    const resolved = this.day(date).sessions.find((x) => x.id === sessionId)
+    if (!resolved) throw new ValidationError(`there's no session "${sessionId}" on ${date}`)
+    if (messageId) this.snapshot(messageId, date)
+    for (const item of resolved.items) {
+      if (item.sets) for (const set of item.sets) if (!set.log) this.logSet({ date, itemId: item.id, setIndex: set.index, reps: set.reps === 'max' ? null : set.reps, weight: set.weight, seconds: set.seconds })
+      if (!item.sets && !item.done) this.logSet({ date, itemId: item.id, setIndex: 0 })
+    }
+  }
+
+  /** Put back the days a message's record changes touched, exactly as they were. */
+  restoreRecord(messageId: string): void {
+    for (const { date, body } of this.s.snapshotsOf!.all(messageId) as unknown as { date: string; body: string }[]) {
+      const snap = JSON.parse(body) as RecordSnapshot
+      this.s.deleteSetsOn!.run(date)
+      this.s.deleteSessionsOn!.run(date)
+      for (const r of snap.sets) this.s.insertSetRow!.run(r.id, r.date, r.schema_id, r.item_id, r.set_index, r.reps, r.weight, r.seconds, r.created_at ?? Date.now())
+      for (const r of snap.sessions) this.s.upsertSession!.run(r.date, r.schema_id, r.session_id, r.workout_log_id, r.wod_id)
+      this.deps.replaceWorkoutsOn(date, snap.workouts)
+    }
+    this.s.deleteSnapshots!.run(messageId)
   }
 
   // --- progress and the report the next schema is written from ----------------

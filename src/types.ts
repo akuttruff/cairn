@@ -833,8 +833,13 @@ export type PlanEdit =
   | { op: 'moveSession'; sessionId: string; toWeekday: number; fromWeek?: number }
   | { op: 'setOptional'; sessionId?: string; itemId?: string; optional: boolean; fromWeek?: number }
   | { op: 'rewrite'; instruction: string; fromWeek: number }
+  | { op: 'removeWorkout'; workoutId: string }
+  | { op: 'unlogSession'; date: string; sessionId: string }
+  | { op: 'logSession'; date: string; sessionId: string }
 
 export const OVERRIDE_OPS = ['move', 'skip', 'load', 'swap', 'equipment'] as const
+/** Changes to what was logged, not to the plan: a workout removed, a session unticked or ticked off. */
+export const RECORD_OPS = ['removeWorkout', 'unlogSession', 'logSession'] as const
 export const REVISION_OPS = ['replaceItem', 'addItem', 'removeItem', 'addSession', 'removeSession', 'moveSession', 'setOptional'] as const
 
 export interface PlanProposal {

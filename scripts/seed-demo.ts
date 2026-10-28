@@ -2,14 +2,18 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { Store } from '../server/store.ts'
 import { fingerprint } from '../server/notes.ts'
+import { checkEdits, previewEdits } from '../server/training-chat.ts'
 import { addDays, localDate } from '../src/lib/nutrition.ts'
-import type { Meal, Nutrients } from '../src/types.ts'
+import { weekdayOf } from '../src/lib/training/resolve.ts'
+import { DEFAULT_WORKOUT_KINDS } from '../src/types.ts'
+import type { CoachStats, Meal, Nutrients, PlanEdit, TrainingSchema } from '../src/types.ts'
 
 /**
  * Fills the development database (.data-dev, the one `npm run dev` uses)
  * with a week of demo data so the app can be screenshotted with something
- * on screen: meals with their macros, water, workouts and some saved foods. Run with `npm run seed:demo`; it starts from an
- * empty database every time. Nothing here is anyone's real log.
+ * on screen: meals with their macros, water, workouts and some saved foods, and a training plan with its logged sets and a
+ * conversation with the coach. Run with `npm run seed:demo`; it starts from an empty database every time. Nothing here is
+ * anyone's real log, plan or PRs.
  */
 
 const dir = path.resolve(process.cwd(), '.data-dev')
@@ -67,14 +71,97 @@ for (let back = 0; back < 14; back++) for (const [name, meal, grams] of MENUS[ba
 const WATER = [[32, 32, 16], [32, 32, 32], [32, 32, 16], [32, 32, 32], [32, 32, 32], [32, 32], [32, 32, 32]]
 for (let back = 0; back < 14; back++) for (const ounces of WATER[back % WATER.length]!) store.addWater(day(back), ounces)
 
-// Training days and rest days, with the workouts that make them so.
-const WORKOUTS = [['weightlifting', 50], ['yoga', 45], ['wod', 40], ['run', 35], ['weightlifting', 55], ['yoga', 60], ['pilates', 45]] as const
+// A training plan, made up for the demo: eight weeks, now in its third, with the sets done so far logged
+// (logging a session's sets is what fills its workout dot and marks the training day).
+const monday = addDays(today, 1 - weekdayOf(today))
+const start = addDays(monday, -14)
+const minutes = (list: number[]): Record<string, number> => Object.fromEntries(list.map((m, i) => [String(i + 1), m]))
+const PLAN: TrainingSchema = {
+  schemaVersion: 1, name: 'Spring strength block', startDate: start, firstWeek: 1, weeks: 8, deloadWeeks: [4], testWeek: 8,
+  goals: 'Eight weeks toward new squat, press and deadlift PRs, a first strict pull-up, and an easy 5K.',
+  lifts: [{ id: 'squat', name: 'Back squat', increment: 5 }, { id: 'press', name: 'Strict press', increment: 2.5 }, { id: 'deadlift', name: 'Deadlift', increment: 5 }, { id: 'clean', name: 'Power clean', increment: 2.5 }],
+  days: [
+    { weekday: 1, sessions: [
+      { id: 'legs', title: 'Legs: squat + lunges', kind: 'weightlifting', items: [
+        { id: 'back-squat', name: 'Back squat', lift: 'squat', notes: 'Rest 2-3 min between sets. Pins just below the bottom.',
+          progression: { phases: [{ weeks: [1, 3], sets: 5, reps: 5, startPct: 0.7, stepPct: 0.025 }, { weeks: [5, 7], sets: 5, reps: 3, startPct: 0.8, stepPct: 0.025 }], deload: { sets: 3, reps: 5, pct: 0.6 }, test: 'ladder' } },
+        { id: 'reverse-lunge', name: 'Reverse lunge', sets: { sets: [{ reps: 10, weight: 25 }, { reps: 10, weight: 25 }, { reps: 10, weight: 25 }], note: 'Per leg, a dumbbell in each hand' } },
+      ] },
+      { id: 'yoga-mon', title: 'Yoga', kind: 'yoga', optional: true, items: [{ id: 'yoga-hips', name: 'Yoga: hips & hamstrings', check: true }] },
+    ] },
+    { weekday: 2, sessions: [
+      { id: 'pullups', title: 'Pull-ups', kind: 'wod', items: [
+        { id: 'banded-pullups', name: 'Banded pull-ups', sets: { sets: [{ reps: 8 }, { reps: 8 }, { reps: 8 }] } },
+        { id: 'negatives', name: 'Negative pull-ups', sets: { sets: [{ reps: 3 }, { reps: 3 }, { reps: 3 }], note: 'Lower in 5 s' } },
+        { id: 'dead-hang', name: 'Dead hang', sets: { sets: [{ seconds: 40 }, { seconds: 40 }] } },
+      ] },
+      { id: 'ride-tue', title: 'Zone 2 ride', kind: 'cycling', items: [{ id: 'zone2-tue', name: 'Zone 2 ride', minutes: minutes([40, 45, 50, 35, 50, 55, 60, 40]) }] },
+    ] },
+    { weekday: 3, sessions: [
+      { id: 'press-day', title: 'Strict press', kind: 'weightlifting', items: [
+        { id: 'strict-press', name: 'Strict press', lift: 'press', progression: { phases: [{ weeks: [1, 3], sets: 5, reps: 5, startPct: 0.65, stepPct: 0.035 }, { weeks: [5, 7], sets: 5, reps: 3, startPct: 0.75, stepPct: 0.035 }], deload: { sets: 3, reps: 5, pct: 0.6 }, test: 'ladder' } },
+      ] },
+      { id: 'wod-wed', title: 'WOD', kind: 'wod', items: [{ id: 'wod-wed-slot', name: 'Short WOD', wod: { maxMinutes: 15, focus: ['upper', 'bike'] } }] },
+    ] },
+    { weekday: 4, sessions: [
+      { id: 'run-thu', title: 'Easy run', kind: 'run', items: [{ id: 'easy-run', name: 'Easy run', minutes: minutes([20, 22, 25, 20, 25, 28, 30, 20]) }] },
+      { id: 'pilates-thu', title: 'Pilates', kind: 'pilates', optional: true, items: [{ id: 'pilates-core', name: 'Pilates core', check: true }] },
+    ] },
+    { weekday: 5, sessions: [
+      { id: 'pull-day', title: 'Deadlift + cleans', kind: 'weightlifting', items: [
+        { id: 'power-clean', name: 'Power clean', lift: 'clean', progression: { phases: [{ weeks: [1, 3], sets: 5, reps: 3, startPct: 0.7, stepPct: 0.03 }, { weeks: [5, 7], sets: 5, reps: 2, startPct: 0.8, stepPct: 0.03 }], deload: { sets: 3, reps: 3, pct: 0.6 }, test: 'single' } },
+        { id: 'deadlift', name: 'Deadlift', lift: 'deadlift', progression: { phases: [{ weeks: [1, 3], sets: 4, reps: 5, startPct: 0.7, stepPct: 0.025 }, { weeks: [5, 7], sets: 4, reps: 3, startPct: 0.8, stepPct: 0.025 }], deload: { sets: 3, reps: 5, pct: 0.6 }, test: 'ladder' } },
+      ] },
+    ] },
+    { weekday: 6, sessions: [{ id: 'wod-sat', title: 'WOD', kind: 'wod', items: [{ id: 'wod-sat-slot', name: 'Saturday WOD', wod: { maxMinutes: 25, minMinutes: 8 } }] }] },
+    { weekday: 7, sessions: [{ id: 'ride-sun', title: 'Long easy ride', kind: 'cycling', optional: true, items: [{ id: 'long-ride', name: 'Long easy ride', minutes: minutes([60, 70, 75, 45, 80, 85, 90, 45]) }] }] },
+  ],
+}
+store.setSettings({
+  equipment: { gear: ['barbell', 'plates', 'rack', 'dumbbells', 'pullup-bar', 'bands', 'rings', 'ab-mat', 'jump-rope', 'bike'], dumbbells: [15, 20, 25, 35], kettlebells: [] },
+  workoutKinds: DEFAULT_WORKOUT_KINDS,
+})
+store.training.save(PLAN)
+for (const [lift, pr] of [['squat', 155], ['press', 70], ['deadlift', 205], ['clean', 95]] as const) store.training.setPr(lift, { pr, date: addDays(start, -10) })
+store.setGoals({ workoutPlan: { weightlifting: 3, wod: 3, run: 1, cycling: 2, yoga: 1, pilates: 1 } })
+
+// Every planned set done on the days so far (a few skipped, as they are), and today's session started.
+for (let d = start; d <= today; d = addDays(d, 1)) {
+  const offset = Math.round((Date.parse(today) - Date.parse(d)) / 86_400_000)
+  if (offset === 4 || offset === 9) continue // a missed day or two
+  for (const session of store.training.day(d).sessions) {
+    if (session.optional && offset % 3 !== 0) continue
+    for (const item of session.items) {
+      if (item.type === 'sets') {
+        for (const s of item.sets!) {
+          if (d === today && s.index > 1) break
+          store.training.logSet({ date: d, itemId: item.id, setIndex: s.index, reps: s.reps === 'max' ? 8 : s.reps, weight: s.weight, seconds: s.seconds })
+        }
+      } else if (d !== today) {
+        if (item.type === 'wod' && item.wod!.picks[0]) store.training.setWod({ date: d, itemId: item.id, wodId: item.wod!.picks[0].id })
+        store.training.logSet({ date: d, itemId: item.id, setIndex: 0 })
+      }
+    }
+    if (d === today) break
+  }
+}
+// Meditation, most days.
 for (let back = 0; back < 14; back++) {
-  const [kind, minutes] = WORKOUTS[back % WORKOUTS.length]!
-  store.addWorkout({ date: day(back), kind, minutes })
-  if (kind === 'weightlifting' || kind === 'wod') store.setDayType(day(back), 'training')
   if (back % 7 !== 2 && back % 7 !== 5) store.addMeditation({ date: day(back), minutes: back === 0 ? 10 : 15 })
 }
+
+// A conversation with the coach: a question answered, and a change proposed for this week, worked out as the app would.
+const plan = store.training.activePlan()!
+const stats = (seconds: number, out: number): CoachStats => ({ model: 'qwen/qwen3.8-27b', seconds, inputTokens: 6240, outputTokens: out, reasoningTokens: 0, tokensPerSecond: 24.6, firstTokenSeconds: 2.1 })
+store.training.addMessage(plan.id, 'user', 'How is my training going?')
+store.training.addMessage(plan.id, 'assistant', 'Really well. You have hit every planned squat and press set for two weeks, and your Saturday WODs have been consistent. Next week is the deload, so expect the weights to drop on purpose; that is what sets up the heavier triples after it.', null, null, stats(9.4, 74))
+const friday = addDays(monday, 4)
+const saturday = addDays(monday, 5)
+store.training.addMessage(plan.id, 'user', "I'm away Saturday. Can I do the WOD on Friday instead, and go a bit lighter on deadlifts that day?")
+const edits: PlanEdit[] = [{ op: 'move', sessionId: 'wod-sat', from: saturday, to: friday }, { op: 'load', from: friday, to: friday, factor: 0.9, lifts: ['deadlift'] }]
+const checked = checkEdits(store.training, plan, edits, today, store.getSettings())
+if (checked.errors.length) throw new Error(checked.errors.join('; '))
+store.training.addMessage(plan.id, 'assistant', 'Here is a Friday that fits both: the WOD moves to after your pulls, and deadlifts drop 10% so the WOD stays honest.', { edits, preview: previewEdits(store.training, plan, checked, today) }, null, stats(14.8, 118))
 for (const [back, miles] of [[0, 1.4], [1, 2.1], [2, 1.2], [3, 1.8], [5, 2.4], [6, 1.5], [7, 1.6], [8, 2.0], [10, 1.3], [11, 1.9], [13, 2.2]] as const) store.addDogWalk({ date: day(back), miles })
 store.addAlcohol(day(2), 'wine')
 store.addAlcohol(day(5), 'beer')

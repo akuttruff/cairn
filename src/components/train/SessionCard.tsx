@@ -24,7 +24,8 @@ function planned(set: ResolvedSet): string {
 function actual(set: ResolvedSet): string | null {
   const log = set.log
   if (!log) return null
-  const sameReps = log.reps === null || log.reps === set.reps
+  // A timed set is judged by its seconds alone.
+  const sameReps = set.seconds !== null || log.reps === null || log.reps === set.reps
   const sameWeight = log.weight === null || log.weight === set.weight
   const sameSeconds = log.seconds === null || log.seconds === set.seconds
   if (sameReps && sameWeight && sameSeconds) return null

@@ -1,7 +1,7 @@
 import { chatText, chooseModel, extractJson } from './research.ts'
 import { describeGear, shortDate } from './store/training.ts'
 import type { ActivePlan, TrainingStore } from './store/training.ts'
-import { OVERRIDE_OPS, REVISION_OPS } from '../src/types.ts'
+import { OVERRIDE_OPS, RECORD_OPS, REVISION_OPS } from '../src/types.ts'
 import type { CoachMessage, CoachStats, CoachStatus, PlanEdit, PlanProposal, Settings, TrainingSchema } from '../src/types.ts'
 import type { ChatProgress } from './research.ts'
 import { addDays, daysBetween, isDateString } from '../src/lib/nutrition.ts'
@@ -46,6 +46,10 @@ Lasting changes to the plan from a week on (fromWeek defaults to the current wee
   { "op": "removeSession", "sessionId": id, "fromWeek"?: n }
   { "op": "moveSession", "sessionId": id, "toWeekday": 1-7, "fromWeek"?: n }
   { "op": "setOptional", "sessionId"?: id, "itemId"?: id, "optional": true | false }   nice to do, not needed for the day to count as done
+Changes to the RECORD -- what was logged -- not the plan (use these to untick or tick off what was done):
+  { "op": "removeWorkout", "workoutId": id }            take a workout off the Workouts card (and untick its session, if it came from one)
+  { "op": "unlogSession", "date": date, "sessionId": id }   untick a session that was ticked off by mistake
+  { "op": "logSession", "date": date, "sessionId": id }     tick a whole session off as done
 A rewrite of the rest of the plan, when the person asks for one or for something bigger than a few edits:
   { "op": "rewrite", "instruction": "what to change, in a sentence or two", "fromWeek": n }   (alone, no other edits)
 Item = { "id": new unique id, "name", "lift"?: lift id, "notes"?, and exactly one of:
@@ -65,12 +69,14 @@ function normalize(raw: unknown): PlanEdit[] {
   })
 }
 
-interface Checked { overrides: OverrideEdit[]; revisions: RevisionEdit[]; rewrite: Extract<PlanEdit, { op: 'rewrite' }> | null; revised: TrainingSchema | null; errors: string[] }
+type RecordEdit = Extract<PlanEdit, { op: (typeof RECORD_OPS)[number] }>
+
+interface Checked { records: RecordEdit[]; overrides: OverrideEdit[]; revisions: RevisionEdit[]; rewrite: Extract<PlanEdit, { op: 'rewrite' }> | null; revised: TrainingSchema | null; errors: string[] }
 
 /** Every edit checked against the plan as it stands; readable errors for the model when anything's off. */
 export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: PlanEdit[], today: string, settings: Settings): Checked {
   const errors: string[] = []
-  const out: Checked = { overrides: [], revisions: [], rewrite: null, revised: null, errors }
+  const out: Checked = { records: [], overrides: [], revisions: [], rewrite: null, revised: null, errors }
   const ctx = { kinds: settings.workoutKinds.map((k) => k.id), equipment: settings.equipment }
   const end = plan.summary.endDate
   // Any day of the plan, past ones too: the record should match what was actually done.
@@ -81,8 +87,9 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
 
   edits.forEach((e, i) => {
     const w = where(i, e)
-    if (!e || typeof e.op !== 'string' || ![...OVERRIDE_OPS, ...REVISION_OPS, 'rewrite'].includes(e.op)) {
-      errors.push(`edit ${i + 1}: op must be one of ${[...OVERRIDE_OPS, ...REVISION_OPS, 'rewrite'].join(', ')}`)
+    const ops: string[] = [...OVERRIDE_OPS, ...REVISION_OPS, ...RECORD_OPS, 'rewrite']
+    if (!e || typeof e.op !== 'string' || !ops.includes(e.op)) {
+      errors.push(`edit ${i + 1}: op must be one of ${ops.join(', ')}`)
       return
     }
     if (e.op === 'rewrite') {
@@ -93,6 +100,17 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
       return
     }
     if (isRevision(e)) { out.revisions.push(e); return }
+    if (e.op === 'removeWorkout') {
+      if (typeof e.workoutId !== 'string' || !training.workoutDate(e.workoutId)) errors.push(`${w}: there's no logged workout "${e.workoutId}"`)
+      else out.records.push({ op: 'removeWorkout', workoutId: e.workoutId })
+      return
+    }
+    if (e.op === 'unlogSession' || e.op === 'logSession') {
+      if (!inPlan(e.date)) { errors.push(`${w}: date must be within the plan, ${plan.schema.startDate} to ${end}`); return }
+      if (!training.planOf(plan, e.date).some((s) => s.id === e.sessionId)) { errors.push(`${w}: there's no session "${e.sessionId}" on ${e.date}`); return }
+      out.records.push({ op: e.op, date: e.date, sessionId: e.sessionId })
+      return
+    }
     const range = (from: unknown, to: unknown): boolean => {
       if (!inPlan(from) || !inPlan(to)) { errors.push(`${w}: dates must be within the plan, ${plan.schema.startDate} to ${end}`); return false }
       if (to < from) { errors.push(`${w}: "to" is before "from"`); return false }
@@ -158,6 +176,18 @@ type DayPlan = ReturnType<TrainingStore['planOf']>
  */
 export function previewEdits(training: TrainingStore, plan: ActivePlan, checked: Checked, today: string): string[] {
   if (checked.rewrite) return [`Rewrite the plan from week ${checked.rewrite.fromWeek}: ${checked.rewrite.instruction}`]
+  // Changes to the record say what they do directly; there's no plan to compare.
+  const recordLines = checked.records.map((e) => {
+    if (e.op === 'removeWorkout') {
+      const date = training.workoutDate(e.workoutId)!
+      const w = training.recordOf(plan, date).workouts.find((x) => x.id === e.workoutId)
+      const what = `${w?.kind ?? 'a'} workout${w?.note ? ` "${w.note}"` : ''}`
+      return `${shortDate(date)}: remove the ${what} from the Workouts card${w?.session ? ', and untick its session' : ''}`
+    }
+    const title = training.planOf(plan, e.date).find((s) => s.id === e.sessionId)?.title ?? e.sessionId
+    return `${shortDate(e.date)}: ${e.op === 'logSession' ? 'tick off' : 'untick'} ${title}`
+  })
+  if (!checked.overrides.length && !checked.revised) return recordLines
   const dates = new Set<string>()
   const span = (from: string, to: string): void => { for (let d = from; d <= to && dates.size < 120; d = addDays(d, 1)) dates.add(d) }
   for (const e of checked.overrides) {
@@ -239,7 +269,7 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
     grouped.set(key, [...(grouped.get(key) ?? []), m[1]!])
   }
   const joinDates = (ds: string[]): string => (ds.length > 4 ? `From ${ds[0]} (${ds.length} days)` : ds.map((d, i) => (i === 0 ? d : d.replace(/^\w{3}, /, ''))).join(', '))
-  const unique = [...new Set([...[...grouped].map(([key, ds]) => `${joinDates(ds)}${key}`), ...plain])]
+  const unique = [...new Set([...recordLines, ...[...grouped].map(([key, ds]) => `${joinDates(ds)}${key}`), ...plain])]
   return unique.length > 14 ? [...unique.slice(0, 14), `…and ${unique.length - 14} more`] : unique
 }
 
@@ -255,8 +285,17 @@ export function coachContext(training: TrainingStore, plan: ActivePlan, today: s
     if (d > plan.summary.endDate) break
     const sessions = training.planOf(plan, d)
     const wk = weekOf(plan.schema, d, plan.repeats)?.week
-    ahead.push(`${shortDate(d)} ${d}${d === today ? ' (today)' : ''}${wk !== undefined ? ` (week ${wk})` : ''}: ${sessions.length ? '' : 'rest'}`)
-    for (const s of sessions) ahead.push(`  session ${s.id} "${s.title}" [${s.kind}]: ${s.items.map((i) => `${i.name} [item ${i.id}] ${i.text}`).join('; ')}`)
+    ahead.push(`${shortDate(d)} ${d}${d === today ? ' (TODAY)' : ''}${wk !== undefined ? ` (week ${wk})` : ''}: ${sessions.length ? '' : 'rest'}`)
+    const record = d <= today ? training.recordOf(plan, d) : null
+    for (const s of sessions) {
+      const ticked = record?.sessions.find((x) => x.id === s.id)
+      const state = !record ? '' : ticked?.done ? ' -- DONE' : ticked?.started ? ' -- partly done' : ' -- not done'
+      ahead.push(`  session ${s.id} "${s.title}" [${s.kind}]${s.optional ? ' (optional)' : ''}${state}: ${s.items.map((i) => `${i.name} [item ${i.id}] ${i.text}`).join('; ')}`)
+    }
+    // What's on the Workouts card that day: these are what its counts are made of, plan or not.
+    for (const w of record?.workouts ?? []) {
+      ahead.push(`  logged workout [workout ${w.id}] ${w.kind}${w.note ? ` "${w.note}"` : ''} -- ${w.session ? `from session ${w.session}` : 'added by hand with the + button'}`)
+    }
   }
   const changes = plan.overrides.map((o) => `  ${o.edit.op} ${JSON.stringify(o.edit)}`)
   return [
@@ -266,7 +305,7 @@ export function coachContext(training: TrainingStore, plan: ActivePlan, today: s
     `Lifts and PRs (lb): ${lifts.map((l) => `${l.id} ${l.pr ?? '?'}`).join(', ')}. Equipment: ${describeGear(settings.equipment)}.`,
     `Activities (session kinds): ${settings.workoutKinds.map((k) => k.id).join(', ')}.`,
     '',
-    `The past ${BEHIND_DAYS} days and the next ${AHEAD_DAYS}, with the ids edits use:`,
+    `The past ${BEHIND_DAYS} days and the next ${AHEAD_DAYS}, with the ids edits use (past days show what was logged):`,
     ...ahead,
     changes.length ? `One-off changes already in place:\n${changes.join('\n')}` : '',
     '',
@@ -286,6 +325,9 @@ const SYSTEM = [
   'progress when asked (what is going well, what to watch, whether the plan fits their goals), and suggest changes when they would help.',
   'Only propose edits when the person asks for a change or agrees to one; a question gets an answer and "edits": [].',
   'Be careful with pain: for sharp or lasting pain, suggest easing off that movement and seeing a professional.',
+  'The plan is what is scheduled; the record is what was logged (ticked sets, and workouts on the Workouts card, some added by hand with +).',
+  'The Workouts card counts logged workouts, so when a count looks wrong, look at the logged workouts listed for those days and fix the record',
+  '(removeWorkout, unlogSession, logSession) -- not the plan. Read dates carefully: the day marked TODAY is today; check which day the person means.',
   'Past days can be changed too (skip, swap, move, or a lasting change from an earlier week) so the plan matches what really happened; never say you can\'t change the past.',
   'Edits are proposals: the person sees exactly what they would do and applies them, so say what you would change',
   '("I can move…", "Here is a lighter week…"), never that it is done. Describe only the edits you include.',
@@ -377,7 +419,7 @@ export async function coachReply({ training, settings, fetchImpl, text, image, t
   } else {
     phase = 'checking'
     report({ model })
-    const proposal: PlanProposal = { edits: checked.rewrite ? [checked.rewrite] : [...checked.overrides, ...checked.revisions], preview: previewEdits(training, plan, checked, today) }
+    const proposal: PlanProposal = { edits: checked.rewrite ? [checked.rewrite] : [...checked.overrides, ...checked.revisions, ...checked.records], preview: previewEdits(training, plan, checked, today) }
     if (!proposal.preview.length) training.addMessage(plan.id, 'assistant', reply, null, 'That wouldn\'t change anything on the plan.', stats())
     else training.addMessage(plan.id, 'assistant', reply, proposal, null, stats())
   }
@@ -407,6 +449,11 @@ export function applyProposal(
   }
   if (checked.overrides.length) training.addOverrides(plan.id, checked.overrides, messageId)
   if (checked.revised) training.revise(plan.id, checked.revised, 'coach', messageId)
+  for (const r of checked.records) {
+    if (r.op === 'removeWorkout') training.removeWorkout(r.workoutId, messageId)
+    else if (r.op === 'unlogSession') training.unlogSession(r.date, r.sessionId, messageId)
+    else training.logSession(r.date, r.sessionId, messageId)
+  }
   training.setMessage(messageId, 'applied')
 }
 

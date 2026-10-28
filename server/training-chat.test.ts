@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { Store } from './store.ts'
-import { applyProposal, checkEdits, coachReply, previewEdits, undoProposal } from './training-chat.ts'
+import { applyProposal, checkEdits, coachContext, coachReply, previewEdits, undoProposal } from './training-chat.ts'
 import { SAMPLE_EQUIPMENT, SAMPLE_SCHEMA } from '../src/lib/training/sample.ts'
 import type { PlanEdit } from '../src/types.ts'
 
@@ -119,6 +119,53 @@ describe('optional work', () => {
   })
 })
 
+describe('the record', () => {
+  it('takes a workout added by hand off the card, and one from a session with its ticks, and undoes both', () => {
+    const extra = store.addWorkout({ date: MON, kind: 'weightlifting' })
+    store.training.logSet({ date: MON, itemId: 'back-squat', setIndex: 0, reps: 5, weight: 70 })
+    const fromPlan = store.getDay(MON).workouts.sessions.find((w) => w.note === 'Legs')!
+    expect(store.getDay(MON).workouts.sessions).toHaveLength(2)
+    expect(store.training.recordOf(plan(), MON).workouts.map((w) => [w.kind, w.session])).toEqual(expect.arrayContaining([['weightlifting', null], ['weightlifting', 'legs']]))
+
+    const edits: PlanEdit[] = [{ op: 'removeWorkout', workoutId: extra.id }, { op: 'removeWorkout', workoutId: fromPlan.id }]
+    const checked = checkEdits(store.training, plan(), edits, WED, store.getSettings())
+    expect(checked.errors).toEqual([])
+    expect(previewEdits(store.training, plan(), checked, WED)).toEqual([
+      'Mon, Nov 2: remove the weightlifting workout from the Workouts card',
+      'Mon, Nov 2: remove the weightlifting workout "Legs" from the Workouts card, and untick its session',
+    ])
+    const id = store.training.addMessage(plan().id, 'assistant', 'Done.', { edits, preview: [] })
+    applyProposal(store.training, id, WED, store.getSettings(), () => {})
+    expect(store.getDay(MON).workouts.sessions).toHaveLength(0)
+    expect(store.training.day(MON).sessions[0]!.items[0]!.sets![0]!.log).toBeNull()
+    undoProposal(store.training, id)
+    expect(store.getDay(MON).workouts.sessions.map((w) => w.id).sort()).toEqual([extra.id, fromPlan.id].sort())
+    expect(store.training.day(MON).sessions[0]!.items[0]!.sets![0]!.log).toMatchObject({ weight: 70 })
+  })
+
+  it('ticks a whole session off, and unticks it', () => {
+    const tick = checkEdits(store.training, plan(), [{ op: 'logSession', date: THU, sessionId: 'ride' }], THU, store.getSettings())
+    expect(previewEdits(store.training, plan(), tick, THU)).toEqual(['Thu, Nov 5: tick off Zone 2'])
+    store.training.logSession(THU, 'ride', null)
+    expect(store.training.day(THU).sessions[0]!.done).toBe(true)
+    expect(store.getDay(THU).workouts.sessions.map((w) => w.kind)).toEqual(['cycling'])
+    store.training.unlogSession(THU, 'ride', null)
+    expect(store.training.day(THU).sessions[0]!.done).toBe(false)
+    expect(store.getDay(THU).workouts.sessions).toHaveLength(0)
+    expect(checkEdits(store.training, plan(), [{ op: 'removeWorkout', workoutId: 'nope' }], THU, store.getSettings()).errors).toEqual(['edit 1 (removeWorkout): there\'s no logged workout "nope"'])
+  })
+
+  it('shows the coach what was logged each day, and which workouts came from where', () => {
+    store.addWorkout({ date: MON, kind: 'yoga' })
+    store.training.logSet({ date: MON, itemId: 'back-squat', setIndex: 0, reps: 5, weight: 70 })
+    const ctx = coachContext(store.training, plan(), WED, store.getSettings())
+    expect(ctx).toMatch(/session legs "Legs" \[weightlifting\] -- partly done/)
+    expect(ctx).toMatch(/logged workout \[workout [\w-]+\] yoga -- added by hand with the \+ button/)
+    expect(ctx).toMatch(/logged workout \[workout [\w-]+\] weightlifting "Legs" -- from session legs/)
+    expect(ctx).toMatch(/Wed, Nov 4 2026-11-04 \(TODAY\)/)
+  })
+})
+
 describe('previews', () => {
   it('spells out a move and a lighter week from the days before and after, saving nothing', () => {
     const checked = checkEdits(store.training, plan(), [
@@ -185,7 +232,7 @@ describe('the coach', () => {
       ['assistant', 'You have not started yet, but the plan builds sensibly toward the test week.', null],
     ])
     const input = String(lm.chats[0]!.input)
-    expect(input).toMatch(/session legs "Legs" \[weightlifting\]: Back squat \[item back-squat\] 5×5 @ 70/)
+    expect(input).toMatch(/session legs "Legs" \[weightlifting\] -- not done: Back squat \[item back-squat\] 5×5 @ 70/)
     expect(input).toMatch(/How it has gone so far:/)
     expect(lm.chats[0]!.model).toBe('mid/coach')
   })

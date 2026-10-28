@@ -154,6 +154,9 @@ CREATE TABLE IF NOT EXISTS training_chat (
 );
 CREATE INDEX IF NOT EXISTS idx_training_chat ON training_chat(schema_id, created_at);
 
+-- A day's record before the coach changed it (a workout removed, a session ticked or unticked), to undo to.
+CREATE TABLE IF NOT EXISTS record_snapshots (message_id TEXT NOT NULL, date TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY (message_id, date));
+
 -- Readings from the scale (via Apple Health). One per kind and moment, so re-sending the same week is harmless.
 CREATE TABLE IF NOT EXISTS body_measurements (
   metric TEXT NOT NULL, measured_at INTEGER NOT NULL, date TEXT NOT NULL, value REAL NOT NULL, created_at INTEGER NOT NULL,

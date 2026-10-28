@@ -43,12 +43,17 @@ const scenarios = [
   { name: 'month-phone', view: PHONE, steps: [['click', 'Month'], ['wait', 1200]] },
   { name: 'add-phone', view: PHONE, steps: [['aria', 'Add food'], ['wait', 1000]] },
   { name: 'settings-phone', view: PHONE, steps: [['aria', 'Settings'], ['wait', 900]] },
+  // Train: today's sessions set by set, the week's plan, and the coach with a proposed change.
+  { name: 'train-phone', view: PHONE, steps: [['click', 'Train'], ['wait', 1500]] },
+  { name: 'train-week-phone', view: PHONE, steps: [['click', 'Train'], ['wait', 900], ['click', 'Week'], ['wait', 1500]] },
+  { name: 'coach-phone', view: PHONE, steps: [['click', 'Train'], ['wait', 1200], ['click', 'Coach'], ['wait', 1800]] },
   { name: 'desktop', view: DESKTOP, steps: [['click', 'Week'], ['wait', 800], ['aria', 'Previous week'], ['wait', 1500]] },
   { name: 'desktop-day', view: DESKTOP, steps: [['wait', 800]] },
   // Walkthroughs, recorded (see recording.mjs): the phone's and the desktop's.
-  // A food searched for, picked and logged, then the day with it in; then the week and the month.
-  { name: 'demo-phone', view: PHONE, record: true, steps: [['wait', 900], ['aria', 'Add food'], ['wait', 900], ['click', 'Search'], ['wait', 600], ['type', SEARCH, 'blueberries'], ['until', FOUND, 10000], ['wait', 900], ['sel', '[aria-label="Yours"] .food-row'], ['wait', 1300], ['sel', '.drawer-actions .primary'], ['until', CLOSED, 5000], ['wait', 700], ['glide', '.scroll', 99999, 1600], ['wait', 1400], ['click', 'Week'], ['wait', 1600], ['click', 'Month'], ['wait', 1800]] },
-  { name: 'demo-desktop', view: DESKTOP, record: true, steps: [['wait', 900], ['aria', 'Add food'], ['wait', 900], ['click', 'Search'], ['wait', 600], ['type', SEARCH, 'blueberries'], ['until', FOUND, 10000], ['wait', 900], ['sel', '[aria-label="Yours"] .food-row'], ['wait', 1300], ['sel', '.drawer-actions .primary'], ['until', CLOSED, 5000], ['wait', 700], ['glide', '.scroll', 99999, 1600], ['wait', 1400], ['click', 'Week'], ['wait', 1600], ['click', 'Month'], ['wait', 1800]] },
+  // A food searched for, picked and logged, then the day with it in; then the week and the month; then Train, a set
+  // ticked off, and the coach.
+  { name: 'demo-phone', view: PHONE, record: true, steps: [['wait', 900], ['aria', 'Add food'], ['wait', 900], ['click', 'Search'], ['wait', 600], ['type', SEARCH, 'blueberries'], ['until', FOUND, 10000], ['wait', 900], ['sel', '[aria-label="Yours"] .food-row'], ['wait', 1300], ['sel', '.drawer-actions .primary'], ['until', CLOSED, 5000], ['wait', 700], ['glide', '.scroll', 99999, 1600], ['wait', 1400], ['click', 'Week'], ['wait', 1600], ['click', 'Month'], ['wait', 1800], ['click', 'Train'], ['wait', 1600], ['sel', '.set-row:not(.done) .set-tick'], ['wait', 1200], ['click', 'Coach'], ['wait', 2600]] },
+  { name: 'demo-desktop', view: DESKTOP, record: true, steps: [['wait', 900], ['aria', 'Add food'], ['wait', 900], ['click', 'Search'], ['wait', 600], ['type', SEARCH, 'blueberries'], ['until', FOUND, 10000], ['wait', 900], ['sel', '[aria-label="Yours"] .food-row'], ['wait', 1300], ['sel', '.drawer-actions .primary'], ['until', CLOSED, 5000], ['wait', 700], ['glide', '.scroll', 99999, 1600], ['wait', 1400], ['click', 'Week'], ['wait', 1600], ['click', 'Month'], ['wait', 1800], ['click', 'Train'], ['wait', 1600], ['sel', '.set-row:not(.done) .set-tick'], ['wait', 1200], ['click', 'Coach'], ['wait', 2600]] },
 ]
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
