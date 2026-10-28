@@ -853,6 +853,8 @@ export interface CoachMessage {
   note: string | null
   /** How the reply was made: which model, how long, how fast. */
   stats: CoachStats | null
+  /** A screenshot came with the message; it's served from /api/training/chat/:id/image. */
+  image: boolean
   createdAt: number
 }
 

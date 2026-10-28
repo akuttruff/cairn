@@ -2383,6 +2383,22 @@ describe('App', () => {
       expect(await screen.findByText('Here is how I would do it.')).toBeInTheDocument()
     })
 
+    it('attaches a screenshot to a message for the coach', async () => {
+      const { calls, user } = await openTrain({
+        'GET /api/training/chat': { messages: [], busy: false },
+        'POST /api/training/chat': { messages: [{ id: 'a1', role: 'assistant', text: 'I see Thursday.', proposal: null, status: null, note: null, stats: null, image: false, createdAt: 1 }] },
+        'GET /api/training': training(),
+      })
+      await user.click(await screen.findByRole('button', { name: 'Coach' }))
+      const file = new File(['png'], 'shot.png', { type: 'image/png' })
+      await user.upload(await screen.findByLabelText('Screenshot file'), file)
+      expect(await screen.findByAltText('Screenshot to send')).toBeInTheDocument()
+      await user.type(screen.getByLabelText('Message the coach'), 'this day')
+      await user.click(screen.getByRole('button', { name: 'Send' }))
+      await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url === '/api/training/chat')?.body).toEqual({ message: 'this day', today: TODAY, image: 'data:image/jpeg;base64,/9j/4AAQSkZJRg==' }))
+      expect(await screen.findByText('I see Thursday.')).toBeInTheDocument()
+    })
+
     it("sends a typed message, and shows the coach's one-off changes on the day with an undo", async () => {
       const { calls, user } = await openTrain({
         'GET /api/training/chat': { messages: [], busy: false },

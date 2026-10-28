@@ -190,6 +190,20 @@ describe('the coach', () => {
     expect(lm.chats[0]!.model).toBe('mid/coach')
   })
 
+  it('sends a screenshot with the message to a model that can see, and keeps it with the message', async () => {
+    const shot = 'data:image/png;base64,iVBORw0KGgo='
+    const lm = lmStudio(['That screenshot shows Thursday\'s ride.'])
+    const visionModels = { models: [{ type: 'llm', key: 'mid/coach', loaded_instances: [{ id: 'mid/coach' }], capabilities: { vision: true } }] }
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) =>
+      url.endsWith('/api/v1/models') ? new Response(JSON.stringify(visionModels), { status: 200 }) : lm.fetchImpl(url, init)) as unknown as typeof fetch
+    const messages = await coachReply({ training: store.training, settings: { ...store.getSettings(), planChatModel: 'mid/coach' }, fetchImpl, text: 'What is this?', image: shot, today: MON })
+    expect(messages[0]).toMatchObject({ role: 'user', text: 'What is this?', image: true })
+    expect(store.training.messageImage(messages[0]!.id)).toBe(shot)
+    const input = lm.chats[0]!.input as { type: string; content?: string; data_url?: string }[]
+    expect(input[1]).toEqual({ type: 'image', data_url: shot })
+    expect(input[0]!.content).toMatch(/Person: What is this\? \[screenshot attached/)
+  })
+
   it('says so when the model answers with nothing at all', async () => {
     const last = (await say('Anything?', ['']).run).at(-1)!
     expect(last).toMatchObject({ text: 'No answer came back that time.', proposal: null, note: expect.stringMatching(/^mid\/coach didn't say anything/) })

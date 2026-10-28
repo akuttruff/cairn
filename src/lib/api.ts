@@ -114,7 +114,8 @@ export const api = {
   /** The coach: the conversation about the active plan, and its proposed changes. */
   coach: () => request<{ messages: CoachMessage[]; busy: boolean; status: CoachStatus | null }>('GET', '/api/training/chat'),
   /** Say something to the coach. It answers in the background: poll coach() for what it's doing, and the reply. */
-  askCoach: (message: string, today: string) => request<{ messages: CoachMessage[]; busy: boolean; status: CoachStatus | null }>('POST', '/api/training/chat', { message, today }),
+  askCoach: (message: string, today: string, image?: string) =>
+    request<{ messages: CoachMessage[]; busy: boolean; status: CoachStatus | null }>('POST', '/api/training/chat', image ? { message, today, image } : { message, today }),
   coachAction: (id: string, action: 'apply' | 'decline' | 'undo', today: string) =>
     request<{ messages: CoachMessage[]; day: TrainingDay }>('POST', `/api/training/chat/${encodeURIComponent(id)}/${action}`, { today }),
   clearCoach: () => request<{ messages: CoachMessage[] }>('DELETE', '/api/training/chat'),

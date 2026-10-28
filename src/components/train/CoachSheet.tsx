@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Drawer } from 'vaul'
-import { ArrowUp, RotateCcw } from 'lucide-react'
+import { ArrowUp, ImagePlus, RotateCcw, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api.ts'
 import { localDate } from '../../lib/nutrition.ts'
+import { shrinkImage } from '../../lib/image.ts'
+import { pictureOf } from '../../lib/pictures.ts'
 import type { CoachMessage, CoachStats, CoachStatus, TrainingDay } from '../../types.ts'
 
 interface CoachSheetProps {
@@ -16,6 +18,8 @@ interface CoachSheetProps {
 }
 
 const POLL_MS = 700
+/** Screenshots keep more detail than a label photo: small text should stay readable. */
+const SHOT_MAX_SIDE = 1600
 
 /** "qwen/qwen3.8-27b" -> "qwen3.8-27b": the model's own name, without who published it. */
 const shortModel = (m: string): string => m.split('/').pop() ?? m
@@ -62,6 +66,10 @@ export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheet
   const [messages, setMessages] = useState<CoachMessage[]>([])
   const [draft, setDraft] = useState('')
   const [thinking, setThinking] = useState(false)
+  const [shot, setShot] = useState<string | null>(null)
+  // Screenshots sent this session, shown at once from the copy here while the server's copy loads.
+  const [sentShots, setSentShots] = useState<Record<string, string>>({})
+  const fileInput = useRef<HTMLInputElement>(null)
   const [status, setStatus] = useState<CoachStatus | null>(null)
   const [now, setNow] = useState(Date.now())
   const end = useRef<HTMLDivElement>(null)
@@ -105,15 +113,32 @@ export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheet
     // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [open, ask?.n])
 
+  /** A picture from the file picker, a paste or a drop, made small enough to send. */
+  const attach = async (file: File | null | undefined): Promise<void> => {
+    if (!file) return
+    try {
+      setShot(await shrinkImage(file, SHOT_MAX_SIDE))
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
   const send = async (text: string): Promise<void> => {
     const message = text.trim()
-    if (!message || thinking) return
+    const image = shot
+    if ((!message && !image) || thinking) return
     setDraft('')
+    setShot(null)
     setThinking(true)
     // Shown at once; the server's copy replaces it with the reply.
-    setMessages((m) => [...m, { id: `pending-${Date.now()}`, role: 'user', text: message, proposal: null, status: null, note: null, stats: null, createdAt: Date.now() }])
+    const pendingId = `pending-${Date.now()}`
+    if (image) setSentShots((s) => ({ ...s, [pendingId]: image }))
+    setMessages((m) => [...m, { id: pendingId, role: 'user', text: message, proposal: null, status: null, note: null, stats: null, image: Boolean(image), createdAt: Date.now() }])
     try {
-      const r = await api.askCoach(message, localDate())
+      const r = await api.askCoach(message, localDate(), image ?? undefined)
+      // The server's id for the message just sent, so its screenshot keeps showing from the copy here.
+      const mine = image ? [...r.messages].reverse().find((m) => m.role === 'user' && m.image) : undefined
+      if (mine && image) setSentShots((s) => ({ ...s, [mine.id]: image }))
       setMessages(r.messages)
       setStatus(r.status)
       if (r.busy) timer.current = setTimeout(poll, POLL_MS)
@@ -121,6 +146,7 @@ export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheet
     } catch (err) {
       toast.error((err as Error).message)
       setDraft(message)
+      setShot(image)
       setMessages((m) => m.filter((x) => !x.id.startsWith('pending-')))
       setThinking(false)
     }
@@ -172,12 +198,28 @@ export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheet
                 </div>
               </div>
             )}
-            {messages.map((m) => <Message key={m.id} m={m} onAct={act} />)}
+            {messages.map((m) => <Message key={m.id} m={m} shot={sentShots[m.id]} onAct={act} />)}
             {thinking && <div className="coach-msg coach coach-working" role="status"><span className="spinner" aria-hidden="true" /> {statusLine(status, now)}</div>}
             <div ref={end} />
           </div>
-          <form className="coach-compose" onSubmit={(e) => { e.preventDefault(); void send(draft) }}>
+          {shot && (
+            <div className="coach-shot-pending">
+              <img src={shot} alt="Screenshot to send" />
+              <button type="button" className="icon-btn" aria-label="Remove the screenshot" onClick={() => setShot(null)}><X size={14} aria-hidden="true" /></button>
+            </div>
+          )}
+          <form
+            className="coach-compose"
+            onSubmit={(e) => { e.preventDefault(); void send(draft) }}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { const file = pictureOf(e.dataTransfer); if (file) { e.preventDefault(); void attach(file) } }}
+          >
+            <input ref={fileInput} type="file" accept="image/*" hidden aria-label="Screenshot file" onChange={(e) => { void attach(e.target.files?.[0]); e.target.value = '' }} />
+            <button type="button" className="coach-attach" aria-label="Attach a screenshot" onClick={() => fileInput.current?.click()} disabled={thinking}>
+              <ImagePlus size={18} aria-hidden="true" />
+            </button>
             <textarea
+              onPaste={(e) => { const file = pictureOf(e.clipboardData); if (file) { e.preventDefault(); void attach(file) } }}
               aria-label="Message the coach"
               placeholder="Ask, or ask for a change…"
               value={draft}
@@ -186,7 +228,7 @@ export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheet
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(draft) } }}
             />
-            <button type="submit" className="coach-send" aria-label="Send" disabled={!draft.trim() || thinking}>
+            <button type="submit" className="coach-send" aria-label="Send" disabled={(!draft.trim() && !shot) || thinking}>
               <ArrowUp size={18} aria-hidden="true" />
             </button>
           </form>
@@ -196,11 +238,14 @@ export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheet
   )
 }
 
-function Message({ m, onAct }: { m: CoachMessage; onAct: (id: string, action: 'apply' | 'decline' | 'undo') => Promise<void> }) {
+function Message({ m, shot, onAct }: { m: CoachMessage; shot?: string; onAct: (id: string, action: 'apply' | 'decline' | 'undo') => Promise<void> }) {
   const rewrite = m.proposal?.edits.some((e) => e.op === 'rewrite')
   return (
     <div className={`coach-msg ${m.role === 'user' ? 'me' : 'coach'}`}>
-      <div className="coach-text">{m.text}</div>
+      {m.image && (
+        <img className="coach-shot" alt="Screenshot sent to the coach" src={shot ?? `/api/training/chat/${encodeURIComponent(m.id)}/image`} />
+      )}
+      {m.text && <div className="coach-text">{m.text}</div>}
       {m.proposal && (
         <div className={`coach-proposal ${m.status ?? ''}`} aria-label="Proposed change">
           <ul>{m.proposal.preview.map((l) => <li key={l}>{l}</li>)}</ul>

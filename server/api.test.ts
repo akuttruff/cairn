@@ -421,6 +421,18 @@ describe('training', () => {
       expect(r.messages[1]!.note).toBeTruthy()
     })
     expect((await call('POST', '/api/training/chat/nope/apply', { today: '2026-11-02' })).status).toBe(400)
+    // A screenshot alone is a message too; anything that isn't a picture is refused.
+    expect((await call('POST', '/api/training/chat', { image: 'data:text/html;base64,PGh0bWw+' })).status).toBe(400)
+    await vi.waitFor(async () => expect(((await call('GET', '/api/training/chat')).body as { busy: boolean }).busy).toBe(false))
+    const png = 'iVBORw0KGgo='
+    expect((await call('POST', '/api/training/chat', { image: `data:image/png;base64,${png}` })).status).toBe(202)
+    const withShot = ((await call('GET', '/api/training/chat')).body as { messages: { id: string; image: boolean; text: string }[] }).messages.find((x) => x.image)!
+    expect(withShot.text).toBe('What do you make of this?')
+    const pic = await fetch(`${base}/api/training/chat/${withShot.id}/image`)
+    expect(pic.headers.get('content-type')).toBe('image/png')
+    expect(Buffer.from(await pic.arrayBuffer()).toString('base64')).toBe(png)
+    expect((await fetch(`${base}/api/training/chat/nope/image`)).status).toBe(404)
+    await vi.waitFor(async () => expect(((await call('GET', '/api/training/chat')).body as { busy: boolean }).busy).toBe(false))
     expect((await call('DELETE', '/api/training/chat')).body).toEqual({ messages: [] })
     expect((await call('DELETE', '/api/training/overrides/nope')).status).toBe(400)
   })

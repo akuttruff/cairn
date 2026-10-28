@@ -384,8 +384,10 @@ export function createApi(options: ApiOptions = {}) {
         return json(res, 200, { messages: [] })
       }
       if (method === 'POST') {
-        const { message, today } = await readBody(req) as { message?: unknown; today?: unknown }
-        if (typeof message !== 'string' || !message.trim()) throw new ValidationError('say something to the coach')
+        const { message, today, image } = await readBody(req, LABEL_MAX_BYTES + 20_000) as { message?: unknown; today?: unknown; image?: unknown }
+        if (image !== undefined && !isImageDataUrl(image)) throw new ValidationError('send a screenshot as a JPEG, PNG or WebP data URL')
+        const said = typeof message === 'string' ? message.trim() : ''
+        if (!said && !image) throw new ValidationError('say something to the coach')
         if (coaching) return json(res, 409, { error: 'The coach is still answering.' })
         if (!plan) throw new ValidationError('there\'s no active training plan to talk about')
         coaching = true
@@ -393,7 +395,8 @@ export function createApi(options: ApiOptions = {}) {
         const day = typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today) ? today : new Date().toISOString().slice(0, 10)
         // In the background, like a lookup: the page polls GET for what the coach is doing, and the reply when it's there.
         const reply = coachReply({
-          training: store.training, settings: store.getSettings(), fetchImpl, text: message.trim().slice(0, 2000), today: day,
+          training: store.training, settings: store.getSettings(), fetchImpl, text: (said || 'What do you make of this?').slice(0, 2000), today: day,
+          ...(typeof image === 'string' ? { image } : {}),
           onStatus: (s) => { coachStatus = s },
         })
         void reply
@@ -421,6 +424,15 @@ export function createApi(options: ApiOptions = {}) {
       }
       const plan = store.training.activeSchema()
       return json(res, 200, { messages: plan ? store.training.messages(plan.id) : [], day: store.training.day(day) })
+    }
+    if ((m = /^\/api\/training\/chat\/([^/]+)\/image$/.exec(p)) && method === 'GET') {
+      const url = store.training.messageImage(decodeURIComponent(m[1]!))
+      const parts = url ? /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(url) : null
+      if (!parts) return json(res, 404, { error: 'no screenshot' })
+      const bytes = Buffer.from(parts[2]!, 'base64')
+      res.writeHead(200, { 'Content-Type': parts[1]!, 'Content-Length': bytes.byteLength, 'Cache-Control': 'private, max-age=31536000, immutable' })
+      res.end(bytes)
+      return
     }
     if ((m = /^\/api\/training\/overrides\/([^/]+)$/.exec(p)) && method === 'DELETE') {
       store.training.removeOverride(decodeURIComponent(m[1]!))

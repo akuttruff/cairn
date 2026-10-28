@@ -302,6 +302,8 @@ export interface CoachArgs {
   settings: Settings
   fetchImpl: typeof fetch
   text: string
+  /** A screenshot to clarify the message, as a JPEG/PNG/WebP data URL. */
+  image?: string
   today: string
   signal?: AbortSignal
   /** Told what the coach is doing while it answers: loading, reading the plan, thinking, writing, checking. */
@@ -309,17 +311,18 @@ export interface CoachArgs {
 }
 
 /** One turn of the conversation: the person's message saved, the coach's reply (and any proposal) saved after it. */
-export async function coachReply({ training, settings, fetchImpl, text, today, signal: abort, onStatus }: CoachArgs): Promise<CoachMessage[]> {
+export async function coachReply({ training, settings, fetchImpl, text, image, today, signal: abort, onStatus }: CoachArgs): Promise<CoachMessage[]> {
   const plan = training.activePlan()
   if (!plan) throw new Error('There\'s no active training schema to talk about. Import one first.')
   const history = training.messages(plan.id).slice(-HISTORY)
-  training.addMessage(plan.id, 'user', text)
+  training.addMessage(plan.id, 'user', text, null, null, null, image ?? null)
   const signal = AbortSignal.any([AbortSignal.timeout(COACH_TIMEOUT_MS), ...(abort ? [abort] : [])])
   const startedAt = Date.now()
   let phase: CoachStatus['phase'] = 'reading'
   const report = (p: Partial<CoachStatus>): void => onStatus?.({ phase, progress: null, tokens: 0, model: null, startedAt, ...p })
   report({})
-  const { model, reasoning } = await chooseModel(settings, fetchImpl, signal, settings.planChatModel)
+  // A screenshot needs a model that can see: the coach model if it can, else whichever vision model there is.
+  const { model, reasoning } = await chooseModel(settings, fetchImpl, signal, settings.planChatModel, Boolean(image))
   // The last answer's stats, with the time for the whole turn (a retry included).
   let last: ChatProgress['stats'] | undefined
   const watch = (p: ChatProgress): void => {
@@ -331,11 +334,16 @@ export async function coachReply({ training, settings, fetchImpl, text, today, s
     const proposal = m.proposal ? ` [proposed: ${m.proposal.preview.join('; ')} -- ${m.status}]` : ''
     // What actually happened, so a reply that claimed a change it didn't make isn't taken as done.
     const note = m.role === 'assistant' && !m.proposal && m.note ? ` [no change was made: ${m.note}]` : ''
-    return `${m.role === 'user' ? 'Person' : 'Coach'}: ${m.text}${proposal}${note}`
+    const shot = m.image ? ' [sent a screenshot]' : ''
+    return `${m.role === 'user' ? 'Person' : 'Coach'}: ${m.text}${shot}${proposal}${note}`
   })
-  const input = [coachContext(training, plan, today, settings), '', 'The conversation so far:', ...past, `Person: ${text}`].join('\n')
+  const input = [coachContext(training, plan, today, settings), '', 'The conversation so far:', ...past, `Person: ${text}${image ? ' [screenshot attached: read it to understand what they mean]' : ''}`].join('\n')
   const ask = async (body: string): Promise<string> => {
-    const req: Record<string, unknown> = { model, system_prompt: SYSTEM, input: body, max_output_tokens: COACH_MAX_TOKENS }
+    // With a screenshot, the input is the text and the picture together, as the label reader sends one.
+    const req: Record<string, unknown> = {
+      model, system_prompt: SYSTEM, max_output_tokens: COACH_MAX_TOKENS,
+      input: image ? [{ type: 'text', content: body }, { type: 'image', data_url: image }] : body,
+    }
     if (reasoning) req.reasoning = reasoning
     return chatText(settings, req, fetchImpl, signal, watch)
   }

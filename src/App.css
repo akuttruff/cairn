@@ -1017,3 +1017,10 @@ button:disabled { opacity: 0.45; cursor: default; }
 .week-plan-session.optional { font-style: italic; opacity: 0.75; }
 .coach-working { flex-direction: row !important; align-items: center; gap: 8px !important; font-size: 13px; color: var(--paper-dim); font-variant-numeric: tabular-nums; }
 .coach-stats { font-family: var(--mono); font-size: 10.5px; line-height: 1.4; color: var(--paper-dim); opacity: 0.8; }
+.coach-attach {
+  flex: 0 0 auto; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--bg); color: var(--paper-dim);
+  display: flex; align-items: center; justify-content: center;
+}
+.coach-shot { display: block; max-width: 220px; max-height: 260px; border-radius: 10px; margin-bottom: 6px; object-fit: cover; }
+.coach-shot-pending { flex: 0 0 auto; display: flex; align-items: flex-start; gap: 6px; padding-top: 8px; }
+.coach-shot-pending img { max-height: 90px; max-width: 160px; border-radius: 8px; border: 1px solid var(--line); }
