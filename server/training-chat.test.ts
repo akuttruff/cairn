@@ -167,6 +167,11 @@ describe('the coach', () => {
     expect(lm.chats[0]!.model).toBe('mid/coach')
   })
 
+  it('says so when the model answers with nothing at all', async () => {
+    const last = (await say('Anything?', ['']).run).at(-1)!
+    expect(last).toMatchObject({ text: 'No answer came back that time.', proposal: null, note: expect.stringMatching(/^mid\/coach didn't say anything/) })
+  })
+
   it('proposes a change with its preview, applies it, and undoes it', async () => {
     const reply = JSON.stringify({ reply: 'I can move legs to Saturday.', edits: [{ type: 'move', sessionId: 'legs', from: MON, to: SAT }] })
     const messages = await say('Move Monday to Saturday', [reply]).run

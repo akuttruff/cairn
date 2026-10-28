@@ -21,7 +21,8 @@ import { outline } from './training-gen.ts'
  */
 
 export const COACH_TIMEOUT_MS = 5 * 60_000
-export const COACH_MAX_TOKENS = 4000
+/** Room for a model that thinks before it answers (the big Qwen can't be told not to). */
+export const COACH_MAX_TOKENS = 12_000
 /** How far ahead the coach sees the plan day by day. */
 const AHEAD_DAYS = 14
 /** The longest a one-off change can run. */
@@ -329,8 +330,12 @@ export async function coachReply({ training, settings, fetchImpl, text, today, s
     ;({ reply, edits } = read(raw))
     checked = checkEdits(training, plan, edits, today, settings)
   }
-  if (!edits.length) {
-    training.addMessage(plan.id, 'assistant', reply || '…')
+  if (!reply && !edits.length) {
+    // Usually a thinking model that spent its whole reply on thinking.
+    training.addMessage(plan.id, 'assistant', 'No answer came back that time.', null,
+      `${model} didn't say anything. Try again, or choose a quicker Coach model in Settings (a mid-size one answers in seconds).`)
+  } else if (!edits.length) {
+    training.addMessage(plan.id, 'assistant', reply)
   } else if (checked.errors.length) {
     training.addMessage(plan.id, 'assistant', reply, null, `I couldn't turn that into a change to the plan (${checked.errors.slice(0, 2).join('; ')}). Try saying it another way.`)
   } else {
