@@ -42,9 +42,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: default; }
 
 .app {
+  /* Pinned to the screen's edges, not 100dvh: in an installed iOS web app 100dvh can come up short, leaving dead space under the section bar. */
+  position: fixed;
+  inset: 0;
   display: flex;
   flex-direction: column;
-  height: 100dvh;
   padding-top: env(safe-area-inset-top, 0px);
 }
 
@@ -492,8 +494,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .fab {
   position: fixed;
   right: 18px;
-  /* Above the section bar (56px plus the safe area). */
-  bottom: calc(56px + 16px + env(safe-area-inset-bottom, 0px));
+  /* Above the section bar (48px plus its share of the safe area). */
+  bottom: calc(48px + 14px + env(safe-area-inset-bottom, 0px) * 0.6);
   width: 58px;
   height: 58px;
   border-radius: 50%;
@@ -930,13 +932,14 @@ button:disabled { opacity: 0.45; cursor: default; }
 .set-edit input:focus, .lift-edit input:focus, .generate-note:focus { outline: none; border-color: var(--moss-dim); }
 
 /* --- Sections ----------------------------------------------------------------- */
+/* Compact: 48px, and only part of the home indicator's space under it (the indicator sits low enough to share it). */
 .section-tabs {
   flex: 0 0 auto; display: flex; border-top: 1px solid var(--line); background: var(--bg);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) * 0.6);
 }
 .section-tab {
-  flex: 1; height: 56px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  background: none; border: none; color: var(--paper-dim); font-size: 11px; font-weight: 600;
+  flex: 1; height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: none; border: none; color: var(--paper-dim); font-size: 10px; font-weight: 600;
 }
 .section-tab.active { color: var(--moss); }
 .plan-teaser {

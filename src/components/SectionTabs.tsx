@@ -23,7 +23,7 @@ export default function SectionTabs({ section, onChange }: SectionTabsProps) {
           aria-current={section === value ? 'page' : undefined}
           onClick={() => onChange(value)}
         >
-          <Icon size={20} aria-hidden="true" />
+          <Icon size={18} aria-hidden="true" />
           <span>{label}</span>
         </button>
       ))}
