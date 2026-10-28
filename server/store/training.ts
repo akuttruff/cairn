@@ -71,7 +71,11 @@ export interface TrainingDeps {
   deleteWorkout: (id: string) => void
   workoutRowsOn: (date: string) => WorkoutRow[]
   replaceWorkoutsOn: (date: string, rows: WorkoutRow[]) => void
+  setEquipment: (equipment: Equipment) => void
 }
+
+/** Kept with the day snapshots, under a key no date can be: the gear before the coach set its places. */
+const EQUIPMENT_SNAPSHOT = '#equipment'
 
 /** A day's record as it stood: what a record change by the coach is undone to. */
 interface RecordSnapshot { sets: SetRow[]; sessions: SessionRow[]; workouts: WorkoutRow[] }
@@ -462,7 +466,7 @@ export class TrainingStore {
         if (item.minutes) return { ...base, type: 'minutes' as const, minutes: item.minutes[String(week)], done }
         if (item.wod) {
           const chosen = sessionRows.get(session.id)?.wod_id ?? null
-          const picks = pickWods(item.wod, equipment, { recent, seed: `${date}:${shuffle}`, extra: schema.wods })
+          const picks = pickWods(item.wod, equipment, { recent, seed: `${date}:${shuffle}`, extra: schema.wods, hidden: schema.hiddenWods })
           const chosenWod = chosen ? findWod(chosen, schema.wods) : undefined
           const chosenView = chosenWod ? viewWod(chosenWod, equipment, item.wod.lowImpact) : null
           return {
@@ -756,9 +760,16 @@ export class TrainingStore {
     }
   }
 
-  /** Put back the days a message's record changes touched, exactly as they were. */
+  /** Set where the gear is, keeping what it was so the coach's change can be undone. */
+  setEquipment(equipment: Equipment, messageId: string | null): void {
+    if (messageId) this.s.insertSnapshot!.run(messageId, EQUIPMENT_SNAPSHOT, JSON.stringify(this.deps.getSettings().equipment))
+    this.deps.setEquipment(equipment)
+  }
+
+  /** Put back the days a message's record changes touched, exactly as they were (and the gear, if it moved). */
   restoreRecord(messageId: string): void {
     for (const { date, body } of this.s.snapshotsOf!.all(messageId) as unknown as { date: string; body: string }[]) {
+      if (date === EQUIPMENT_SNAPSHOT) { this.deps.setEquipment(JSON.parse(body) as Equipment); continue }
       const snap = JSON.parse(body) as RecordSnapshot
       this.s.deleteSetsOn!.run(date)
       this.s.deleteSessionsOn!.run(date)

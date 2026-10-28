@@ -81,6 +81,7 @@ export class Store {
       deleteWorkout: (id) => this.deleteWorkout(id),
       workoutRowsOn: (date) => this.workoutRowsOn(date),
       replaceWorkoutsOn: (date, rows) => this.replaceWorkoutsOn(date, rows),
+      setEquipment: (equipment) => { this.setSettings({ equipment }) },
     })
 
     if (!this.stmts.selectGoals.get()) {

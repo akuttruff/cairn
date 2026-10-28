@@ -581,6 +581,17 @@ export type Gear = (typeof GEAR)[number]
 
 /** What's on hand to train with. Dumbbell and kettlebell weights are per bell, in lb. */
 export interface Equipment {
+  /** Everything on hand, wherever it is (with places, what they hold together). */
+  gear: Gear[]
+  dumbbells: number[]
+  kettlebells: number[]
+  /** Where it is, when it's in more than one room: a WOD is only offered if one place has all it needs. */
+  places?: Place[]
+}
+
+/** One room's gear: a garage with the barbell and rings, a living room with the bike and dumbbells. */
+export interface Place {
+  name: string
   gear: Gear[]
   dumbbells: number[]
   kettlebells: number[]
@@ -666,6 +677,8 @@ export interface TrainingSchema {
   days: { weekday: number; sessions: TrainingSession[] }[]
   /** WODs written for this schema, in addition to the bank. */
   wods?: Wod[]
+  /** Bank WODs this schema leaves out. */
+  hiddenWods?: string[]
 }
 
 export type SchemaStatus = 'draft' | 'active' | 'done'
@@ -810,6 +823,8 @@ export interface WodView {
   lines: string[]
   swaps: string[]
   focus: WodFocus[]
+  /** Where it's done, when the gear is in more than one place. */
+  place?: string
 }
 
 // --- the coach: talking about the plan, and changing it ------------------------
@@ -836,10 +851,16 @@ export type PlanEdit =
   | { op: 'removeWorkout'; workoutId: string }
   | { op: 'unlogSession'; date: string; sessionId: string }
   | { op: 'logSession'; date: string; sessionId: string }
+  | { op: 'addWod'; wod: Wod }
+  | { op: 'hideWod'; wodId: string }
+  | { op: 'showWod'; wodId: string }
+  | { op: 'setPlaces'; places: Place[] }
 
 export const OVERRIDE_OPS = ['move', 'skip', 'load', 'swap', 'equipment'] as const
 /** Changes to what was logged, not to the plan: a workout removed, a session unticked or ticked off. */
 export const RECORD_OPS = ['removeWorkout', 'unlogSession', 'logSession'] as const
+/** Changes to the WOD bank (kept in the schema) and to where the gear is (a setting). */
+export const BANK_OPS = ['addWod', 'hideWod', 'showWod', 'setPlaces'] as const
 export const REVISION_OPS = ['replaceItem', 'addItem', 'removeItem', 'addSession', 'removeSession', 'moveSession', 'setOptional'] as const
 
 export interface PlanProposal {

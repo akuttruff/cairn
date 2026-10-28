@@ -7,6 +7,12 @@ import type { Gear, WodFocus } from '../../types.ts'
  * usually, at a rough equal effort).
  */
 
+/**
+ * A stand-in: `factor` of the amount, and how far it strays from the original -- 1 for a near
+ * equal (cardio for cardio, a strict pull-up for a banded one), 3 (the default) for another movement.
+ */
+export interface Sub { to: string; factor: number; cost?: number }
+
 export interface Movement {
   id: string
   name: string
@@ -17,8 +23,8 @@ export interface Movement {
   impact?: boolean
   /** Loaded with dumbbells or kettlebells, so a WOD's weight is per bell. */
   bells?: 'dumbbells' | 'kettlebells'
-  /** What to do instead, `factor` of this one's amount. */
-  sub?: { to: string; factor: number }
+  /** What to do instead, `factor` of this one's amount: the first of these the gear (and the impact rule) allows. */
+  sub?: Sub | Sub[]
 }
 
 const BAR: Gear[] = ['barbell', 'plates']
@@ -27,13 +33,14 @@ const DB: Gear[] = ['dumbbells']
 
 export const MOVEMENTS: Movement[] = [
   // Monostructural
-  { id: 'bike-cal', name: 'cal bike', unit: 'cal', needs: [['bike']], focus: 'bike', sub: { to: 'row-cal', factor: 1 } },
-  { id: 'row-cal', name: 'cal row', unit: 'cal', needs: [['rower']], focus: 'full', sub: { to: 'burpee', factor: 0.33 } },
-  { id: 'run', name: 'm run', unit: 'm', needs: [], focus: 'legs', impact: true, sub: { to: 'bike-cal', factor: 0.05 } },
-  { id: 'single-under', name: 'single-unders', unit: 'reps', needs: [['jump-rope']], focus: 'bike', impact: true, sub: { to: 'bike-cal', factor: 1 / 3 } },
-  { id: 'double-under', name: 'double-unders', unit: 'reps', needs: [['jump-rope']], focus: 'bike', impact: true, sub: { to: 'bike-cal', factor: 0.5 } },
+  // Cardio stands in for cardio at about the same effort: a calorie is about three single-unders.
+  { id: 'bike-cal', name: 'cal bike', unit: 'cal', needs: [['bike']], focus: 'bike', sub: [{ to: 'row-cal', factor: 1, cost: 1 }, { to: 'single-under', factor: 3, cost: 1 }, { to: 'burpee', factor: 0.33, cost: 2 }] },
+  { id: 'row-cal', name: 'cal row', unit: 'cal', needs: [['rower']], focus: 'bike', sub: [{ to: 'bike-cal', factor: 1, cost: 1 }, { to: 'single-under', factor: 3, cost: 1 }, { to: 'burpee', factor: 0.33, cost: 2 }] },
+  { id: 'run', name: 'm run', unit: 'm', needs: [], focus: 'legs', impact: true, sub: [{ to: 'bike-cal', factor: 0.05, cost: 1 }, { to: 'row-cal', factor: 0.05, cost: 1 }, { to: 'single-under', factor: 0.15, cost: 1 }] },
+  { id: 'single-under', name: 'single-unders', unit: 'reps', needs: [['jump-rope']], focus: 'bike', impact: true, sub: [{ to: 'bike-cal', factor: 1 / 3, cost: 1 }, { to: 'row-cal', factor: 1 / 3, cost: 1 }, { to: 'mountain-climber', factor: 1, cost: 2 }] },
+  { id: 'double-under', name: 'double-unders', unit: 'reps', needs: [['jump-rope']], focus: 'bike', impact: true, sub: [{ to: 'single-under', factor: 2, cost: 1 }, { to: 'bike-cal', factor: 0.5, cost: 1 }] },
   { id: 'jumping-jack', name: 'jumping jacks', unit: 'reps', needs: [], focus: 'bike', impact: true, sub: { to: 'bike-cal', factor: 0.25 } },
-  { id: 'burpee', name: 'burpees', unit: 'reps', needs: [], focus: 'full', impact: true, sub: { to: 'bike-cal', factor: 3 } },
+  { id: 'burpee', name: 'burpees', unit: 'reps', needs: [], focus: 'full', impact: true, sub: [{ to: 'bike-cal', factor: 3, cost: 2 }, { to: 'row-cal', factor: 3, cost: 2 }, { to: 'mountain-climber', factor: 4, cost: 2 }] },
   { id: 'box-jump', name: 'box jumps', unit: 'reps', needs: [['box']], focus: 'legs', impact: true, sub: { to: 'db-step-up', factor: 1 } },
 
   // Barbell
@@ -80,12 +87,13 @@ export const MOVEMENTS: Movement[] = [
   { id: 'kb-goblet-squat', name: 'kettlebell goblet squats', unit: 'reps', needs: [['kettlebells']], bells: 'kettlebells', focus: 'legs', sub: { to: 'goblet-squat', factor: 1 } },
 
   // Gymnastics and bodyweight
-  { id: 'pull-up', name: 'pull-ups', unit: 'reps', needs: [['pullup-bar']], focus: 'upper', sub: { to: 'banded-pull-up', factor: 1 } },
-  { id: 'banded-pull-up', name: 'banded pull-ups', unit: 'reps', needs: [['pullup-bar', 'bands']], focus: 'upper', sub: { to: 'ring-row', factor: 1.5 } },
+  { id: 'pull-up', name: 'pull-ups', unit: 'reps', needs: [['pullup-bar']], focus: 'upper', sub: [{ to: 'banded-pull-up', factor: 1, cost: 1 }, { to: 'ring-row', factor: 1.5, cost: 2 }] },
+  // Without a band, strict pull-ups on the same bar (about half as many), before rows.
+  { id: 'banded-pull-up', name: 'banded pull-ups', unit: 'reps', needs: [['pullup-bar', 'bands']], focus: 'upper', sub: [{ to: 'pull-up', factor: 0.5, cost: 1 }, { to: 'ring-row', factor: 1.5, cost: 2 }] },
   { id: 'chest-to-bar', name: 'chest-to-bar pull-ups', unit: 'reps', needs: [['pullup-bar']], focus: 'upper', sub: { to: 'pull-up', factor: 1 } },
   { id: 'toes-to-bar', name: 'toes-to-bar', unit: 'reps', needs: [['pullup-bar']], focus: 'core', sub: { to: 'v-up', factor: 1.5 } },
   { id: 'knees-to-chest', name: 'hanging knee raises', unit: 'reps', needs: [['pullup-bar']], focus: 'core', sub: { to: 'v-up', factor: 1 } },
-  { id: 'ring-row', name: 'ring rows', unit: 'reps', needs: [['rings']], focus: 'upper', sub: { to: 'db-row', factor: 1 } },
+  { id: 'ring-row', name: 'ring rows', unit: 'reps', needs: [['rings']], focus: 'upper', sub: { to: 'db-row', factor: 1, cost: 2 } },
   { id: 'ring-dip', name: 'ring dips', unit: 'reps', needs: [['rings']], focus: 'upper', sub: { to: 'push-up', factor: 1.5 } },
   { id: 'push-up', name: 'push-ups', unit: 'reps', needs: [], focus: 'upper' },
   { id: 'hand-release-push-up', name: 'hand-release push-ups', unit: 'reps', needs: [], focus: 'upper' },

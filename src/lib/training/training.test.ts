@@ -80,7 +80,8 @@ describe('prescriptions', () => {
 describe('the WOD bank', () => {
   it('is written only in movements the library has, and every swap leads somewhere', () => {
     for (const wod of WOD_BANK) for (const p of wod.parts) expect(MOVEMENT.has(p.move), `${wod.id}: ${p.move}`).toBe(true)
-    expect(MOVEMENTS.filter((m) => m.sub && !MOVEMENT.has(m.sub.to)).map((m) => m.id)).toEqual([])
+    const subs = (m: (typeof MOVEMENTS)[number]) => (m.sub ? [m.sub].flat() : [])
+    expect(MOVEMENTS.filter((m) => subs(m).some((x) => !MOVEMENT.has(x.to))).map((m) => m.id)).toEqual([])
     expect(new Set(WOD_BANK.map((w) => w.id)).size).toBe(WOD_BANK.length)
   })
 
@@ -107,9 +108,31 @@ describe('the WOD bank', () => {
     expect(fran.lines).toEqual(['DB thrusters (2×20 lb)', 'DB bent-over rows (2×20 lb)'])
   })
 
-  it('leaves out a WOD nothing on hand can stand in for', () => {
+  it('keeps a WOD to one place when the gear is split between rooms, and says which', () => {
+    const split = cleanEquipment({ places: [
+      { name: 'Living room', gear: ['bike', 'ab-mat'], dumbbells: [15, 20, 25, 30] },
+      { name: 'Garage', gear: ['barbell', 'plates', 'pullup-bar', 'rings', 'jump-rope'] },
+    ] })
+    expect(split.gear).toEqual(['barbell', 'plates', 'dumbbells', 'pullup-bar', 'rings', 'ab-mat', 'jump-rope', 'bike'])
+    // Pull-ups and the bike: in one place, the garage, the bike becomes jump rope or burpees -- never the living room's bike.
+    const pullPushPedal = viewWod(WOD_BANK.find((w) => w.id === 'pull-push-pedal')!, split)!
+    expect(pullPushPedal.place).toBe('Garage')
+    expect(pullPushPedal.lines.join(' ')).not.toMatch(/cal bike/)
+    const pressPairing = viewWod(WOD_BANK.find((w) => w.id === 'press-pairing')!, split)!
+    expect(pressPairing).toMatchObject({ place: 'Living room', lines: ['10 DB push press (2×25 lb)', '12 cal bike', '10 V-ups'] })
+  })
+
+  it('leaves out WODs a schema hides', () => {
+    const slot = { maxMinutes: 15, focus: ['upper' as const, 'bike' as const] }
+    const all = fittingWods(slot, SAMPLE_EQUIPMENT).map((w) => w.id)
+    expect(fittingWods(slot, SAMPLE_EQUIPMENT, [], [all[0]!]).map((w) => w.id)).not.toContain(all[0])
+  })
+
+  it('falls back to bodyweight when nothing on hand can stand in, and leaves out what it can\'t place', () => {
     const rowChipper = WOD_BANK.find((w) => w.id === 'row-chipper')!
-    expect(viewWod(rowChipper, { gear: [], dumbbells: [], kettlebells: [] }, true)).toBeNull()
+    const bare = viewWod(rowChipper, { gear: [], dumbbells: [], kettlebells: [] }, true)!
+    expect(bare.lines[0]).toBe('120 mountain climbers') // 40 cal row, by way of 120 single-unders: no rope, and nothing that jumps on low impact
+    expect(viewWod({ ...rowChipper, parts: [{ move: 'teleport', amount: 1 }] }, SAMPLE_EQUIPMENT)).toBeNull()
   })
 
   it('offers only what fits the slot, skips recent ones, and keeps the same picks for a day', () => {

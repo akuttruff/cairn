@@ -166,6 +166,43 @@ describe('the record', () => {
   })
 })
 
+describe('the WOD bank and the places', () => {
+  it('sets the places, adds a WOD and hides one, all undone together', () => {
+    const edits: PlanEdit[] = [
+      { op: 'setPlaces', places: [{ name: 'Living room', gear: ['bike'], dumbbells: [20], kettlebells: [] }, { name: 'Garage', gear: ['barbell', 'plates', 'rack', 'pullup-bar', 'bands', 'jump-rope'], dumbbells: [], kettlebells: [] }] },
+      { op: 'addWod', wod: { id: 'cindy-ish', name: 'Cindy-ish', format: 'amrap', minutes: 20, parts: [{ move: 'pull-up', amount: 5 }, { move: 'push-up', amount: 10 }, { move: 'air-squat', amount: 15 }] } },
+      { op: 'hideWod', wodId: 'core-spin' },
+    ]
+    const checked = checkEdits(store.training, plan(), edits, MON, store.getSettings())
+    expect(checked.errors).toEqual([])
+    expect(previewEdits(store.training, plan(), checked, MON)).toEqual([
+      'Living room: bike, dumbbells 20 lb',
+      'Garage: barbell, plates, rack, pullup-bar, bands, jump-rope',
+      '+ WOD Cindy-ish: 20-min AMRAP, 5 pull-ups, 10 push-ups, 15 air squats (Garage)',
+      'No more Core Spin in the WOD picks',
+    ])
+    const before = store.getSettings().equipment
+    const id = store.training.addMessage(plan().id, 'assistant', 'Set up.', { edits, preview: [] })
+    applyProposal(store.training, id, MON, store.getSettings(), () => {})
+    expect(store.getSettings().equipment.places!.map((p) => p.name)).toEqual(['Living room', 'Garage'])
+    expect(plan().schema).toMatchObject({ wods: [{ id: 'cindy-ish' }], hiddenWods: ['core-spin'] })
+    const picks = store.training.day(WED).sessions.find((s) => s.id === 'wod-wed')!.items[0]!.wod!.picks
+    expect(picks.every((p) => p.place)).toBe(true)
+    expect(picks.map((p) => p.id)).not.toContain('core-spin')
+    undoProposal(store.training, id)
+    expect(store.getSettings().equipment).toEqual(before)
+    expect(plan().schema.wods).toBeUndefined()
+  })
+
+  it("refuses a WOD that's already there, or one to hide that isn't", () => {
+    const { errors } = checkEdits(store.training, plan(), [
+      { op: 'addWod', wod: { id: 'core-spin', name: 'Again', format: 'amrap', minutes: 10, parts: [{ move: 'push-up', amount: 5 }] } },
+      { op: 'hideWod', wodId: 'nope' },
+    ], MON, store.getSettings())
+    expect(errors).toEqual(['addWod: there\'s already a WOD "core-spin"', 'hideWod: there\'s no WOD "nope"'])
+  })
+})
+
 describe('previews', () => {
   it('spells out a move and a lighter week from the days before and after, saving nothing', () => {
     const checked = checkEdits(store.training, plan(), [

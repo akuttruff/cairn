@@ -166,7 +166,7 @@ function SetRow({ date, item, set, onDay }: { date: string; item: ResolvedItem; 
 function WodCard({ wod }: { wod: WodView }) {
   return (
     <div className="wod">
-      <div className="wod-name">{wod.name} <span className="plan-item-meta">~{wod.minutes} min</span></div>
+      <div className="wod-name"><span>{wod.name}{wod.place && <span className="wod-place">· {wod.place}</span>}</span> <span className="plan-item-meta">~{wod.minutes} min</span></div>
       <div className="wod-heading">{wod.heading}</div>
       <ul className="wod-lines">{wod.lines.map((l) => <li key={l}>{l}</li>)}</ul>
       {wod.swaps.length > 0 && <div className="wod-swaps">With your gear: {wod.swaps.join('; ')}</div>}

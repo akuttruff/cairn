@@ -22,6 +22,9 @@ function parseWeights(text: string): number[] | null {
   return nums.every((n) => Number.isFinite(n) && n > 0 && n <= 200) ? nums : null
 }
 
+/** A place's gear as it's being typed: bell weights still text. */
+interface PlaceDraft { name: string; gear: Gear[]; dbText: string; kbText: string }
+
 interface SettingsSheetProps {
   open: boolean
   session: number
@@ -110,10 +113,8 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const [preferredModel, setPreferredModel] = useState<string | null>(null)
   const [trainingModel, setTrainingModel] = useState<string | null>(null)
   const [planChatModel, setPlanChatModel] = useState<string | null>(null)
-  // The gear on hand, as edited; null until the first change.
-  const [gear, setGear] = useState<Gear[] | null>(null)
-  const [dumbbellText, setDumbbellText] = useState<string | null>(null)
-  const [kettlebellText, setKettlebellText] = useState<string | null>(null)
+  // The gear on hand, place by place, as edited; null until the first change.
+  const [placeEdits, setPlaceEdits] = useState<PlaceDraft[] | null>(null)
   const [appIcon, setAppIcon] = useState<AppIcon | null>(null)
   // Which daily charts Week and Month draw; null until one is toggled.
   const [charts, setCharts] = useState<ChartKey[] | null>(null)
@@ -157,11 +158,13 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
   const chosenPreferredModel = preferredModel ?? settings?.preferredModel ?? ''
   const chosenTrainingModel = trainingModel ?? settings?.trainingModel ?? ''
   const chosenPlanChatModel = planChatModel ?? settings?.planChatModel ?? ''
-  const chosenGear = gear ?? settings?.equipment?.gear ?? []
-  const shownDumbbells = dumbbellText ?? (settings?.equipment?.dumbbells ?? []).join(', ')
-  const shownKettlebells = kettlebellText ?? (settings?.equipment?.kettlebells ?? []).join(', ')
-  const dumbbells = parseWeights(shownDumbbells)
-  const kettlebells = parseWeights(shownKettlebells)
+  // One place when the gear's all together (it saves as before), else one per room.
+  const stored = settings?.equipment
+  const places: PlaceDraft[] = placeEdits ?? (stored?.places?.length ? stored.places : [{ name: '', gear: stored?.gear ?? [], dumbbells: stored?.dumbbells ?? [], kettlebells: stored?.kettlebells ?? [] }])
+    .map((p) => ({ name: p.name, gear: p.gear, dbText: p.dumbbells.join(', '), kbText: p.kettlebells.join(', ') }))
+  const setPlaces = (next: PlaceDraft[]): void => setPlaceEdits(next.length ? next : [{ name: '', gear: [], dbText: '', kbText: '' }])
+  const setPlace = (i: number, patch: Partial<PlaceDraft>): void => setPlaces(places.map((p, k) => (k === i ? { ...p, ...patch } : p)))
+  const placesInvalid = places.some((p) => !parseWeights(p.dbText) || !parseWeights(p.kbText))
   const visionModels = models.filter((m) => m.vision)
 
   const setKind = (i: number, patch: Partial<KindRow>): void =>
@@ -185,7 +188,7 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
     v == null || v < 0 || (key.startsWith('plan:') && (!Number.isInteger(v) || v > 14))
     || (key === 'dogWalks' && (!Number.isInteger(v) || v > 20)) || (key === 'walkMiles' && (v === 0 || v > 50))
   const invalid = parsed ? NUMBER_FIELDS.filter((f) => badValue(f.key, parsed[f.key])).map((f) => f.key) : []
-  const formInvalid = !parsed || invalid.length > 0 || kindsInvalid || !dumbbells || !kettlebells
+  const formInvalid = !parsed || invalid.length > 0 || kindsInvalid || placesInvalid
   // The preview leaves the buffer out while it's being typed wrong, rather than hiding the whole line.
   const buffer = parsed && !invalid.includes('calorieBuffer') ? parsed.calorieBuffer! : 0
 
@@ -213,8 +216,9 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
       if (preferredModel != null && preferredModel.trim() !== settings?.preferredModel) changes.preferredModel = preferredModel.trim()
       if (trainingModel != null && trainingModel.trim() !== settings?.trainingModel) changes.trainingModel = trainingModel.trim()
       if (planChatModel != null && planChatModel.trim() !== settings?.planChatModel) changes.planChatModel = planChatModel.trim()
-      if ((gear != null || dumbbellText != null || kettlebellText != null) && dumbbells && kettlebells) {
-        changes.equipment = { gear: chosenGear, dumbbells, kettlebells }
+      if (placeEdits) {
+        const sets = places.map((p, i) => ({ name: p.name.trim() || `Place ${i + 1}`, gear: p.gear, dumbbells: parseWeights(p.dbText)!, kettlebells: parseWeights(p.kbText)! }))
+        changes.equipment = sets.length > 1 ? { gear: [], dumbbells: [], kettlebells: [], places: sets } : { gear: sets[0]!.gear, dumbbells: sets[0]!.dumbbells, kettlebells: sets[0]!.kettlebells }
       }
       if (autoLookup != null && autoLookup !== settings?.autoLookup) changes.autoLookup = autoLookup
       const iconChanged = appIcon != null && appIcon !== settings?.appIcon
@@ -338,30 +342,49 @@ function SettingsForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
             <h3 className="sheet-h">Equipment</h3>
             <div className="hint">
               What you have to train with. The Train tab only offers WODs this gear can do, swapping in what you have
-              (bike calories for a jump rope, dumbbells for a barbell), and a new training schema is written for it.
+              (bike calories for a jump rope, dumbbells for a barbell). If it&apos;s in more than one room, add a place
+              for each: a WOD is then only offered if one place has everything it needs.
             </div>
-            <div className="gear-picker" role="group" aria-label="Equipment">
-              {GEAR.map((g) => (
-                <label key={g} className="check">
-                  <input
-                    type="checkbox"
-                    checked={chosenGear.includes(g)}
-                    onChange={(e) => setGear(e.target.checked ? GEAR.filter((x) => x === g || chosenGear.includes(x)) : chosenGear.filter((x) => x !== g))}
-                  />
-                  {GEAR_NAMES[g]}
-                </label>
-              ))}
-            </div>
-            <div className="field">
-              <label htmlFor="gear-dumbbells">Dumbbell weights (lb each)</label>
-              <input id="gear-dumbbells" type="text" inputMode="decimal" placeholder="15, 20, 25" value={shownDumbbells} onChange={(e) => setDumbbellText(e.target.value)} />
-              {!dumbbells && <div className="hint bad">List weights separated by commas, e.g. 15, 20, 25.</div>}
-            </div>
-            <div className="field">
-              <label htmlFor="gear-kettlebells">Kettlebell weights (lb each)</label>
-              <input id="gear-kettlebells" type="text" inputMode="decimal" placeholder="None" value={shownKettlebells} onChange={(e) => setKettlebellText(e.target.value)} />
-              {!kettlebells && <div className="hint bad">List weights separated by commas, e.g. 25, 35.</div>}
-            </div>
+            {places.map((p, i) => {
+              const where = places.length > 1 ? (p.name.trim() || `Place ${i + 1}`) : 'Equipment'
+              const db = parseWeights(p.dbText)
+              const kb = parseWeights(p.kbText)
+              return (
+                <div key={i} className="place-card">
+                  {places.length > 1 && (
+                    <div className="place-head">
+                      <input type="text" className="place-name" aria-label={`Name of place ${i + 1}`} placeholder="Garage" value={p.name} maxLength={30} onChange={(e) => setPlace(i, { name: e.target.value })} />
+                      <button type="button" className="kind-remove" aria-label={`Remove ${where}`} onClick={() => setPlaces(places.filter((_, k) => k !== i))}><X size={15} aria-hidden="true" /></button>
+                    </div>
+                  )}
+                  <div className="gear-picker" role="group" aria-label={where}>
+                    {GEAR.map((g) => (
+                      <label key={g} className="check">
+                        <input
+                          type="checkbox"
+                          checked={p.gear.includes(g)}
+                          onChange={(e) => setPlace(i, { gear: e.target.checked ? GEAR.filter((x) => x === g || p.gear.includes(x)) : p.gear.filter((x) => x !== g) })}
+                        />
+                        {GEAR_NAMES[g]}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`gear-dumbbells-${i}`}>Dumbbell weights (lb each)</label>
+                    <input id={`gear-dumbbells-${i}`} type="text" inputMode="decimal" placeholder="15, 20, 25" value={p.dbText} onChange={(e) => setPlace(i, { dbText: e.target.value })} />
+                    {!db && <div className="hint bad">List weights separated by commas, e.g. 15, 20, 25.</div>}
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`gear-kettlebells-${i}`}>Kettlebell weights (lb each)</label>
+                    <input id={`gear-kettlebells-${i}`} type="text" inputMode="decimal" placeholder="None" value={p.kbText} onChange={(e) => setPlace(i, { kbText: e.target.value })} />
+                    {!kb && <div className="hint bad">List weights separated by commas, e.g. 25, 35.</div>}
+                  </div>
+                </div>
+              )
+            })}
+            <button type="button" className="link-btn accent kind-add" onClick={() => setPlaces([...places, { name: '', gear: [], dbText: '', kbText: '' }])} disabled={places.length >= 6}>
+              <Plus size={14} aria-hidden="true" /> {places.length > 1 ? 'Add a place' : 'It\'s in more than one room: add a place'}
+            </button>
 
             <h3 className="sheet-h">Charts</h3>
             <div className="hint">Which daily charts the Week and Month views draw.</div>

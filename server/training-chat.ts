@@ -1,8 +1,8 @@
 import { chatText, chooseModel, extractJson } from './research.ts'
 import { describeGear, shortDate } from './store/training.ts'
 import type { ActivePlan, TrainingStore } from './store/training.ts'
-import { OVERRIDE_OPS, RECORD_OPS, REVISION_OPS } from '../src/types.ts'
-import type { CoachMessage, CoachStats, CoachStatus, PlanEdit, PlanProposal, Settings, TrainingSchema } from '../src/types.ts'
+import { BANK_OPS, OVERRIDE_OPS, RECORD_OPS, REVISION_OPS } from '../src/types.ts'
+import type { CoachMessage, CoachStats, CoachStatus, Equipment, Place, PlanEdit, PlanProposal, Settings, TrainingSchema } from '../src/types.ts'
 import type { ChatProgress } from './research.ts'
 import { addDays, daysBetween, isDateString } from '../src/lib/nutrition.ts'
 import { cleanEquipment, cleanItemIn, cleanSchema } from '../src/lib/training/schema.ts'
@@ -10,6 +10,8 @@ import { isRevision, reviseSchema } from '../src/lib/training/edits.ts'
 import type { OverrideEdit, RevisionEdit } from '../src/lib/training/edits.ts'
 import { weekOf, weekSequence } from '../src/lib/training/resolve.ts'
 import { MOVEMENTS } from '../src/lib/training/movements.ts'
+import { findWod, viewWod } from '../src/lib/training/bank.ts'
+import { WOD_BANK } from '../src/lib/training/wods.ts'
 import { outline } from './training-gen.ts'
 
 /**
@@ -50,6 +52,14 @@ Changes to the RECORD -- what was logged -- not the plan (use these to untick or
   { "op": "removeWorkout", "workoutId": id }            take a workout off the Workouts card (and untick its session, if it came from one)
   { "op": "unlogSession", "date": date, "sessionId": id }   untick a session that was ticked off by mistake
   { "op": "logSession", "date": date, "sessionId": id }     tick a whole session off as done
+The WOD bank and where the gear is:
+  { "op": "addWod", "wod": Wod }        a new WOD for the bank (Wod as below, movements from the movement ids)
+  { "op": "hideWod", "wodId": id }      take a bank WOD out of the picks;  { "op": "showWod", "wodId": id } brings it back
+  { "op": "setPlaces", "places": [{ "name": "Garage", "gear": [...], "dumbbells": [lb], "kettlebells": [lb] }] }
+      where the gear is, room by room: a WOD is then only offered if ONE place has everything it needs. Gear names:
+      barbell, plates, bumpers, rack, dumbbells, kettlebells, pullup-bar, rings, bands, ab-mat, jump-rope, bike, rower, box.
+  Wod = { "id", "name", "format": "rft"|"amrap"|"emom"|"chipper"|"ladder"|"intervals", "minutes": n, "rounds"?: n, "scheme"?: [21,15,9],
+          "text"?: string, "parts": [{ "move": movement id, "amount"?: n, "weight"?: lb }] }
 A rewrite of the rest of the plan, when the person asks for one or for something bigger than a few edits:
   { "op": "rewrite", "instruction": "what to change, in a sentence or two", "fromWeek": n }   (alone, no other edits)
 Item = { "id": new unique id, "name", "lift"?: lift id, "notes"?, and exactly one of:
@@ -70,13 +80,14 @@ function normalize(raw: unknown): PlanEdit[] {
 }
 
 type RecordEdit = Extract<PlanEdit, { op: (typeof RECORD_OPS)[number] }>
+type BankEdit = Extract<PlanEdit, { op: 'addWod' | 'hideWod' | 'showWod' }>
 
-interface Checked { records: RecordEdit[]; overrides: OverrideEdit[]; revisions: RevisionEdit[]; rewrite: Extract<PlanEdit, { op: 'rewrite' }> | null; revised: TrainingSchema | null; errors: string[] }
+interface Checked { places: Place[] | null; bank: BankEdit[]; records: RecordEdit[]; overrides: OverrideEdit[]; revisions: RevisionEdit[]; rewrite: Extract<PlanEdit, { op: 'rewrite' }> | null; revised: TrainingSchema | null; errors: string[] }
 
 /** Every edit checked against the plan as it stands; readable errors for the model when anything's off. */
 export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: PlanEdit[], today: string, settings: Settings): Checked {
   const errors: string[] = []
-  const out: Checked = { records: [], overrides: [], revisions: [], rewrite: null, revised: null, errors }
+  const out: Checked = { places: null, bank: [], records: [], overrides: [], revisions: [], rewrite: null, revised: null, errors }
   const ctx = { kinds: settings.workoutKinds.map((k) => k.id), equipment: settings.equipment }
   const end = plan.summary.endDate
   // Any day of the plan, past ones too: the record should match what was actually done.
@@ -87,7 +98,7 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
 
   edits.forEach((e, i) => {
     const w = where(i, e)
-    const ops: string[] = [...OVERRIDE_OPS, ...REVISION_OPS, ...RECORD_OPS, 'rewrite']
+    const ops: string[] = [...OVERRIDE_OPS, ...REVISION_OPS, ...RECORD_OPS, ...BANK_OPS, 'rewrite']
     if (!e || typeof e.op !== 'string' || !ops.includes(e.op)) {
       errors.push(`edit ${i + 1}: op must be one of ${ops.join(', ')}`)
       return
@@ -100,6 +111,13 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
       return
     }
     if (isRevision(e)) { out.revisions.push(e); return }
+    if (e.op === 'setPlaces') {
+      const cleaned = cleanEquipment({ places: e.places })
+      if (!cleaned.places?.length) errors.push(`${w}: places needs at least one place with gear in it`)
+      else out.places = cleaned.places
+      return
+    }
+    if (e.op === 'addWod' || e.op === 'hideWod' || e.op === 'showWod') { out.bank.push(e); return }
     if (e.op === 'removeWorkout') {
       if (typeof e.workoutId !== 'string' || !training.workoutDate(e.workoutId)) errors.push(`${w}: there's no logged workout "${e.workoutId}"`)
       else out.records.push({ op: 'removeWorkout', workoutId: e.workoutId })
@@ -155,13 +173,24 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
       }
     }
   })
-  if (out.revisions.length) {
+  // With new places, the schema (its WOD slots, new WODs) is checked against them.
+  const gear: Equipment = out.places ? cleanEquipment({ places: out.places }) : ctx.equipment
+  if (out.revisions.length || out.bank.length) {
     const { schema, errors: bad } = reviseSchema(plan.schema, out.revisions, current)
     errors.push(...bad)
-    if (!bad.length) {
-      const whole = cleanSchema(schema, ctx)
+    for (const b of out.bank) {
+      if (b.op === 'addWod') {
+        if (!b.wod || typeof b.wod !== 'object') { errors.push('addWod: needs a wod'); continue }
+        if (findWod(b.wod.id, schema.wods)) { errors.push(`addWod: there's already a WOD "${b.wod.id}"`); continue }
+        schema.wods = [...(schema.wods ?? []), b.wod]
+      } else if (!findWod(b.wodId, schema.wods)) errors.push(`${b.op}: there's no WOD "${b.wodId}"`)
+      else if (b.op === 'hideWod') schema.hiddenWods = [...new Set([...(schema.hiddenWods ?? []), b.wodId])]
+      else schema.hiddenWods = (schema.hiddenWods ?? []).filter((x) => x !== b.wodId)
+    }
+    if (!errors.length) {
+      const whole = cleanSchema(schema, { ...ctx, equipment: gear })
       if (whole.schema) out.revised = whole.schema
-      else errors.push(...whole.errors.map((x) => `after the lasting changes: ${x}`))
+      else errors.push(...whole.errors.map((x) => `after the changes: ${x}`))
     }
   }
   return out
@@ -187,7 +216,21 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
     const title = training.planOf(plan, e.date).find((s) => s.id === e.sessionId)?.title ?? e.sessionId
     return `${shortDate(e.date)}: ${e.op === 'logSession' ? 'tick off' : 'untick'} ${title}`
   })
-  if (!checked.overrides.length && !checked.revised) return recordLines
+  // The bank and the places say what they do directly too.
+  const gear: Equipment = checked.places ? cleanEquipment({ places: checked.places }) : training.equipmentOn(null, today)
+  const bankLines = [
+    ...(checked.places ?? []).map((p) => `${p.name}: ${describeGear({ ...p, places: undefined })}`),
+    ...checked.bank.map((b) => {
+      if (b.op === 'addWod') {
+        const v = viewWod(b.wod, gear)
+        return `+ WOD ${b.wod.name}: ${v ? `${v.heading}, ${v.lines.join(', ')}${v.place ? ` (${v.place})` : ''}` : b.wod.name}`
+      }
+      const name = findWod(b.wodId, plan.schema.wods)?.name ?? b.wodId
+      return b.op === 'hideWod' ? `No more ${name} in the WOD picks` : `${name} back in the WOD picks`
+    }),
+  ]
+  const planChanged = checked.overrides.length > 0 || checked.revisions.length > 0
+  if (!planChanged) return [...bankLines, ...recordLines]
   const dates = new Set<string>()
   const span = (from: string, to: string): void => { for (let d = from; d <= to && dates.size < 120; d = addDays(d, 1)) dates.add(d) }
   for (const e of checked.overrides) {
@@ -269,7 +312,7 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
     grouped.set(key, [...(grouped.get(key) ?? []), m[1]!])
   }
   const joinDates = (ds: string[]): string => (ds.length > 4 ? `From ${ds[0]} (${ds.length} days)` : ds.map((d, i) => (i === 0 ? d : d.replace(/^\w{3}, /, ''))).join(', '))
-  const unique = [...new Set([...recordLines, ...[...grouped].map(([key, ds]) => `${joinDates(ds)}${key}`), ...plain])]
+  const unique = [...new Set([...bankLines, ...recordLines, ...[...grouped].map(([key, ds]) => `${joinDates(ds)}${key}`), ...plain])]
   return unique.length > 14 ? [...unique.slice(0, 14), `…and ${unique.length - 14} more`] : unique
 }
 
@@ -302,7 +345,10 @@ export function coachContext(training: TrainingStore, plan: ActivePlan, today: s
     `Today is ${shortDate(today)} ${today}${at ? `, week ${at.week} of ${plan.schema.weeks}${plan.schema.deloadWeeks.includes(at.week) ? ' (a deload week)' : ''}${plan.schema.testWeek === at.week ? ' (the test week)' : ''}` : ''}.`,
     `The plan: "${plan.schema.name}", ${plan.summary.startDate} to ${plan.summary.endDate}, weeks ${plan.schema.firstWeek}-${plan.schema.weeks}; deloads ${plan.schema.deloadWeeks.join(', ') || 'none'}; test week ${plan.schema.testWeek ?? 'none'}.`,
     plan.schema.goals ? `Its goals:\n${plan.schema.goals}` : '',
-    `Lifts and PRs (lb): ${lifts.map((l) => `${l.id} ${l.pr ?? '?'}`).join(', ')}. Equipment: ${describeGear(settings.equipment)}.`,
+    `Lifts and PRs (lb): ${lifts.map((l) => `${l.id} ${l.pr ?? '?'}`).join(', ')}.`,
+    settings.equipment.places?.length
+      ? `Equipment, by place (a WOD is only offered if one place has all it needs):\n${settings.equipment.places.map((p) => `  ${p.name}: ${describeGear({ ...p, places: undefined })}`).join('\n')}`
+      : `Equipment (all in one place): ${describeGear(settings.equipment)}.`,
     `Activities (session kinds): ${settings.workoutKinds.map((k) => k.id).join(', ')}.`,
     '',
     `The past ${BEHIND_DAYS} days and the next ${AHEAD_DAYS}, with the ids edits use (past days show what was logged):`,
@@ -315,7 +361,14 @@ export function coachContext(training: TrainingStore, plan: ActivePlan, today: s
     'How it has gone so far:',
     training.report(plan.id, today),
     '',
-    `Movement ids for WOD-style items: ${MOVEMENTS.map((m) => m.id).join(', ')}.`,
+    `Movement ids for WODs: ${MOVEMENTS.map((m) => m.id).join(', ')}.`,
+    '',
+    'The WOD bank (id: name, how it would be done with this gear):',
+    ...[...(plan.schema.wods ?? []), ...WOD_BANK].map((w) => {
+      const v = viewWod(w, settings.equipment)
+      const hidden = plan.schema.hiddenWods?.includes(w.id) ? ' [hidden]' : ''
+      return `  ${w.id}: ${w.name}${hidden} -- ${v ? `${v.minutes} min, ${v.lines.join(', ')}${v.place ? ` [${v.place}]` : ''}` : 'can\'t be done with this gear'}`
+    }),
   ].filter((l) => l !== '').join('\n')
 }
 
@@ -325,6 +378,8 @@ const SYSTEM = [
   'progress when asked (what is going well, what to watch, whether the plan fits their goals), and suggest changes when they would help.',
   'Only propose edits when the person asks for a change or agrees to one; a question gets an answer and "edits": [].',
   'Be careful with pain: for sharp or lasting pain, suggest easing off that movement and seeing a professional.',
+  'The gear can be split between rooms: to keep WODs to one room, set the places (setPlaces) -- slot focus tags won\'t do it.',
+  'To change which WODs come up, add, hide or bring back WODs in the bank.',
   'The plan is what is scheduled; the record is what was logged (ticked sets, and workouts on the Workouts card, some added by hand with +).',
   'The Workouts card counts logged workouts, so when a count looks wrong, look at the logged workouts listed for those days and fix the record',
   '(removeWorkout, unlogSession, logSession) -- not the plan. Read dates carefully: the day marked TODAY is today; check which day the person means.',
@@ -419,7 +474,7 @@ export async function coachReply({ training, settings, fetchImpl, text, image, t
   } else {
     phase = 'checking'
     report({ model })
-    const proposal: PlanProposal = { edits: checked.rewrite ? [checked.rewrite] : [...checked.overrides, ...checked.revisions, ...checked.records], preview: previewEdits(training, plan, checked, today) }
+    const proposal: PlanProposal = { edits: checked.rewrite ? [checked.rewrite] : [...(checked.places ? [{ op: 'setPlaces' as const, places: checked.places }] : []), ...checked.overrides, ...checked.revisions, ...checked.bank, ...checked.records], preview: previewEdits(training, plan, checked, today) }
     if (!proposal.preview.length) training.addMessage(plan.id, 'assistant', reply, null, 'That wouldn\'t change anything on the plan.', stats())
     else training.addMessage(plan.id, 'assistant', reply, proposal, null, stats())
   }
@@ -447,6 +502,8 @@ export function applyProposal(
     training.setMessage(messageId, 'applied', 'Writing the new plan: it takes a few minutes, then it\'s under Block to review.')
     return
   }
+  // Places first: the revised schema was checked against them.
+  if (checked.places) training.setEquipment(cleanEquipment({ places: checked.places }), messageId)
   if (checked.overrides.length) training.addOverrides(plan.id, checked.overrides, messageId)
   if (checked.revised) training.revise(plan.id, checked.revised, 'coach', messageId)
   for (const r of checked.records) {

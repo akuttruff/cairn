@@ -1,6 +1,6 @@
 import { GEAR, WOD_FOCUSES } from '../../types.ts'
 import type {
-  Equipment, Prescription, Progression, SetTarget, TrainingItem, TrainingSchema, TrainingSession, Wod, WodFocus, WodPart, WodSlot,
+  Equipment, Gear, Prescription, Progression, SetTarget, TrainingItem, TrainingSchema, TrainingSession, Wod, WodFocus, WodPart, WodSlot,
 } from '../../types.ts'
 import { isDateString } from '../nutrition.ts'
 import { MOVEMENT } from './movements.ts'
@@ -76,6 +76,8 @@ export function cleanSchema(input: unknown, ctx: SchemaContext): { schema: Train
     })
   }
 
+  // Bank WODs the schema leaves out, by id.
+  const hiddenWods = Array.isArray(input.hiddenWods) ? input.hiddenWods.filter((x): x is string => typeof x === 'string' && ID.test(x)).slice(0, 100) : []
   const schemaish = { deloadWeeks: (deloadWeeks ?? []) as number[], testWeek: testWeek as number | undefined }
   // Sessions and items are looked up separately (sets by item, WOD picks by session), so each only has to be unique among its own kind.
   const ids = new Set<string>()
@@ -175,7 +177,7 @@ export function cleanSchema(input: unknown, ctx: SchemaContext): { schema: Train
         const slot = cleanSlot(raw.wod, label)
         if (slot) {
           item.wod = slot
-          if (!fittingWods(slot, ctx.equipment, wods).length) err(label, 'no WOD in the bank fits this slot with the equipment on hand -- loosen its focus or length')
+          if (!fittingWods(slot, ctx.equipment, wods, hiddenWods).length) err(label, 'no WOD in the bank fits this slot with the equipment on hand -- loosen its focus or length')
         }
         break
       }
@@ -297,6 +299,7 @@ export function cleanSchema(input: unknown, ctx: SchemaContext): { schema: Train
   if (goals) schema.goals = goals
   if (typeof input.basedOn === 'string' && input.basedOn) schema.basedOn = input.basedOn.slice(0, 64)
   if (wods.length) schema.wods = wods
+  if (hiddenWods.length) schema.hiddenWods = [...new Set(hiddenWods)]
   return { schema, errors: [] }
 }
 
@@ -334,11 +337,11 @@ function cleanWod(raw: unknown, where: string, err: (where: string, what: string
 }
 
 /** Gear and bell weights from Settings, or the import file. */
-export function cleanEquipment(input: unknown): Equipment {
-  const o = isObj(input) ? input : {}
+const bells = (v: unknown): number[] =>
+  Array.isArray(v) ? [...new Set(v.filter((n): n is number => isNum(n, 1, 200)).map((n) => Math.round(n * 2) / 2))].sort((a, b) => a - b).slice(0, 30) : []
+
+function cleanGearSet(o: Obj): { gear: Gear[]; dumbbells: number[]; kettlebells: number[] } {
   const gear = Array.isArray(o.gear) ? GEAR.filter((g) => (o.gear as unknown[]).includes(g)) : []
-  const bells = (v: unknown): number[] =>
-    Array.isArray(v) ? [...new Set(v.filter((n): n is number => isNum(n, 1, 200)).map((n) => Math.round(n * 2) / 2))].sort((a, b) => a - b).slice(0, 30) : []
   const dumbbells = bells(o.dumbbells)
   const kettlebells = bells(o.kettlebells)
   // Bell weights listed mean the bells are there, whether or not the gear list says so.
@@ -346,6 +349,23 @@ export function cleanEquipment(input: unknown): Equipment {
   if (dumbbells.length) have.add('dumbbells')
   if (kettlebells.length) have.add('kettlebells')
   return { gear: GEAR.filter((g) => have.has(g)), dumbbells, kettlebells }
+}
+
+/** Gear and bell weights from Settings, or the import file -- by place when it's in more than one. */
+export function cleanEquipment(input: unknown): Equipment {
+  const o = isObj(input) ? input : {}
+  const places = (Array.isArray(o.places) ? o.places : []).filter(isObj).slice(0, 6)
+    .map((p, i) => ({ name: text(p.name, 30) ?? `Place ${i + 1}`, ...cleanGearSet(p) }))
+    .filter((p) => p.gear.length > 0)
+  if (!places.length) return cleanGearSet(o)
+  // With places, everything on hand is what they hold together.
+  const all = new Set(places.flatMap((p) => p.gear))
+  return {
+    gear: GEAR.filter((g) => all.has(g)),
+    dumbbells: [...new Set(places.flatMap((p) => p.dumbbells))].sort((a, b) => a - b),
+    kettlebells: [...new Set(places.flatMap((p) => p.kettlebells))].sort((a, b) => a - b),
+    places,
+  }
 }
 
 export const NO_EQUIPMENT: Equipment = { gear: [], dumbbells: [], kettlebells: [] }

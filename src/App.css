@@ -1028,3 +1028,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--bg); color: var(--paper); font-size: 13px; font-weight: 600;
 }
+.place-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 2px; margin-bottom: 10px; }
+.place-head { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
+.place-name { flex: 1; padding: 7px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); color: var(--paper); font-size: 15px; font-weight: 600; }
+.wod-place { font-size: 11px; font-family: var(--mono); color: var(--paper-dim); margin-left: 6px; font-weight: 400; }

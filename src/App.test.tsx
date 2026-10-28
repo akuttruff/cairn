@@ -1121,6 +1121,27 @@ describe('App', () => {
     }))
   })
 
+  it('splits the equipment between places in Settings', async () => {
+    const user = userEvent.setup()
+    const calls = stubApi({
+      [`GET /api/day/${TODAY}`]: day([]),
+      'GET /api/targets': STORED_GOALS,
+      'PUT /api/targets': STORED_GOALS,
+      'GET /api/settings': { hasUsdaKey: false, workoutKinds: DEFAULT_WORKOUT_KINDS, equipment: { gear: ['bike', 'dumbbells'], dumbbells: [20], kettlebells: [] } },
+      'PUT /api/settings': {},
+    })
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Settings' }))
+    await user.click(await screen.findByRole('button', { name: /add a place/ }))
+    await user.type(screen.getByLabelText('Name of place 1'), 'Living room')
+    await user.type(screen.getByLabelText('Name of place 2'), 'Garage')
+    await user.click(within(screen.getByRole('group', { name: 'Garage' })).getByLabelText('Barbell'))
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(calls.find((c) => c.method === 'PUT' && c.url === '/api/settings')?.body).toMatchObject({
+      equipment: { places: [{ name: 'Living room', gear: ['bike', 'dumbbells'], dumbbells: [20] }, { name: 'Garage', gear: ['barbell'], dumbbells: [] }] },
+    }))
+  })
+
   it('edits the dog walks per day and their length in Settings', async () => {
     const user = userEvent.setup()
     const calls = stubApi({

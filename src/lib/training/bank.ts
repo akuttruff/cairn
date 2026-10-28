@@ -1,6 +1,6 @@
 import type { Equipment, Wod, WodFocus, WodPart, WodSlot, WodView } from '../../types.ts'
 import { MOVEMENT } from './movements.ts'
-import type { Movement } from './movements.ts'
+import type { Movement, Sub } from './movements.ts'
 import { WOD_BANK } from './wods.ts'
 
 /**
@@ -18,9 +18,11 @@ interface Placed {
   from?: { move: Movement; amount?: number; weight?: number }
   /** The weight was picked here (a swap onto dumbbells), not written in the WOD. */
   defaulted?: boolean
+  /** How far the stand-ins stray from what was written (0 when it's done as written). */
+  cost: number
 }
 
-const has = (equipment: Equipment, m: Movement): boolean =>
+const has = (equipment: Pick<Equipment, 'gear'>, m: Movement): boolean =>
   m.needs.length === 0 || m.needs.some((set) => set.every((g) => equipment.gear.includes(g)))
 
 /** The nearest weight there is to the one asked for, or the one asked for when the list says nothing. */
@@ -29,21 +31,33 @@ export function snapWeight(want: number, available: number[]): number {
   return available.reduce((best, w) => (Math.abs(w - want) < Math.abs(best - want) ? w : best), available[0]!)
 }
 
-function place(part: WodPart, equipment: Equipment, lowImpact: boolean): Placed | null {
-  let move = MOVEMENT.get(part.move)
-  if (!move) return null
-  const original = move
-  let amount = part.amount
-  let weight = part.weight
-  for (let hops = 0; !has(equipment, move) || (lowImpact && move.impact); hops++) {
-    if (!move.sub || hops >= 4) return null
-    const next = MOVEMENT.get(move.sub.to)
-    if (!next) return null
-    if (amount !== undefined) amount = Math.max(1, Math.round(amount * move.sub.factor))
+const subsOf = (m: Movement): Sub[] => (m.sub ? (Array.isArray(m.sub) ? m.sub : [m.sub]) : [])
+
+/** The movement as the gear allows: itself, or the first stand-in down its substitutions that can be done. */
+function standIn(move: Movement, amount: number | undefined, weight: number | undefined, equipment: Pick<Equipment, 'gear'>, lowImpact: boolean, seen: Set<string>, cost = 0):
+  { move: Movement; amount?: number; weight?: number; cost: number } | null {
+  if (has(equipment, move) && !(lowImpact && move.impact)) return { move, amount, weight, cost }
+  if (seen.size > 4) return null
+  for (const s of subsOf(move)) {
+    const next = MOVEMENT.get(s.to)
+    if (!next || seen.has(next.id)) continue
+    const a = amount === undefined ? undefined : Math.max(1, Math.round(amount * s.factor))
     // A barbell's total becomes about a third of it in each hand; a bodyweight stand-in carries none.
-    if (weight !== undefined) weight = next.bells ? (move.bells ? weight : weight * 0.3) : undefined
-    move = next
+    const w = weight === undefined ? undefined : next.bells ? (move.bells ? weight : weight * 0.3) : undefined
+    const found = standIn(next, a, w, equipment, lowImpact, new Set([...seen, next.id]), cost + (s.cost ?? 3))
+    if (found) return found
   }
+  return null
+}
+
+function place(part: WodPart, equipment: Pick<Equipment, 'gear' | 'dumbbells' | 'kettlebells'>, lowImpact: boolean): Placed | null {
+  const original = MOVEMENT.get(part.move)
+  if (!original) return null
+  const found = standIn(original, part.amount, part.weight, equipment, lowImpact, new Set([original.id]))
+  if (!found) return null
+  const move = found.move
+  const amount = found.amount
+  let weight = found.weight
   if (weight !== undefined && move.bells) weight = snapWeight(weight, equipment[move.bells])
   // A bodyweight movement swapped for a loaded one takes the middle pair there is.
   let defaulted = false
@@ -52,7 +66,7 @@ function place(part: WodPart, equipment: Equipment, lowImpact: boolean): Placed 
     weight = pairs[Math.floor((pairs.length - 1) / 2)]
     defaulted = true
   }
-  const placed: Placed = { move, ...(amount !== undefined ? { amount } : {}), ...(weight !== undefined ? { weight: Math.round(weight) } : {}), ...(defaulted ? { defaulted } : {}) }
+  const placed: Placed = { move, cost: found.cost, ...(amount !== undefined ? { amount } : {}), ...(weight !== undefined ? { weight: Math.round(weight) } : {}), ...(defaulted ? { defaulted } : {}) }
   if (move !== original) placed.from = { move: original, amount: part.amount, weight: part.weight }
   return placed
 }
@@ -74,8 +88,23 @@ function heading(wod: Wod): string {
   }
 }
 
-/** The WOD as it would be done with this gear, or null if it can't be. */
+/**
+ * The WOD as it would be done with this gear, or null if it can't be. With
+ * the gear in more than one place, it has to be done in one of them -- the
+ * one needing the fewest swaps -- and says which.
+ */
 export function viewWod(wod: Wod, equipment: Equipment, lowImpact = false): WodView | null {
+  if (!equipment.places?.length) return viewIn(wod, equipment, lowImpact)?.view ?? null
+  let best: { view: WodView; cost: number } | null = null
+  for (const place of equipment.places) {
+    const found = viewIn(wod, place, lowImpact)
+    if (found && (!best || found.cost < best.cost)) best = { view: { ...found.view, place: place.name }, cost: found.cost }
+  }
+  return best?.view ?? null
+}
+
+/** The WOD done with this gear, and what that cost: swapping cardio for cardio is cheap, swapping the rest isn't. */
+function viewIn(wod: Wod, equipment: Pick<Equipment, 'gear' | 'dumbbells' | 'kettlebells'>, lowImpact: boolean): { view: WodView; cost: number } | null {
   const placed: Placed[] = []
   // Said before any merging, so each reads as the swap it was.
   const swaps: string[] = []
@@ -93,7 +122,8 @@ export function viewWod(wod: Wod, equipment: Equipment, lowImpact = false): WodV
     placed.push(p)
   }
   const focus = [...new Set(placed.map((p) => p.move.focus))] as WodFocus[]
-  return {
+  const cost = placed.reduce((sum, p) => sum + p.cost, 0)
+  const view: WodView = {
     id: wod.id,
     name: wod.name,
     minutes: wod.minutes,
@@ -102,6 +132,7 @@ export function viewWod(wod: Wod, equipment: Equipment, lowImpact = false): WodV
     swaps,
     focus,
   }
+  return { view, cost }
 }
 
 export function fitsSlot(view: WodView, slot: WodSlot): boolean {
@@ -110,10 +141,11 @@ export function fitsSlot(view: WodView, slot: WodSlot): boolean {
   return view.focus.every((f) => f === 'core' || slot.focus!.includes(f))
 }
 
-/** Every WOD (the bank, plus any the schema wrote) that fits the slot with this gear. */
-export function fittingWods(slot: WodSlot, equipment: Equipment, extra: Wod[] = []): WodView[] {
+/** Every WOD (the bank, plus any the schema wrote, less any it hid) that fits the slot with this gear. */
+export function fittingWods(slot: WodSlot, equipment: Equipment, extra: Wod[] = [], hidden: string[] = []): WodView[] {
   const out: WodView[] = []
   for (const wod of [...extra, ...WOD_BANK]) {
+    if (hidden.includes(wod.id)) continue
     const view = viewWod(wod, equipment, slot.lowImpact)
     if (view && fitsSlot(view, slot)) out.push(view)
   }
@@ -131,8 +163,8 @@ function hash(s: string): number {
  * A few WODs for a slot, leaving out the ones done recently (unless that
  * leaves nothing). `seed` keeps the choice steady for a day.
  */
-export function pickWods(slot: WodSlot, equipment: Equipment, options: { recent?: string[]; seed: string; extra?: Wod[]; count?: number }): WodView[] {
-  const all = fittingWods(slot, equipment, options.extra)
+export function pickWods(slot: WodSlot, equipment: Equipment, options: { recent?: string[]; seed: string; extra?: Wod[]; hidden?: string[]; count?: number }): WodView[] {
+  const all = fittingWods(slot, equipment, options.extra, options.hidden)
   const fresh = all.filter((w) => !options.recent?.includes(w.id))
   const pool = fresh.length ? fresh : all
   return [...pool].sort((a, b) => hash(options.seed + a.id) - hash(options.seed + b.id)).slice(0, options.count ?? 3)
