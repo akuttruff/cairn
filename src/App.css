@@ -494,8 +494,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .fab {
   position: fixed;
   right: 18px;
-  /* Above the section bar (48px plus its share of the safe area). */
-  bottom: calc(48px + 14px + env(safe-area-inset-bottom, 0px) * 0.6);
+  /* Above the section bar (40px plus the sliver of safe area under it). */
+  bottom: calc(40px + 14px + max(0px, calc(env(safe-area-inset-bottom, 0px) - 24px)));
   width: 58px;
   height: 58px;
   border-radius: 50%;
@@ -932,14 +932,16 @@ button:disabled { opacity: 0.45; cursor: default; }
 .set-edit input:focus, .lift-edit input:focus, .generate-note:focus { outline: none; border-color: var(--moss-dim); }
 
 /* --- Sections ----------------------------------------------------------------- */
-/* Compact: 48px, and only part of the home indicator's space under it (the indicator sits low enough to share it). */
+/* One slim row. As an installed app there's no browser toolbar below it, only the home indicator, which
+   the row shares: just a sliver of the safe area is kept, enough that the indicator doesn't touch the labels. */
 .section-tabs {
   flex: 0 0 auto; display: flex; border-top: 1px solid var(--line); background: var(--bg);
-  padding-bottom: calc(env(safe-area-inset-bottom, 0px) * 0.6);
+  --tabs-below: max(0px, calc(env(safe-area-inset-bottom, 0px) - 24px));
+  padding-bottom: var(--tabs-below);
 }
 .section-tab {
-  flex: 1; height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
-  background: none; border: none; color: var(--paper-dim); font-size: 10px; font-weight: 600;
+  flex: 1; height: 40px; display: flex; align-items: center; justify-content: center; gap: 6px;
+  background: none; border: none; color: var(--paper-dim); font-size: 13px; font-weight: 600;
 }
 .section-tab.active { color: var(--moss); }
 .plan-teaser {
