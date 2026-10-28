@@ -49,6 +49,7 @@ Lasting changes to the plan from a week on (fromWeek defaults to the current wee
       A session's title says what's in it, the way the plan's do ("Back squat + deadlift", "Strict press") -- never "Strength session" or "Workout".
   { "op": "removeSession", "sessionId": id, "fromWeek"?: n }
   { "op": "moveSession", "sessionId": id, "toWeekday": 1-7, "fromWeek"?: n }
+  { "op": "renameSession", "sessionId": id, "title": "Overhead squat" }   a session's name, when what's in it has changed
   { "op": "setOptional", "sessionId"?: id, "itemId"?: id, "optional": true | false }   nice to do, not needed for the day to count as done
 Changes to the RECORD -- what was logged -- not the plan (use these to untick or tick off what was done):
   { "op": "removeWorkout", "workoutId": id }            take a workout off the Workouts card (and untick its session, if it came from one)
@@ -66,17 +67,36 @@ A rewrite of the rest of the plan, when the person asks for one or for something
   { "op": "rewrite", "instruction": "what to change, in a sentence or two", "fromWeek": n }   (alone, no other edits)
 Item = { "id": new unique id, "name", "lift"?: lift id, "notes"?, and exactly one of:
   "sets": { "sets": [{ "reps"?: n | "max", "seconds"?: n, "pct"?: fraction of the PR, "weight"?: lb }] }   the same every week
-  "progression": {...} as in the schema, "minutes": { "<week>": n }, "wod": { "maxMinutes": n, "focus"?: [...] }, "check": true }
+  "progression": {...} as in the schema, "minutes": { "<week>": n }, "wod": { "maxMinutes": n, "focus"?: [focus tags] }, "check": true }
+  WOD focus tags are ONLY "upper" (pulling and pushing: pull-ups, ring rows, push-ups, presses), "legs", "full", "bike", "core";
+  a slot is offered WODs that use those. To change a slot's focus, replaceItem it with the same item and the new "wod".
 Dates are YYYY-MM-DD, any day of the plan -- past days too, when the person wants the record to match what they actually did.
 Use only the session ids, item ids and lift ids shown.`
 
-/** The model's edits, tidied: `type` read as `op`, and anything that isn't an object dropped. */
+/** Words a model reaches for in place of the WOD focus tags. */
+const FOCUS_ALIASES: Record<string, string> = {
+  pull: 'upper', pulling: 'upper', push: 'upper', pushing: 'upper', gymnastics: 'upper', arms: 'upper', back: 'upper', shoulders: 'upper', chest: 'upper',
+  leg: 'legs', lower: 'legs', squat: 'legs', squats: 'legs', 'full-body': 'full', 'full body': 'full', fullbody: 'full',
+  cardio: 'bike', engine: 'bike', conditioning: 'bike', abs: 'core', midline: 'core',
+}
+
+/** A WOD slot's focus in the tags the schema knows: "pull" read as "upper", duplicates dropped. */
+function tidyFocus(item: unknown): void {
+  const wod = (item as { wod?: { focus?: unknown } } | null)?.wod
+  if (!wod || !Array.isArray(wod.focus)) return
+  wod.focus = [...new Set(wod.focus.map((f) => (typeof f === 'string' ? FOCUS_ALIASES[f.trim().toLowerCase()] ?? f.trim().toLowerCase() : f)))]
+}
+
+/** The model's edits, tidied: `type` read as `op`, WOD focus words read as tags, and anything that isn't an object dropped. */
 function normalize(raw: unknown): PlanEdit[] {
   if (!Array.isArray(raw)) return []
   return raw.filter((e) => e && typeof e === 'object').map((e) => {
     const o = { ...(e as Record<string, unknown>) }
     if (typeof o.op !== 'string' && typeof o.type === 'string') o.op = o.type
     delete o.type
+    tidyFocus(o.item)
+    const session = o.session as { items?: unknown[] } | undefined
+    if (Array.isArray(session?.items)) session.items.forEach(tidyFocus)
     return o as unknown as PlanEdit
   })
 }
@@ -117,8 +137,9 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
     }
     if (isRevision(e)) {
       // Named by what's in it, like the plan's sessions, so the week reads the same way throughout.
-      if (e.op === 'addSession' && GENERIC_TITLE.test(e.session?.title?.trim() ?? '')) {
-        errors.push(`${w}: title "${e.session.title}" says nothing -- name the session by what's in it, e.g. "Back squat + deadlift"`)
+      const title = e.op === 'addSession' ? e.session?.title : e.op === 'renameSession' ? e.title : undefined
+      if (title !== undefined && GENERIC_TITLE.test(title?.trim() ?? '')) {
+        errors.push(`${w}: title "${title}" says nothing -- name the session by what's in it, e.g. "Back squat + deadlift"`)
         return
       }
       out.revisions.push(e)
@@ -273,6 +294,7 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
   // Optional or not holds for every week, so it reads once, without dates.
   const nowOptional = new Set<string>()
   const nowRequired = new Set<string>()
+  const renamed = new Set<string>()
   const gone = new Map<string, { date: string; title: string }>()
   const added = new Map<string, { date: string; session: DayPlan[number] }>()
   for (const d of sorted) {
@@ -284,6 +306,7 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
       const old = was.find((x) => x.id === s.id)
       if (!old) continue
       if (old.optional !== s.optional) (s.optional ? nowOptional : nowRequired).add(s.title)
+      if (old.title !== s.title) renamed.add(`Renamed: ${old.title} → ${s.title}`)
       for (const i of s.items) {
         const o = old.items.find((x) => x.id === i.id)
         if (o && o.optional !== i.optional) (i.optional ? nowOptional : nowRequired).add(i.name)
@@ -312,6 +335,7 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
     } else lines.push(`${shortDate(g.date)}: no ${g.title}`)
   }
   for (const { date, session } of added.values()) lines.push(`${shortDate(date)}: + ${session.title} (${session.items.map((i) => i.name).join(', ')})`)
+  lines.push(...renamed)
   if (nowOptional.size) lines.push(`Optional from now on: ${[...nowOptional].join(', ')}`)
   if (nowRequired.size) lines.push(`Part of the day again: ${[...nowRequired].join(', ')}`)
   for (const e of checked.overrides) if (e.op === 'equipment') lines.push(`${shortDate(e.from)}–${shortDate(e.to)}: WODs for ${describeGear(e.equipment)}`)

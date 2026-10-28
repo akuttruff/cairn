@@ -119,6 +119,18 @@ describe('optional work', () => {
   })
 })
 
+describe('naming and focus', () => {
+  it('renames a session for every week, and says so', () => {
+    const checked = checkEdits(store.training, plan(), [{ op: 'renameSession', sessionId: 'press-day', title: 'Overhead squat' }], MON, store.getSettings())
+    expect(checked.errors).toEqual([])
+    expect(previewEdits(store.training, plan(), checked, MON)).toEqual(['Renamed: Press → Overhead squat'])
+    store.training.revise(plan().id, checked.revised!, 'coach', null)
+    expect(titles(WED)[0]).toBe('Overhead squat')
+    expect(checkEdits(store.training, plan(), [{ op: 'renameSession', sessionId: 'press-day', title: 'Workout' }], MON, store.getSettings()).errors.join()).toMatch(/name the session by what's in it/)
+  })
+
+})
+
 describe('the record', () => {
   it('takes a workout added by hand off the card, and one from a session with its ticks, and undoes both', () => {
     const extra = store.addWorkout({ date: MON, kind: 'weightlifting' })
@@ -315,6 +327,15 @@ describe('the coach', () => {
     undoProposal(store.training, last.id)
     expect(titles(MON)).toEqual(['Legs'])
     expect(store.training.message(last.id).status).toBe('undone')
+  })
+
+  it('reads "pull" and "lower" as WOD focus tags, and names a tag it can\'t read', async () => {
+    const slot = (focus: string[]) => ({ type: 'replaceItem', itemId: 'wod-slot', item: { id: 'wod-slot', name: 'Short WOD', wod: { maxMinutes: 15, focus } } })
+    const good = JSON.stringify({ reply: 'Pulling and legs.', edits: [slot(['pull', 'lower', 'Upper'])] })
+    const last = (await say('More pulling on Wednesdays', [good]).run).at(-1)!
+    expect(last.proposal?.edits[0]).toMatchObject({ op: 'replaceItem', item: { wod: { focus: ['upper', 'legs'] } } })
+    const { errors } = checkEdits(store.training, plan(), [{ ...slot(['hinge']), op: 'replaceItem' } as unknown as PlanEdit], MON, store.getSettings())
+    expect(errors.join()).toMatch(/focus \["hinge"\] isn't a tag/)
   })
 
   it('shows the model its mistakes once, and makes no proposal when they stay', async () => {

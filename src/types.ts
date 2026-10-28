@@ -834,6 +834,7 @@ export type PlanEdit =
   | { op: 'removeSession'; sessionId: string; fromWeek?: number }
   | { op: 'moveSession'; sessionId: string; toWeekday: number; fromWeek?: number }
   | { op: 'setOptional'; sessionId?: string; itemId?: string; optional: boolean; fromWeek?: number }
+  | { op: 'renameSession'; sessionId: string; title: string; fromWeek?: number }
   | { op: 'rewrite'; instruction: string; fromWeek: number }
   | { op: 'removeWorkout'; workoutId: string }
   | { op: 'unlogSession'; date: string; sessionId: string }
@@ -848,7 +849,7 @@ export const OVERRIDE_OPS = ['move', 'skip', 'load', 'swap', 'equipment'] as con
 export const RECORD_OPS = ['removeWorkout', 'unlogSession', 'logSession'] as const
 /** Changes to the WOD bank (kept in the schema) and to where the gear is (a setting). */
 export const BANK_OPS = ['addWod', 'hideWod', 'showWod', 'setPlaces'] as const
-export const REVISION_OPS = ['replaceItem', 'addItem', 'removeItem', 'addSession', 'removeSession', 'moveSession', 'setOptional'] as const
+export const REVISION_OPS = ['replaceItem', 'addItem', 'removeItem', 'addSession', 'removeSession', 'moveSession', 'setOptional', 'renameSession'] as const
 
 export interface PlanProposal {
   edits: PlanEdit[]

@@ -148,6 +148,15 @@ export function reviseSchema(schema: TrainingSchema, edits: RevisionEdit[], curr
         } else errors.push('setOptional: needs a sessionId or an itemId')
         break
       }
+      case 'renameSession': {
+        // A label, not what's trained: the new name holds for every week, and each week's items keep their own names.
+        const at = findSession(e.sessionId)
+        if (!at) { errors.push(`renameSession: no session "${e.sessionId}"`); break }
+        const title = typeof e.title === 'string' ? e.title.trim().slice(0, 80) : ''
+        if (!title) { errors.push('renameSession: title is the new name'); break }
+        at.day.sessions[at.index]!.title = title
+        break
+      }
     }
   }
   out.days = out.days.filter((d) => d.sessions.length > 0)

@@ -282,7 +282,8 @@ export function cleanSchema(input: unknown, ctx: SchemaContext): { schema: Train
       else slot.minMinutes = raw.minMinutes
     }
     if (raw.focus !== undefined) {
-      if (!Array.isArray(raw.focus) || !raw.focus.every((f) => (WOD_FOCUSES as readonly unknown[]).includes(f))) err(where, `focus must be a list of ${WOD_FOCUSES.join(', ')}`)
+      const bad = Array.isArray(raw.focus) ? raw.focus.filter((f) => !(WOD_FOCUSES as readonly unknown[]).includes(f)) : [raw.focus]
+      if (bad.length) err(where, `focus ${JSON.stringify(bad)} isn't a tag -- focus must be a list of ${WOD_FOCUSES.join(', ')}`)
       else slot.focus = raw.focus as WodFocus[]
     }
     if (raw.lowImpact !== undefined) slot.lowImpact = raw.lowImpact === true
