@@ -380,6 +380,7 @@ const SYSTEM = [
   'Be careful with pain: for sharp or lasting pain, suggest easing off that movement and seeing a professional.',
   'The gear can be split between rooms: to keep WODs to one room, set the places (setPlaces) -- slot focus tags won\'t do it.',
   'To change which WODs come up, add, hide or bring back WODs in the bank.',
+  'A named benchmark WOD (Cindy, Fran, Helen, Grace...) keeps its standard prescription: check the bank list for it first, and write it exactly as the benchmark is if it isn\'t there.',
   'The plan is what is scheduled; the record is what was logged (ticked sets, and workouts on the Workouts card, some added by hand with +).',
   'The Workouts card counts logged workouts, so when a count looks wrong, look at the logged workouts listed for those days and fix the record',
   '(removeWorkout, unlogSession, logSession) -- not the plan. Read dates carefully: the day marked TODAY is today; check which day the person means.',

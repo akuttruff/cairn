@@ -195,6 +195,10 @@ export const WOD_BANK: Wod[] = [
   },
   // --- Garage: barbell, rack, pull-up bar, rings, bands and a jump rope, no bike ---
   {
+    id: 'cindy', name: 'Cindy', format: 'amrap', minutes: 20,
+    parts: [{ move: 'pull-up', amount: 5 }, { move: 'push-up', amount: 10 }, { move: 'air-squat', amount: 15 }],
+  },
+  {
     id: 'grace-ish', name: 'Grace-ish', format: 'chipper', minutes: 8,
     parts: [{ move: 'ground-to-overhead', amount: 30, weight: 65 }],
   },
