@@ -264,6 +264,9 @@ export async function describeError(res: Response): Promise<string> {
 export interface LmEvent {
   type?: string
   content?: string
+  /** 0..1, on model_load.progress and prompt_processing.progress. */
+  progress?: number
+  result?: { stats?: { input_tokens?: number; total_output_tokens?: number; reasoning_output_tokens?: number; tokens_per_second?: number; time_to_first_token_seconds?: number } }
   tool_name?: string
   arguments?: { url?: string }
   error?: { message?: string }
@@ -502,6 +505,16 @@ export class ResearchJobs {
   }
 }
 
+/** What LM Studio is doing with a request, as its stream says. */
+export interface ChatProgress {
+  phase: 'loading' | 'reading' | 'thinking' | 'writing' | 'done'
+  /** 0..1 while loading the model or reading the prompt. */
+  progress: number | null
+  /** Tokens thought or written so far. */
+  tokens: number
+  stats?: { inputTokens: number; outputTokens: number; reasoningTokens: number; tokensPerSecond: number; firstTokenSeconds: number }
+}
+
 /**
  * One plain reply from LM Studio: the text of a /api/v1/chat stream with no
  * tools, for the short jobs (the week's notes) that just want words back.
@@ -511,6 +524,8 @@ export async function chatText(
   body: Record<string, unknown>,
   fetchImpl: typeof fetch,
   signal?: AbortSignal,
+  /** Told what LM Studio is doing as it does it, and its stats at the end. */
+  watch?: (progress: ChatProgress) => void,
 ): Promise<string> {
   const res = await fetchImpl(`${settings.lmStudioUrl.replace(/\/+$/, '')}/api/v1/chat`, {
     method: 'POST',
@@ -521,9 +536,33 @@ export async function chatText(
   if (!res.ok) throw new Error(await describeError(res))
   if (!res.body) throw new Error('LM Studio returned no stream.')
   let text = ''
+  let tokens = 0
   for await (const evt of lmEvents(res.body)) {
-    if (evt.type === 'message.delta') text += evt.content ?? ''
-    else if (evt.type === 'error') throw new Error(evt.error?.message || 'LM Studio reported an error.')
+    switch (evt.type) {
+      case 'model_load.start': watch?.({ phase: 'loading', progress: 0, tokens }); break
+      case 'model_load.progress': watch?.({ phase: 'loading', progress: evt.progress ?? 0, tokens }); break
+      case 'prompt_processing.start': watch?.({ phase: 'reading', progress: 0, tokens }); break
+      case 'prompt_processing.progress': watch?.({ phase: 'reading', progress: evt.progress ?? 0, tokens }); break
+      case 'reasoning.start': watch?.({ phase: 'thinking', progress: null, tokens }); break
+      // Each delta is about a token: counted, so the page can show it moving.
+      case 'reasoning.delta': tokens++; if (tokens % 8 === 0) watch?.({ phase: 'thinking', progress: null, tokens }); break
+      case 'message.start': watch?.({ phase: 'writing', progress: null, tokens }); break
+      case 'message.delta': text += evt.content ?? ''; tokens++; if (tokens % 8 === 0) watch?.({ phase: 'writing', progress: null, tokens }); break
+      case 'chat.end': {
+        const s = evt.result?.stats
+        if (s && typeof s.tokens_per_second === 'number') {
+          watch?.({
+            phase: 'done', progress: null, tokens,
+            stats: {
+              inputTokens: s.input_tokens ?? 0, outputTokens: s.total_output_tokens ?? 0, reasoningTokens: s.reasoning_output_tokens ?? 0,
+              tokensPerSecond: Math.round(s.tokens_per_second * 10) / 10, firstTokenSeconds: Math.round((s.time_to_first_token_seconds ?? 0) * 10) / 10,
+            },
+          })
+        }
+        break
+      }
+      case 'error': throw new Error(evt.error?.message || 'LM Studio reported an error.')
+    }
   }
   return text.trim()
 }

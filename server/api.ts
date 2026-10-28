@@ -11,7 +11,7 @@ import { LABEL_MAX_BYTES, isImageDataUrl, readLabel } from './label.ts'
 import { generateSchema } from './training-gen.ts'
 import { applyProposal, coachReply, undoProposal } from './training-chat.ts'
 import type { SearchResult } from './foods.ts'
-import type { GenerateStatus, RangeNotes, Serving } from '../src/types.ts'
+import type { CoachStatus, GenerateStatus, RangeNotes, Serving } from '../src/types.ts'
 
 type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void
 
@@ -91,8 +91,9 @@ export function createApi(options: ApiOptions = {}) {
   let readingLabel = false
   /** The next training schema being written: minutes on a big model, so the page polls rather than waits. */
   let generating: GenerateStatus = { status: 'idle', startedAt: null, draftId: null, error: null }
-  /** The coach is writing a reply: one at a time, like a person would. */
+  /** The coach is writing a reply: one at a time, like a person would. What it's doing, for the page to show. */
   let coaching = false
+  let coachStatus: CoachStatus | null = null
   /** Write the next schema (or a rewrite of this one) in the background; the page polls GET /api/training/generate. */
   const startGenerating = (args: { note?: string; rewrite?: { instruction: string; fromWeek: number; messageId: string } }): void => {
     generating = { status: 'running', startedAt: Date.now(), draftId: null, error: null }
@@ -376,7 +377,7 @@ export function createApi(options: ApiOptions = {}) {
             if (m.status === 'applied' && m.note?.startsWith('Writing the new plan') && store.training.draft()?.rewriteFrom == null) store.training.setMessage(m.id, 'proposed', 'The new plan wasn\'t finished; start it again.')
           }
         }
-        return json(res, 200, { messages: plan ? store.training.messages(plan.id) : [], busy: coaching })
+        return json(res, 200, { messages: plan ? store.training.messages(plan.id) : [], busy: coaching, status: coachStatus })
       }
       if (method === 'DELETE') {
         if (plan) store.training.clearChat(plan.id)
@@ -386,15 +387,20 @@ export function createApi(options: ApiOptions = {}) {
         const { message, today } = await readBody(req) as { message?: unknown; today?: unknown }
         if (typeof message !== 'string' || !message.trim()) throw new ValidationError('say something to the coach')
         if (coaching) return json(res, 409, { error: 'The coach is still answering.' })
+        if (!plan) throw new ValidationError('there\'s no active training plan to talk about')
         coaching = true
-        try {
-          const day = typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today) ? today : new Date().toISOString().slice(0, 10)
-          return json(res, 200, { messages: await coachReply({ training: store.training, settings: store.getSettings(), fetchImpl, text: message.trim().slice(0, 2000), today: day, signal: clientGone(res) }) })
-        } catch (err) {
-          return json(res, 502, { error: (err as Error).message })
-        } finally {
-          coaching = false
-        }
+        coachStatus = null
+        const day = typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today) ? today : new Date().toISOString().slice(0, 10)
+        // In the background, like a lookup: the page polls GET for what the coach is doing, and the reply when it's there.
+        const reply = coachReply({
+          training: store.training, settings: store.getSettings(), fetchImpl, text: message.trim().slice(0, 2000), today: day,
+          onStatus: (s) => { coachStatus = s },
+        })
+        void reply
+          .catch((err: Error) => { store.training.addMessage(plan.id, 'assistant', 'The coach couldn\'t answer that time.', null, err.message) })
+          .finally(() => { coaching = false; coachStatus = null })
+        // The question is saved before the first await, so it's in this answer.
+        return json(res, 202, { messages: store.training.messages(plan.id), busy: true, status: coachStatus })
       }
     }
     if ((m = /^\/api\/training\/chat\/([^/]+)\/(apply|decline|undo)$/.exec(p)) && method === 'POST') {

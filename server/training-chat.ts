@@ -2,7 +2,8 @@ import { chatText, chooseModel, extractJson } from './research.ts'
 import { describeGear, shortDate } from './store/training.ts'
 import type { ActivePlan, TrainingStore } from './store/training.ts'
 import { OVERRIDE_OPS, REVISION_OPS } from '../src/types.ts'
-import type { CoachMessage, PlanEdit, PlanProposal, Settings, TrainingSchema } from '../src/types.ts'
+import type { CoachMessage, CoachStats, CoachStatus, PlanEdit, PlanProposal, Settings, TrainingSchema } from '../src/types.ts'
+import type { ChatProgress } from './research.ts'
 import { addDays, daysBetween, isDateString } from '../src/lib/nutrition.ts'
 import { cleanEquipment, cleanItemIn, cleanSchema } from '../src/lib/training/schema.ts'
 import { isRevision, reviseSchema } from '../src/lib/training/edits.ts'
@@ -298,16 +299,29 @@ export interface CoachArgs {
   text: string
   today: string
   signal?: AbortSignal
+  /** Told what the coach is doing while it answers: loading, reading the plan, thinking, writing, checking. */
+  onStatus?: (status: CoachStatus) => void
 }
 
 /** One turn of the conversation: the person's message saved, the coach's reply (and any proposal) saved after it. */
-export async function coachReply({ training, settings, fetchImpl, text, today, signal: abort }: CoachArgs): Promise<CoachMessage[]> {
+export async function coachReply({ training, settings, fetchImpl, text, today, signal: abort, onStatus }: CoachArgs): Promise<CoachMessage[]> {
   const plan = training.activePlan()
   if (!plan) throw new Error('There\'s no active training schema to talk about. Import one first.')
   const history = training.messages(plan.id).slice(-HISTORY)
   training.addMessage(plan.id, 'user', text)
   const signal = AbortSignal.any([AbortSignal.timeout(COACH_TIMEOUT_MS), ...(abort ? [abort] : [])])
+  const startedAt = Date.now()
+  let phase: CoachStatus['phase'] = 'reading'
+  const report = (p: Partial<CoachStatus>): void => onStatus?.({ phase, progress: null, tokens: 0, model: null, startedAt, ...p })
+  report({})
   const { model, reasoning } = await chooseModel(settings, fetchImpl, signal, settings.planChatModel)
+  // The last answer's stats, with the time for the whole turn (a retry included).
+  let last: ChatProgress['stats'] | undefined
+  const watch = (p: ChatProgress): void => {
+    if (p.phase === 'done') { last = p.stats; return }
+    report({ phase: phase === 'retrying' && p.phase !== 'writing' ? 'retrying' : p.phase, progress: p.progress, tokens: p.tokens, model })
+  }
+  const stats = (): CoachStats | null => (last ? { model, seconds: Math.round((Date.now() - startedAt) / 100) / 10, ...last } : null)
   const past = history.map((m) => {
     const proposal = m.proposal ? ` [proposed: ${m.proposal.preview.join('; ')} -- ${m.status}]` : ''
     // What actually happened, so a reply that claimed a change it didn't make isn't taken as done.
@@ -318,7 +332,7 @@ export async function coachReply({ training, settings, fetchImpl, text, today, s
   const ask = async (body: string): Promise<string> => {
     const req: Record<string, unknown> = { model, system_prompt: SYSTEM, input: body, max_output_tokens: COACH_MAX_TOKENS }
     if (reasoning) req.reasoning = reasoning
-    return chatText(settings, req, fetchImpl, signal)
+    return chatText(settings, req, fetchImpl, signal, watch)
   }
 
   const read = (raw: string): { reply: string; edits: PlanEdit[] } => {
@@ -329,8 +343,12 @@ export async function coachReply({ training, settings, fetchImpl, text, today, s
   }
   let raw = await ask(input)
   let { reply, edits } = read(raw)
+  phase = 'checking'
+  if (edits.length) report({ model })
   let checked = checkEdits(training, plan, edits, today, settings)
   if (edits.length && checked.errors.length) {
+    phase = 'retrying'
+    report({ model })
     raw = await ask([input, '', 'Your reply was:', raw.slice(0, 20_000), '', 'Its edits have these problems:', ...checked.errors.map((e) => `- ${e}`), '', 'Reply again with the corrected JSON.'].join('\n'))
     ;({ reply, edits } = read(raw))
     checked = checkEdits(training, plan, edits, today, settings)
@@ -338,15 +356,17 @@ export async function coachReply({ training, settings, fetchImpl, text, today, s
   if (!reply && !edits.length) {
     // Usually a thinking model that spent its whole reply on thinking.
     training.addMessage(plan.id, 'assistant', 'No answer came back that time.', null,
-      `${model} didn't say anything. Try again, or choose a quicker Coach model in Settings (a mid-size one answers in seconds).`)
+      `${model} didn't say anything. Try again, or choose a quicker Coach model in Settings (a mid-size one answers in seconds).`, stats())
   } else if (!edits.length) {
-    training.addMessage(plan.id, 'assistant', reply)
+    training.addMessage(plan.id, 'assistant', reply, null, null, stats())
   } else if (checked.errors.length) {
-    training.addMessage(plan.id, 'assistant', reply, null, `I couldn't turn that into a change to the plan (${checked.errors.slice(0, 2).join('; ')}). Try saying it another way.`)
+    training.addMessage(plan.id, 'assistant', reply, null, `I couldn't turn that into a change to the plan (${checked.errors.slice(0, 2).join('; ')}). Try saying it another way.`, stats())
   } else {
+    phase = 'checking'
+    report({ model })
     const proposal: PlanProposal = { edits: checked.rewrite ? [checked.rewrite] : [...checked.overrides, ...checked.revisions], preview: previewEdits(training, plan, checked, today) }
-    if (!proposal.preview.length) training.addMessage(plan.id, 'assistant', reply, null, 'That wouldn\'t change anything on the plan.')
-    else training.addMessage(plan.id, 'assistant', reply, proposal)
+    if (!proposal.preview.length) training.addMessage(plan.id, 'assistant', reply, null, 'That wouldn\'t change anything on the plan.', stats())
+    else training.addMessage(plan.id, 'assistant', reply, proposal, null, stats())
   }
   return training.messages(plan.id)
 }

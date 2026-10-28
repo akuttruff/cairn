@@ -143,20 +143,35 @@ describe('the coach', () => {
       const enc = new TextEncoder()
       const reply = replies[chats.length - 1] ?? ''
       return new Response(new ReadableStream({ start(c) {
-        for (const e of [{ type: 'message.delta', content: reply }, { type: 'chat.end' }]) c.enqueue(enc.encode(`data: ${JSON.stringify(e)}\n\n`))
+        const events = [
+          { type: 'prompt_processing.start' }, { type: 'prompt_processing.progress', progress: 0.5 },
+          { type: 'message.start' }, { type: 'message.delta', content: reply },
+          { type: 'chat.end', result: { stats: { input_tokens: 5000, total_output_tokens: 40, reasoning_output_tokens: 0, tokens_per_second: 25, time_to_first_token_seconds: 1.5 } } },
+        ]
+        for (const e of events) c.enqueue(enc.encode(`data: ${JSON.stringify(e)}\n\n`))
         c.close()
       } }), { status: 200 })
     }) as unknown as typeof fetch
     return { fetchImpl, chats }
   }
+  const statuses: string[] = []
   const say = (text: string, replies: string[]) => {
     const lm = lmStudio(replies)
-    return { lm, run: coachReply({ training: store.training, settings: { ...store.getSettings(), planChatModel: 'mid/coach' }, fetchImpl: lm.fetchImpl, text, today: MON }) }
+    statuses.length = 0
+    const onStatus = (s: { phase: string; progress: number | null }) => { statuses.push(`${s.phase}${s.progress !== null ? ` ${s.progress}` : ''}`) }
+    return { lm, run: coachReply({ training: store.training, settings: { ...store.getSettings(), planChatModel: 'mid/coach' }, fetchImpl: lm.fetchImpl, text, today: MON, onStatus }) }
   }
+
+  it('says what it is doing while it answers: reading the plan, writing, checking the change', async () => {
+    const reply = JSON.stringify({ reply: 'I can skip it.', edits: [{ op: 'skip', date: WED, sessionId: 'wod-wed' }] })
+    await say('skip the wod', [reply]).run
+    expect([...new Set(statuses)]).toEqual(['reading', 'reading 0', 'reading 0.5', 'writing', 'checking'])
+  })
 
   it('answers a question in plain words, with the plan and how it has gone in its prompt', async () => {
     const { lm, run } = say('How am I doing?', ['You have not started yet, but the plan builds sensibly toward the test week.'])
     const messages = await run
+    expect(messages[1]!.stats).toMatchObject({ model: 'mid/coach', inputTokens: 5000, outputTokens: 40, tokensPerSecond: 25, firstTokenSeconds: 1.5 })
     expect(messages.map((m) => [m.role, m.text, m.proposal])).toEqual([
       ['user', 'How am I doing?', null],
       ['assistant', 'You have not started yet, but the plan builds sensibly toward the test week.', null],

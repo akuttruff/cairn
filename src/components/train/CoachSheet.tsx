@@ -4,7 +4,7 @@ import { ArrowUp, RotateCcw } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api.ts'
 import { localDate } from '../../lib/nutrition.ts'
-import type { CoachMessage, TrainingDay } from '../../types.ts'
+import type { CoachMessage, CoachStats, CoachStatus, TrainingDay } from '../../types.ts'
 
 interface CoachSheetProps {
   open: boolean
@@ -13,6 +13,34 @@ interface CoachSheetProps {
   onClose: () => void
   /** A change was applied or undone: the plan on screen fetches afresh. */
   onChanged: (day?: TrainingDay) => void
+}
+
+const POLL_MS = 700
+
+/** "qwen/qwen3.8-27b" -> "qwen3.8-27b": the model's own name, without who published it. */
+const shortModel = (m: string): string => m.split('/').pop() ?? m
+
+/** What the coach is doing, as a line: "Reading your plan 63% · 4s". */
+function statusLine(s: CoachStatus | null, now: number): string {
+  if (!s) return 'Starting…'
+  const secs = Math.max(0, Math.round((now - s.startedAt) / 1000))
+  const pct = s.progress !== null ? ` ${Math.round(s.progress * 100)}%` : ''
+  const what = {
+    loading: `Loading ${s.model ? shortModel(s.model) : 'the model'}${pct}`,
+    // Read in full, then a quiet stretch before the first word: say so rather than sit at 100%.
+    reading: s.progress !== null && s.progress >= 1 ? 'Starting to answer…' : `Reading your plan${pct}`,
+    thinking: `Thinking… ${s.tokens} tokens`,
+    writing: `Writing… ${s.tokens} tokens`,
+    checking: 'Checking the change against your plan…',
+    retrying: 'Fixing the change…',
+  }[s.phase]
+  return `${what} · ${secs}s`
+}
+
+/** How a reply was made, in one quiet line, as LM Chat shows it. */
+function statsLine(s: CoachStats): string {
+  const thinking = s.reasoningTokens ? ` (${s.reasoningTokens.toLocaleString()} thinking)` : ''
+  return `${shortModel(s.model)} · ${s.seconds}s · ${s.tokensPerSecond} tok/s · ${s.inputTokens.toLocaleString()} in / ${s.outputTokens.toLocaleString()} out${thinking} · ${s.firstTokenSeconds}s to first token`
 }
 
 /** Ways in, for an empty conversation. */
@@ -34,11 +62,34 @@ export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheet
   const [messages, setMessages] = useState<CoachMessage[]>([])
   const [draft, setDraft] = useState('')
   const [thinking, setThinking] = useState(false)
+  const [status, setStatus] = useState<CoachStatus | null>(null)
+  const [now, setNow] = useState(Date.now())
   const end = useRef<HTMLDivElement>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  /** Ask the server what the coach is doing until the reply is in. */
+  const poll = (): void => {
+    clearTimeout(timer.current)
+    api.coach().then((r) => {
+      setStatus(r.status)
+      setThinking(r.busy)
+      setNow(Date.now())
+      if (r.busy) timer.current = setTimeout(poll, POLL_MS)
+      else setMessages(r.messages)
+    }, (err: Error) => { setThinking(false); toast.error(err.message) })
+  }
 
   useEffect(() => {
     if (!open) return
-    api.coach().then((r) => { setMessages(r.messages); setThinking(r.busy) }, (err: Error) => toast.error(err.message))
+    api.coach().then((r) => {
+      setMessages(r.messages)
+      setThinking(r.busy)
+      setStatus(r.status)
+      if (r.busy) timer.current = setTimeout(poll, POLL_MS)
+    }, (err: Error) => toast.error(err.message))
+    return () => clearTimeout(timer.current)
+    // poll is a fresh closure each render; opening is what starts it.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   useEffect(() => { end.current?.scrollIntoView?.({ block: 'end' }) }, [messages, thinking])
@@ -60,14 +111,17 @@ export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheet
     setDraft('')
     setThinking(true)
     // Shown at once; the server's copy replaces it with the reply.
-    setMessages((m) => [...m, { id: `pending-${Date.now()}`, role: 'user', text: message, proposal: null, status: null, note: null, createdAt: Date.now() }])
+    setMessages((m) => [...m, { id: `pending-${Date.now()}`, role: 'user', text: message, proposal: null, status: null, note: null, stats: null, createdAt: Date.now() }])
     try {
-      setMessages((await api.askCoach(message, localDate())).messages)
+      const r = await api.askCoach(message, localDate())
+      setMessages(r.messages)
+      setStatus(r.status)
+      if (r.busy) timer.current = setTimeout(poll, POLL_MS)
+      else setThinking(false)
     } catch (err) {
       toast.error((err as Error).message)
       setDraft(message)
       setMessages((m) => m.filter((x) => !x.id.startsWith('pending-')))
-    } finally {
       setThinking(false)
     }
   }
@@ -119,7 +173,7 @@ export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheet
               </div>
             )}
             {messages.map((m) => <Message key={m.id} m={m} onAct={act} />)}
-            {thinking && <div className="coach-msg coach"><span className="spinner" aria-hidden="true" /> Thinking…</div>}
+            {thinking && <div className="coach-msg coach coach-working" role="status"><span className="spinner" aria-hidden="true" /> {statusLine(status, now)}</div>}
             <div ref={end} />
           </div>
           <form className="coach-compose" onSubmit={(e) => { e.preventDefault(); void send(draft) }}>
@@ -167,6 +221,7 @@ function Message({ m, onAct }: { m: CoachMessage; onAct: (id: string, action: 'a
         </div>
       )}
       {m.note && <div className="coach-note">{m.note}</div>}
+      {m.stats && <div className="coach-stats">{statsLine(m.stats)}</div>}
     </div>
   )
 }

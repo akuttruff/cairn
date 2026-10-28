@@ -851,5 +851,27 @@ export interface CoachMessage {
   status: 'proposed' | 'applied' | 'declined' | 'undone' | null
   /** Anything worth saying about the proposal: why it couldn't be made, or that a rewrite is being written. */
   note: string | null
+  /** How the reply was made: which model, how long, how fast. */
+  stats: CoachStats | null
   createdAt: number
+}
+
+export interface CoachStats {
+  model: string
+  seconds: number
+  inputTokens: number
+  outputTokens: number
+  reasoningTokens: number
+  tokensPerSecond: number
+  firstTokenSeconds: number
+}
+
+/** What the coach is doing while it answers, for the page to show. */
+export interface CoachStatus {
+  phase: 'loading' | 'reading' | 'thinking' | 'writing' | 'checking' | 'retrying'
+  /** 0..1 while loading the model or reading the plan. */
+  progress: number | null
+  tokens: number
+  model: string | null
+  startedAt: number
 }

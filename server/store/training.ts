@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
 import type {
-  CoachMessage, Equipment, Lift, PlanProposal, ProgressSeries, ResolvedItem, ResolvedSession, SchemaOverview, SchemaStatus, SchemaSummary, SetLog, Settings,
+  CoachMessage, CoachStats, Equipment, Lift, PlanProposal, ProgressSeries, ResolvedItem, ResolvedSession, SchemaOverview, SchemaStatus, SchemaSummary, SetLog, Settings,
   TrainingDay, TrainingItem, TrainingSchema, TrainingSession, WorkoutLog,
 } from '../../src/types.ts'
 import type { OverrideEdit } from '../../src/lib/training/edits.ts'
@@ -29,7 +29,7 @@ interface SchemaRow {
 }
 interface OverrideRow { id: string; schema_id: string; kind: string; body: string; from_date: string; to_date: string; message_id: string | null }
 interface RevisionRow { id: string; schema_id: string; body: string; reason: string; message_id: string | null; created_at: number }
-interface ChatRow { id: string; schema_id: string; role: 'user' | 'assistant'; text: string; proposal: string | null; status: CoachMessage['status']; note: string | null; created_at: number }
+interface ChatRow { id: string; schema_id: string; role: 'user' | 'assistant'; text: string; proposal: string | null; status: CoachMessage['status']; note: string | null; created_at: number; stats: string | null }
 
 /** One of the coach's one-off changes, as stored. */
 interface Override { id: string; edit: OverrideEdit; messageId: string | null }
@@ -97,7 +97,7 @@ export class TrainingStore {
       deleteRevision: db.prepare('DELETE FROM schema_revisions WHERE id = ?'),
       chatOf: db.prepare('SELECT * FROM training_chat WHERE schema_id = ? ORDER BY created_at, rowid'),
       chatMessage: db.prepare('SELECT * FROM training_chat WHERE id = ?'),
-      insertChat: db.prepare('INSERT INTO training_chat (id,schema_id,role,text,proposal,status,note,created_at) VALUES (?,?,?,?,?,?,?,?)'),
+      insertChat: db.prepare('INSERT INTO training_chat (id,schema_id,role,text,proposal,status,note,created_at,stats) VALUES (?,?,?,?,?,?,?,?,?)'),
       updateChat: db.prepare('UPDATE training_chat SET status = ?, note = ? WHERE id = ?'),
       supersede: db.prepare("UPDATE training_chat SET status = 'declined' WHERE schema_id = ? AND status = 'proposed'"),
       clearChat: db.prepare('DELETE FROM training_chat WHERE schema_id = ?'),
@@ -631,21 +631,21 @@ export class TrainingStore {
   messages(schemaId: string): CoachMessage[] {
     return (this.s.chatOf!.all(schemaId) as unknown as ChatRow[]).map((r) => ({
       id: r.id, role: r.role, text: r.text, proposal: r.proposal ? JSON.parse(r.proposal) as PlanProposal : null,
-      status: r.status, note: r.note, createdAt: r.created_at,
+      status: r.status, note: r.note, stats: r.stats ? JSON.parse(r.stats) as CoachStats : null, createdAt: r.created_at,
     }))
   }
 
   message(id: string): CoachMessage & { schemaId: string } {
     const r = this.s.chatMessage!.get(id) as unknown as ChatRow | undefined
     if (!r) throw new ValidationError('no such message')
-    return { id: r.id, role: r.role, text: r.text, proposal: r.proposal ? JSON.parse(r.proposal) as PlanProposal : null, status: r.status, note: r.note, createdAt: r.created_at, schemaId: r.schema_id }
+    return { id: r.id, role: r.role, text: r.text, proposal: r.proposal ? JSON.parse(r.proposal) as PlanProposal : null, status: r.status, note: r.note, stats: r.stats ? JSON.parse(r.stats) as CoachStats : null, createdAt: r.created_at, schemaId: r.schema_id }
   }
 
-  addMessage(schemaId: string, role: 'user' | 'assistant', text: string, proposal: PlanProposal | null = null, note: string | null = null): string {
+  addMessage(schemaId: string, role: 'user' | 'assistant', text: string, proposal: PlanProposal | null = null, note: string | null = null, stats: CoachStats | null = null): string {
     const id = randomUUID()
     // One change waiting at a time: a new proposal sets aside the last one.
     if (proposal) this.s.supersede!.run(schemaId)
-    this.s.insertChat!.run(id, schemaId, role, text, proposal ? JSON.stringify(proposal) : null, proposal ? 'proposed' : null, note, Date.now())
+    this.s.insertChat!.run(id, schemaId, role, text, proposal ? JSON.stringify(proposal) : null, proposal ? 'proposed' : null, note, Date.now(), stats ? JSON.stringify(stats) : null)
     return id
   }
 

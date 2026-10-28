@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS schema_revisions (
 -- Talking to the coach about a schema: what was said, and the change proposed with it.
 CREATE TABLE IF NOT EXISTS training_chat (
   id TEXT PRIMARY KEY, schema_id TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('user','assistant')), text TEXT NOT NULL,
-  proposal TEXT, status TEXT, note TEXT, created_at INTEGER NOT NULL
+  proposal TEXT, status TEXT, note TEXT, created_at INTEGER NOT NULL, stats TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_training_chat ON training_chat(schema_id, created_at);
 
@@ -331,5 +331,11 @@ function migrateSchema(db: DatabaseSync): void {
     const schemas = db.prepare('PRAGMA table_info(training_schemas)').all() as { name: string }[]
     if (!schemas.some((c) => c.name === 'rewrite')) db.exec('ALTER TABLE training_schemas ADD COLUMN rewrite TEXT')
     db.exec('PRAGMA user_version = 19')
+  }
+  if (version < 20) {
+    // How each coach reply was made: model, time, tokens.
+    const cols = db.prepare('PRAGMA table_info(training_chat)').all() as { name: string }[]
+    if (!cols.some((c) => c.name === 'stats')) db.exec('ALTER TABLE training_chat ADD COLUMN stats TEXT')
+    db.exec('PRAGMA user_version = 20')
   }
 }
