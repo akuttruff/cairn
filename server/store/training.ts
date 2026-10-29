@@ -354,11 +354,16 @@ export class TrainingStore {
         }
       }
     }
-    for (const { edit } of overrides) {
-      if (edit.op !== 'swap' || date < edit.from || date > edit.to) continue
-      list = list.map((p) => ({ ...p, session: { ...p.session, items: p.session.items.map((i) => (i.id === edit.itemId ? edit.item : i)) } }))
-    }
+    const swaps = this.swapsOn(plan, date)
+    if (swaps.size) list = list.map((p) => ({ ...p, session: { ...p.session, items: p.session.items.map((i) => swaps.get(i.id)?.edit.item ?? i) } }))
     return list
+  }
+
+  /** The stand-ins on a date, by the item they replace: the latest one for an item wins, so asking again corrects it. */
+  private swapsOn(plan: ActivePlan, date: string): Map<string, { id: string; edit: Extract<OverrideEdit, { op: 'swap' }> }> {
+    const out = new Map<string, { id: string; edit: Extract<OverrideEdit, { op: 'swap' }> }>()
+    for (const { id, edit } of plan.overrides) if (edit.op === 'swap' && date >= edit.from && date <= edit.to) out.set(edit.itemId, { id, edit })
+    return out
   }
 
   /** How much the coach has scaled a lift's weights on a date (1 when not at all). */
@@ -417,7 +422,13 @@ export class TrainingStore {
       // Lighter weights only where an affected lift is on the day's plan.
       const lifted = edit.op === 'load' && this.sessionsFor(plan, date).some((p) => p.session.items.some((i) => i.lift && (!edit.lifts?.length || edit.lifts.includes(i.lift))))
       if (covers && edit.op === 'load' && lifted) out.push({ id, text: `Weights at ${Math.round(edit.factor * 100)}%${edit.lifts?.length ? ` for ${edit.lifts.join(', ')}` : ''} until ${shortDate(edit.to)}` })
-      if (covers && edit.op === 'swap') out.push({ id, text: `${edit.item.name} in place of ${this.itemName(plan.schema, edit.itemId)} until ${shortDate(edit.to)}` })
+      if (covers && edit.op === 'swap' && this.swapsOn(plan, date).get(edit.itemId)?.id === id) {
+        // A stand-in that keeps the name is new sets for it: say what they are.
+        const was = this.itemName(plan.schema, edit.itemId)
+        const until = `until ${shortDate(edit.to)}`
+        const what = edit.item.name === was ? `${was}: ${this.itemText(plan, date, edit.item)} ${until}` : `${edit.item.name} in place of ${was} ${until}`
+        out.push({ id, text: what })
+      }
       if (covers && edit.op === 'equipment') out.push({ id, text: `Gear until ${shortDate(edit.to)}: ${describeGear(edit.equipment)}` })
     }
     return out
@@ -427,6 +438,13 @@ export class TrainingStore {
   private planOfRaw(plan: ActivePlan, date: string): TrainingSession[] {
     const at = weekOf(plan.schema, date, plan.repeats)
     return at ? this.sessionsOn(plan.schema, date, at.week) : []
+  }
+
+  /** An item's planned sets on a date in words: "3×5 @ 35". */
+  private itemText(plan: ActivePlan, date: string, item: TrainingItem): string {
+    const week = weekOf(plan.schema, date, plan.repeats)?.week
+    if (week === undefined || !hasSets(item)) return 'changed'
+    return describe(this.plan(item, week, plan.schema, this.liftMap(), this.factorOn(plan, date, item.lift)) ?? []) || 'changed'
   }
 
   private itemName(schema: TrainingSchema, itemId: string): string {

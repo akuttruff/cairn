@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { TrainingSchema } from '../../types.ts'
 import { mergeRewrite, reviseSchema } from './edits.ts'
-import { cleanSchema } from './schema.ts'
+import { cleanSchema, parseSets } from './schema.ts'
 import { itemOn } from './resolve.ts'
 import { SAMPLE_EQUIPMENT, SAMPLE_SCHEMA } from './sample.ts'
 
@@ -56,6 +56,45 @@ describe('lasting changes', () => {
     ], 1)
     expect(schema.days.find((d) => d.weekday === 3)!.sessions.map((s) => s.id)).toEqual(['press-day'])
     expect(errors).toEqual(['removeItem: no item "nope"'])
+  })
+})
+
+describe('new sets for some weeks', () => {
+  it('changes only the weeks given, writing out the rest of a progression week by week', () => {
+    const { schema, errors } = reviseSchema(SAMPLE_SCHEMA, [{ op: 'setWeeks', itemId: 'back-squat', weeks: { 1: '3x5@95', 2: '4x5@100' } }], 1)
+    expect(errors).toEqual([])
+    const clean = cleanSchema(schema, ctx)
+    expect(clean.errors).toEqual([])
+    const squat = item(clean.schema!, 'back-squat')!
+    expect(squat.progression).toBeUndefined()
+    expect(squat.weeks!['1']!.sets).toEqual([{ reps: 5, weight: 95 }, { reps: 5, weight: 95 }, { reps: 5, weight: 95 }])
+    expect(squat.weeks!['2']!.sets).toHaveLength(4)
+    // The deload and the test stay as the progression had them.
+    expect(squat.weeks!['3']!.sets).toEqual([{ reps: 5, pct: 0.6 }, { reps: 5, pct: 0.6 }, { reps: 5, pct: 0.6 }])
+    expect(squat.weeks!['4']!.sets).toEqual([{ test: 'ladder' }])
+  })
+
+  it('refuses a week the item isn\'t in, and an item with no sets', () => {
+    expect(reviseSchema(SAMPLE_SCHEMA, [{ op: 'setWeeks', itemId: 'back-squat', weeks: { 9: '3x5' } }], 1).errors.join()).toMatch(/runs weeks 1-4, so it can't take week 9/)
+    expect(reviseSchema(SAMPLE_SCHEMA, [{ op: 'setWeeks', itemId: 'mobility', weeks: { 1: '3x5' } }], 1).errors.join()).toMatch(/has no sets to change/)
+  })
+})
+
+describe('sets the short way', () => {
+  it('reads sets as the plan writes them', () => {
+    expect(parseSets('3x5@35')).toEqual([{ reps: 5, weight: 35 }, { reps: 5, weight: 35 }, { reps: 5, weight: 35 }])
+    expect(parseSets('5 @ 40, 2×3 @ 45')).toEqual([{ reps: 5, weight: 40 }, { reps: 3, weight: 45 }, { reps: 3, weight: 45 }])
+    expect(parseSets('3x5@70%')).toEqual([{ reps: 5, pct: 0.7 }, { reps: 5, pct: 0.7 }, { reps: 5, pct: 0.7 }])
+    expect(parseSets('2x30s, max, ladder')).toEqual([{ seconds: 30 }, { seconds: 30 }, { reps: 'max' }, { test: 'ladder' }])
+    expect(parseSets('heavy-ish')).toMatch(/"heavy-ish" isn't a set/)
+  })
+
+  it('says so when a set has a field it doesn\'t, rather than dropping it', () => {
+    const bad = structuredClone(SAMPLE_SCHEMA)
+    bad.days[0]!.sessions[0]!.items[1] = { id: 'mobility', name: 'Hip mobility', sets: { sets: [{ week: 0, sets: 3, reps: 5, weight: 35 }] } } as never
+    expect(cleanSchema(bad, ctx).errors.join()).toMatch(/week, sets aren't fields of a set -- each entry is ONE set; write "3x5@35"/)
+    bad.days[0]!.sessions[0]!.items[1] = { id: 'mobility', name: 'Hip mobility', reps: 5, check: true } as never
+    expect(cleanSchema(bad, ctx).errors.join()).toMatch(/reps isn't a field of an item -- reps and weights go in "sets"/)
   })
 })
 

@@ -16,6 +16,8 @@ import { prescriptionFor, weekdayOf } from './resolve.ts'
  */
 
 export const MAX_WEEKS = 16
+const SET_FIELDS = ['reps', 'seconds', 'pct', 'weight', 'test']
+const ITEM_FIELDS = ['id', 'name', 'lift', 'notes', 'optional', 'onlyWeeks', 'sets', 'weeks', 'progression', 'wod', 'check', 'minutes']
 const ID = /^[a-z0-9][a-z0-9_-]{0,39}$/
 const WOD_FORMATS = ['rft', 'amrap', 'emom', 'chipper', 'ladder', 'intervals'] as const
 
@@ -135,6 +137,12 @@ export function cleanSchema(input: unknown, ctx: SchemaContext): { schema: Train
     if (typeof id !== 'string' || !ID.test(id)) { err(where, 'needs an id of lowercase letters, digits, - or _'); return null }
     const label = `${where} (${name ?? id})`
     if (!name) err(label, 'name is required')
+    // Nothing dropped quietly: a field that isn't one is a misunderstanding worth hearing about.
+    const extra = Object.keys(raw).filter((k) => !ITEM_FIELDS.includes(k))
+    if (extra.length) {
+      const hint = extra.some((k) => ['reps', 'weight', 'pct', 'seconds'].includes(k)) ? ' -- reps and weights go in "sets", e.g. "sets": "3x5@35"' : ` -- an item has only ${ITEM_FIELDS.join(', ')}`
+      err(label, `${extra.join(', ')} ${extra.length > 1 ? "aren't fields" : "isn't a field"} of an item${hint}`)
+    }
     const item: TrainingItem = { id, name: name ?? id }
     if (raw.optional === true) item.optional = true
     const notes = text(raw.notes, 1500)
@@ -209,7 +217,24 @@ export function cleanSchema(input: unknown, ctx: SchemaContext): { schema: Train
     return item
   }
 
-  function cleanPrescription(raw: unknown, where: string): Prescription | null {
+  function cleanPrescription(input: unknown, where: string): Prescription | null {
+    // The short way too: "3x5@35" for the whole prescription, or for some of its sets.
+    const given = typeof input === 'string' || Array.isArray(input) ? { sets: input } : input
+    const raw = isObj(given) ? { ...given, ...(typeof given.sets === 'string' ? { sets: [given.sets] } : {}) } : given
+    if (isObj(raw)) {
+      const extra = Object.keys(raw).filter((k) => k !== 'sets' && k !== 'note')
+      if (extra.length) err(where, `${extra.join(', ')} ${extra.length > 1 ? "aren't fields" : "isn't a field"} here -- a prescription is { "sets": [...], "note"?: text }`)
+    }
+    if (isObj(raw) && Array.isArray(raw.sets)) {
+      const expanded: unknown[] = []
+      for (const s of raw.sets) {
+        if (typeof s !== 'string') { expanded.push(s); continue }
+        const parsed = parseSets(s)
+        if (typeof parsed === 'string') err(where, parsed)
+        else expanded.push(...parsed)
+      }
+      raw.sets = expanded
+    }
     if (!isObj(raw) || !Array.isArray(raw.sets) || !raw.sets.length || raw.sets.length > 15) {
       err(where, 'needs sets: a list of 1 to 15 sets')
       return null
@@ -218,6 +243,14 @@ export function cleanSchema(input: unknown, ctx: SchemaContext): { schema: Train
     raw.sets.forEach((s, i) => {
       const sw = `${where} set ${i + 1}`
       if (!isObj(s)) return err(sw, 'must be an object')
+      const extra = Object.keys(s).filter((k) => !SET_FIELDS.includes(k))
+      if (extra.length) {
+        // The usual slip: a row per week ({ week, sets, reps, weight }) where one set was meant.
+        const hint = extra.some((k) => ['sets', 'week', 'count', 'times'].includes(k))
+          ? ' -- each entry is ONE set; write "3x5@35" for three of them, and use "weeks": { "0": "3x5@35", "1": "4x5@40" } for sets that change week to week'
+          : ` -- a set has only ${SET_FIELDS.join(', ')}`
+        return err(sw, `${extra.join(', ')} ${extra.length > 1 ? "aren't fields" : "isn't a field"} of a set${hint}`)
+      }
       const set: SetTarget = {}
       if (s.test !== undefined) {
         if (s.test !== 'ladder' && s.test !== 'single') return err(sw, 'test must be "ladder" or "single"')
@@ -394,4 +427,32 @@ export function cleanItemIn(raw: unknown, schema: TrainingSchema, ctx: SchemaCon
   const mine = errors.filter((e) => e.startsWith(where)).map((e) => e.replace(where, 'item'))
   if (mine.length || !clean) return { item: null, errors: mine.length ? mine : errors }
   return { item: clean.days[0]!.sessions[0]!.items.at(-1)!, errors: [] }
+}
+
+/** One group of sets in the short way: "3x5@35", "5 @ 40", "3×5 @ 70%", "4x10", "2x30s", "max", "ladder". */
+const SET_GROUP = /^(?:(\d+)\s*[x×*]\s*)?(max|\d+)\s*(s|sec|secs|seconds)?(?:\s*(?:@|at)\s*(\d+(?:\.\d+)?)\s*(%|lb|lbs)?)?$/i
+
+/**
+ * Sets written the short way, as the plan reads them: "3x5@35, 5@40" is
+ * three sets of 5 at 35 lb and one of 5 at 40; "3x5@70%" is 70% of the PR.
+ * Returns the sets, or a line saying what couldn't be read.
+ */
+export function parseSets(input: string): SetTarget[] | string {
+  const out: SetTarget[] = []
+  for (const part of input.split(/[,;]/).map((x) => x.trim()).filter(Boolean)) {
+    if (/^(ladder|single)$/i.test(part)) { out.push({ test: part.toLowerCase() as 'ladder' | 'single' }); continue }
+    const m = SET_GROUP.exec(part)
+    if (!m) return `"${part}" isn't a set -- write sets like "3x5@35" (3 sets of 5 at 35 lb), "5@40", "3x5@70%", "3x30s" or "max"`
+    const count = m[1] ? Number(m[1]) : 1
+    if (count < 1 || count > 15) return `"${part}": 1 to 15 sets`
+    const set: SetTarget = {}
+    if (m[3]) set.seconds = Number(m[2])
+    else set.reps = m[2]!.toLowerCase() === 'max' ? 'max' : Number(m[2])
+    if (m[4] !== undefined) {
+      if (m[5] === '%') set.pct = Math.round(Number(m[4]) * 10) / 1000
+      else set.weight = Number(m[4])
+    }
+    for (let i = 0; i < count; i++) out.push({ ...set })
+  }
+  return out.length ? out : 'no sets given'
 }

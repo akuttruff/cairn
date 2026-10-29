@@ -41,7 +41,10 @@ One-off changes for some days (the plan itself stays as it is):
   { "op": "swap", "from": date, "to": date, "itemId": id, "item": Item }   a stand-in for an item over some days
   { "op": "equipment", "from": date, "to": date, "equipment": { "gear": [...], "dumbbells": [lb], "kettlebells": [lb] } }   traveling
 Lasting changes to the plan from a week on (fromWeek defaults to the current week; an earlier week corrects what has already happened):
-  { "op": "replaceItem", "itemId": id, "item": Item, "fromWeek"?: n }
+  { "op": "setWeeks", "itemId": id, "weeks": { "<week>": sets, ... } }   NEW SETS OR WEIGHTS FOR AN ITEM: the way to change reps, sets or weights.
+      Give only the weeks that change; the item's other weeks stay as they are. Past weeks can be corrected too.
+      e.g. today 3x5 at 35 and building from there:  { "op": "setWeeks", "itemId": "overhead-squat-wed", "weeks": { "0": "3x5@35", "1": "4x5@40", "2": "4x5@45" } }
+  { "op": "replaceItem", "itemId": id, "item": Item, "fromWeek"?: n }   a different exercise in its place (keep its "lift" as it was unless that changes too)
   { "op": "addItem", "sessionId": id, "item": Item, "fromWeek"?: n, "toWeek"?: n }
   { "op": "removeItem", "itemId": id, "fromWeek"?: n }
   { "op": "addSession", "weekday": 1-7 (7 = Sunday), "session": { "id", "title", "kind", "items": [Item] }, "fromWeek"?: n, "toWeek"?: n }
@@ -66,9 +69,13 @@ The WOD bank and where the gear is:
           "text"?: string, "parts": [{ "move": movement id, "amount"?: n, "weight"?: lb }] }
 A rewrite of the rest of the plan, when the person asks for one or for something bigger than a few edits:
   { "op": "rewrite", "instruction": "what to change, in a sentence or two", "fromWeek": n }   (alone, no other edits)
-Item = { "id": new unique id, "name", "lift"?: lift id, "notes"?, and exactly one of:
-  "sets": { "sets": [{ "reps"?: n | "max", "seconds"?: n, "pct"?: fraction of the PR, "weight"?: lb }] }   the same every week
+Sets are written the way the plan reads them: "3x5@35" is 3 sets of 5 at 35 lb, "5@35, 5@40, 3@45" lists them one by one,
+  "3x5@70%" is 70% of the lift's PR (needs a "lift"), "4x10" has no weight, "3x30s" is held for seconds, "max" is as many as possible.
+Item = { "id": new unique id, "name", "lift"?: lift id, "notes"?, "onlyWeeks"?: [from, to], and exactly one of:
+  "sets": "3x5@35"                                   the same sets every week
+  "weeks": { "0": "3x5@35", "1": "4x5@40", ... }     sets that change week to week (a week left out has none)
   "progression": {...} as in the schema, "minutes": { "<week>": n }, "wod": { "maxMinutes": n, "focus"?: [focus tags] }, "check": true }
+  An item has only these fields; anything else is an error.
   WOD focus tags are ONLY "upper" (pulling and pushing: pull-ups, ring rows, push-ups, presses), "legs", "full", "bike", "core";
   a slot is offered WODs that use those. To change a slot's focus, replaceItem it with the same item and the new "wod".
 Dates are YYYY-MM-DD, any day of the plan -- past days too, when the person wants the record to match what they actually did.
@@ -88,6 +95,20 @@ function tidyFocus(item: unknown): void {
   wod.focus = [...new Set(wod.focus.map((f) => (typeof f === 'string' ? FOCUS_ALIASES[f.trim().toLowerCase()] ?? f.trim().toLowerCase() : f)))]
 }
 
+/** "reps" and "weight" written on the item itself, as one group of sets: read as its sets, the short way. */
+function tidySets(item: unknown): void {
+  const o = item as Record<string, unknown> | null
+  if (!o || typeof o !== 'object' || (o.sets !== undefined && typeof o.sets !== 'number') || o.weeks !== undefined || o.progression !== undefined) return
+  const reps = o.reps
+  if (typeof reps !== 'number' && reps !== 'max') return
+  const count = typeof o.sets === 'number' ? o.sets : typeof o.setCount === 'number' ? o.setCount : 1
+  const weight = typeof o.weight === 'number' ? `@${o.weight}` : ''
+  o.sets = `${count}x${reps}${weight}`
+  delete o.reps
+  delete o.weight
+  delete o.setCount
+}
+
 /** The model's edits, tidied: `type` read as `op`, WOD focus words read as tags, and anything that isn't an object dropped. */
 function normalize(raw: unknown): PlanEdit[] {
   if (!Array.isArray(raw)) return []
@@ -96,8 +117,9 @@ function normalize(raw: unknown): PlanEdit[] {
     if (typeof o.op !== 'string' && typeof o.type === 'string') o.op = o.type
     delete o.type
     tidyFocus(o.item)
+    tidySets(o.item)
     const session = o.session as { items?: unknown[] } | undefined
-    if (Array.isArray(session?.items)) session.items.forEach(tidyFocus)
+    if (Array.isArray(session?.items)) session.items.forEach((i) => { tidyFocus(i); tidySets(i) })
     return o as unknown as PlanEdit
   })
 }
@@ -276,7 +298,8 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
   if (checked.revised) {
     // From the earliest week a lasting change starts (this week unless it says), four weeks on.
     const current = weekOf(plan.schema, today, plan.repeats)?.week ?? plan.schema.firstWeek
-    const week = Math.min(...checked.revisions.map((r) => r.fromWeek ?? current))
+    // New sets start at the first week they change; the rest from their week, this one unless they say.
+    const week = Math.min(...checked.revisions.map((r) => (r.op === 'setWeeks' ? Math.min(...Object.keys(r.weeks).map(Number)) : r.fromWeek ?? current)))
     const index = weekSequence(plan.schema, plan.repeats).indexOf(week)
     const from = index >= 0 ? addDays(plan.schema.startDate, index * 7) : today
     span(from, addDays(from, 27))
@@ -379,26 +402,9 @@ export function coachContext(training: TrainingStore, plan: ActivePlan, today: s
     }
   }
   const changes = plan.overrides.map((o) => `  ${o.edit.op} ${JSON.stringify(o.edit)}`)
+  // What changes least comes first, and today's days last: the model server reuses its reading of
+  // an unchanged beginning, so a turn only has to read what's new since the last one.
   return [
-    `Today is ${shortDate(today)} ${today}${at ? `, week ${at.week} of ${plan.schema.weeks}${plan.schema.deloadWeeks.includes(at.week) ? ' (a deload week)' : ''}${plan.schema.testWeek === at.week ? ' (the test week)' : ''}` : ''}.`,
-    `The plan: "${plan.schema.name}", ${plan.summary.startDate} to ${plan.summary.endDate}, weeks ${plan.schema.firstWeek}-${plan.schema.weeks}; deloads ${plan.schema.deloadWeeks.join(', ') || 'none'}; test week ${plan.schema.testWeek ?? 'none'}.`,
-    plan.schema.goals ? `Its goals:\n${plan.schema.goals}` : '',
-    `Lifts and PRs (lb): ${lifts.map((l) => `${l.id} ${l.pr ?? '?'}`).join(', ')}.`,
-    settings.equipment.places?.length
-      ? `Equipment, by place (a WOD is only offered if one place has all it needs):\n${settings.equipment.places.map((p) => `  ${p.name}: ${describeGear({ ...p, places: undefined })}`).join('\n')}`
-      : `Equipment (all in one place): ${describeGear(settings.equipment)}.`,
-    `Activities (session kinds): ${settings.workoutKinds.map((k) => k.id).join(', ')}.`,
-    '',
-    `The past ${BEHIND_DAYS} days and the next ${AHEAD_DAYS}, with the ids edits use (past days show what was logged):`,
-    ...ahead,
-    changes.length ? `One-off changes already in place:\n${changes.join('\n')}` : '',
-    '',
-    'The whole plan in outline (weights at today\'s PRs):',
-    outline(plan.schema, new Map(lifts.map((l) => [l.id, l.pr]))),
-    '',
-    'How it has gone so far:',
-    training.report(plan.id, today),
-    '',
     `Movement ids for WODs: ${MOVEMENTS.map((m) => m.id).join(', ')}.`,
     '',
     'The WOD bank (id: name, how it would be done with this gear):',
@@ -407,6 +413,25 @@ export function coachContext(training: TrainingStore, plan: ActivePlan, today: s
       const hidden = plan.schema.hiddenWods?.includes(w.id) ? ' [hidden]' : ''
       return `  ${w.id}: ${w.name}${hidden} -- ${v ? `${v.minutes} min, ${v.lines.join(', ')}${v.place ? ` [${v.place}]` : ''}` : 'can\'t be done with this gear'}`
     }),
+    '',
+    `The plan: "${plan.schema.name}", ${plan.summary.startDate} to ${plan.summary.endDate}, weeks ${plan.schema.firstWeek}-${plan.schema.weeks}; deloads ${plan.schema.deloadWeeks.join(', ') || 'none'}; test week ${plan.schema.testWeek ?? 'none'}.`,
+    plan.schema.goals ? `Its goals:\n${plan.schema.goals}` : '',
+    `Activities (session kinds): ${settings.workoutKinds.map((k) => k.id).join(', ')}.`,
+    settings.equipment.places?.length
+      ? `Equipment, by place (a WOD is only offered if one place has all it needs):\n${settings.equipment.places.map((p) => `  ${p.name}: ${describeGear({ ...p, places: undefined })}`).join('\n')}`
+      : `Equipment (all in one place): ${describeGear(settings.equipment)}.`,
+    `Lifts and PRs (lb): ${lifts.map((l) => `${l.id} ${l.pr ?? '?'}`).join(', ')}.`,
+    '',
+    'The whole plan in outline, week by week (w0, w1...), weights at today\'s PRs, sets in the short notation setWeeks takes:',
+    outline(plan.schema, new Map(lifts.map((l) => [l.id, l.pr]))),
+    '',
+    'How it has gone so far:',
+    training.report(plan.id, today),
+    '',
+    `Today is ${shortDate(today)} ${today}${at ? `, week ${at.week} of ${plan.schema.weeks}${plan.schema.deloadWeeks.includes(at.week) ? ' (a deload week)' : ''}${plan.schema.testWeek === at.week ? ' (the test week)' : ''}` : ''}.`,
+    `The past ${BEHIND_DAYS} days and the next ${AHEAD_DAYS}, with the ids edits use (past days show what was logged):`,
+    ...ahead,
+    changes.length ? `One-off changes already in place (a newer swap for the same item and day replaces an older one):\n${changes.join('\n')}` : '',
   ].filter((l) => l !== '').join('\n')
 }
 

@@ -97,7 +97,8 @@ Generated schemas use this form.
 }
 ```
 
-- **Sets:** each set has `reps` (a number or `"max"`) or `seconds`, plus either `pct` of the item's lift or a fixed `weight` in lb.
+- **Sets:** each set has `reps` (a number or `"max"`) or `seconds`, plus either `pct` of the item's lift or a fixed `weight` in lb. Nothing else: a set with any other field is an error, not quietly dropped.
+- **The short way:** a prescription, or any of its sets, can be written as the plan reads: `"3x5@35"` (3 sets of 5 at 35 lb), `"5@35, 5@40"`, `"3x5@70%"` (of the lift's PR), `"4x10"`, `"3x30s"`, `"max"`, `"ladder"`. So `"1": "3x5@35"` is the same as `"1": { "sets": [{ "reps": 5, "weight": 35 }, …×3] }`.
 - **Missing weeks:** a week that isn't listed means the item is off that week.
 - **`note`:** shown under the item's name for that week, e.g. the variation or the load.
 
@@ -177,7 +178,10 @@ On the Train tab, **Coach** opens a chat with the coach model (set in Settings).
 
 They show on the day as "Adjusted" lines, each with an undo.
 
-**Lasting changes** apply from a week on: `replaceItem`, `addItem`, `removeItem`, `addSession`, `removeSession` and `moveSession`.
+A newer `swap` for the same item and day replaces an older one, so asking again corrects a stand-in rather than stacking on it.
+
+**Lasting changes** apply from a week on: `replaceItem`, `addItem`, `removeItem`, `addSession`, `removeSession`, `moveSession` and `renameSession`.
+- **`setWeeks`** is how sets and weights change: `{ "itemId", "weeks": { "0": "3x5@35", "1": "4x5@40" } }` gives those weeks new sets, and the item's other weeks stay as they were (a progression is written out week by week first). It keeps the item and its id, so logged sets stay with it.
 - Weeks already trained are never rewritten. A changed item keeps its earlier weeks, and what replaces it is a new item with a new id, so logged sets stay with the item they were logged against.
 - Each lasting change saves the schema's previous body, and undo restores it. Changes are undone newest first.
 

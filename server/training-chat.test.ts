@@ -90,6 +90,13 @@ describe('one-off changes', () => {
     ])
   })
 
+  it('lets a newer stand-in for the same item and day replace an older one', () => {
+    apply([{ op: 'swap', from: THU, to: THU, itemId: 'dead-hang', item: { id: 'hang-a', name: 'Dead hang', sets: { sets: [{ seconds: 20 }] } } }])
+    apply([{ op: 'swap', from: THU, to: THU, itemId: 'dead-hang', item: { id: 'hang-b', name: 'Dead hang', sets: '3x15s' as never } }])
+    expect(store.training.day(THU).sessions[0]!.items[1]!.sets!.map((x) => x.seconds)).toEqual([15, 15, 15])
+    expect(store.training.day(THU).adjustments.map((a) => a.text)).toEqual(['Dead hang: 3×15 s until Thu, Nov 5'])
+  })
+
   it('takes back one change on its own', () => {
     apply([{ op: 'skip', date: WED }])
     const [adj] = store.training.day(WED).adjustments
@@ -353,6 +360,30 @@ describe('the coach', () => {
     expect(lm.chats).toHaveLength(2)
     expect(String(lm.chats[1]!.input)).toMatch(/Its edits have these problems:\n- edit 1 \(skip\): date must be within the plan/)
     expect(last).toMatchObject({ proposal: null, note: expect.stringMatching(/couldn't turn that into a change/) })
+  })
+
+  it('gets a starting weight and the weeks after it right, after being shown a set written per week', async () => {
+    // What happened for real: one "set" per week, which was read as a dozen sets every week.
+    const perWeek = JSON.stringify({ reply: 'Starting at 35.', edits: [{ op: 'replaceItem', itemId: 'strict-press', item: { id: 'strict-press', name: 'Strict press', lift: 'press',
+      sets: { sets: [{ week: 1, reps: 5, sets: 3, weight: 35 }, { week: 2, reps: 5, sets: 4, weight: 40 }] } } }] })
+    const right = JSON.stringify({ reply: 'Starting at 35.', edits: [{ op: 'setWeeks', itemId: 'strict-press', weeks: { 1: '3x5@35', 2: '4x5@40' } }] })
+    const { lm, run } = say('Today 3x5 at 35, then build from there', [perWeek, right])
+    const last = (await run).at(-1)!
+    expect(String(lm.chats[1]!.input)).toMatch(/each entry is ONE set/)
+    expect(last.proposal?.preview).toEqual(['Wed, Nov 4 · Strict press: 2×5 @ 40 → 3×5 @ 35', 'Wed, Nov 11 · Strict press: 2×3 @ 45 → 4×5 @ 40'])
+    applyProposal(store.training, last.id, MON, store.getSettings(), () => {})
+    expect(store.training.day(WED).sessions[0]!.items[0]!.sets!.map((x) => x.weight)).toEqual([35, 35, 35])
+    const press = plan().schema.days[1]!.sessions[0]!.items[0]!
+    expect(press).toMatchObject({ id: 'strict-press', weeks: { 4: { sets: [{ test: 'ladder' }] } } }) // the same item; the test week stays
+  })
+
+  it('puts what changes least first in the prompt, and today and the days around it last', async () => {
+    const { lm, run } = say('Hi', ['Hi!'])
+    await run
+    const input = String(lm.chats[0]!.input)
+    expect(input.indexOf('The WOD bank')).toBeLessThan(input.indexOf('The whole plan in outline'))
+    expect(input.indexOf('The whole plan in outline')).toBeLessThan(input.indexOf('Today is'))
+    expect(input.indexOf('Today is')).toBeLessThan(input.indexOf('Person: Hi'))
   })
 
   it('makes a lasting change as a revision, and undoes only the latest', async () => {

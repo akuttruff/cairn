@@ -1,5 +1,6 @@
-import type { PlanEdit, TrainingItem, TrainingSchema, TrainingSession } from '../../types.ts'
+import type { PlanEdit, Prescription, TrainingItem, TrainingSchema, TrainingSession } from '../../types.ts'
 import { OVERRIDE_OPS, REVISION_OPS } from '../../types.ts'
+import { hasSets, prescriptionFor } from './resolve.ts'
 
 /**
  * Lasting changes to a schema, from a week on. Nothing that's been trained
@@ -67,7 +68,7 @@ export function reviseSchema(schema: TrainingSchema, edits: RevisionEdit[], curr
   }
 
   for (const e of edits) {
-    const from = Math.max(e.fromWeek ?? currentWeek, out.firstWeek)
+    const from = Math.max(('fromWeek' in e ? e.fromWeek : undefined) ?? currentWeek, out.firstWeek)
     if (from > out.weeks) { errors.push(`${e.op}: fromWeek ${from} is after the schema's last week (${out.weeks})`); continue }
     // An addition can stop at a week (toWeek = fromWeek for just one); without one it runs to the end.
     const until = 'toWeek' in e && e.toWeek !== undefined ? e.toWeek : out.weeks
@@ -159,6 +160,35 @@ export function reviseSchema(schema: TrainingSchema, edits: RevisionEdit[], curr
         if (e.fromWeek === undefined && e.toWeek === undefined) { session.title = title; delete session.weekTitles; break }
         session.weekTitles ??= {}
         for (let w = from; w <= until; w++) session.weekTitles[w] = title
+        break
+      }
+      case 'setWeeks': {
+        // Some weeks' sets changed in place: the item's every week is written out week by week,
+        // then the given weeks replace theirs. Same item, same id, so its logged sets stay with it.
+        const at = findItem(e.itemId)
+        if (!at) { errors.push(`setWeeks: no item "${e.itemId}"`); break }
+        const item = at.session.items[at.index]!
+        if (!hasSets(item)) { errors.push(`setWeeks: "${e.itemId}" has no sets to change (it's a WOD slot, minutes or a check)`); break }
+        if (!e.weeks || typeof e.weeks !== 'object' || Array.isArray(e.weeks) || !Object.keys(e.weeks).length) {
+          errors.push('setWeeks: weeks maps week numbers to sets, e.g. { "0": "3x5@35", "1": "4x5@40" }')
+          break
+        }
+        const [lo, hi] = range(item, out)
+        const outside = Object.keys(e.weeks).filter((w) => !/^\d+$/.test(w) || Number(w) < lo || Number(w) > hi)
+        if (outside.length) { errors.push(`setWeeks: "${e.itemId}" runs weeks ${lo}-${hi}, so it can't take week ${outside.join(', ')}`); break }
+        const weeks: Record<string, Prescription | string> = {}
+        for (let w = lo; w <= hi; w++) {
+          const p = prescriptionFor(item, w, out)
+          if (p) weeks[w] = structuredClone(p)
+        }
+        // A week given as null has no sets at all; the rest are checked (and read, if short) with the schema.
+        for (const [w, p] of Object.entries(e.weeks)) {
+          if (p === null) delete weeks[Number(w)]
+          else weeks[Number(w)] = p as Prescription | string
+        }
+        delete item.sets
+        delete item.progression
+        item.weeks = weeks as Record<string, Prescription>
         break
       }
     }
