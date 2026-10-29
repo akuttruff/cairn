@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import { ALCOHOL_KINDS, DEFAULT_CHARTS, GOAL_NUTRIENTS } from '../types.ts'
 import { LABELS, UNITS, dogWalksMet, goalDirection, goalMet, goalRangeFor, hasGoal, localDate, meditationMet, progress, waterMet } from '../lib/nutrition.ts'
 import RangeNotes from './RangeNotes.tsx'
@@ -14,6 +15,8 @@ interface RangeSummaryProps {
   onSelectDay: (date: string) => void
   /** Nutrition's cards (charts, goals met, water, alcohol) or Train's (workouts, meditation, dog walks, body). */
   part?: 'nutrition' | 'train'
+  /** At the foot of Train's workouts card: this week's goals, to adjust. */
+  workoutGoals?: ReactNode
 }
 
 /** One daily chart: a nutrient, or water, read off each day the same way. */
@@ -295,7 +298,7 @@ function DayBoxes({ kind, days, today, state, describe, onSelectDay, mondayFirst
  * Averages are explained in RangeView's own doc comment -- macros average
  * over days actually logged, water and alcohol over every day in the range.
  */
-export default function RangeSummary({ view, onSelectDay, part = 'nutrition' }: RangeSummaryProps) {
+export default function RangeSummary({ view, onSelectDay, part = 'nutrition', workoutGoals }: RangeSummaryProps) {
   const { days, goals, scorecard, averages, loggedDays, totalDays, averagedDays, water, alcohol, workouts, meditation, dog } = view
   const today = localDate()
   const isWeek = days.length <= 7
@@ -435,6 +438,7 @@ export default function RangeSummary({ view, onSelectDay, part = 'nutrition' }: 
           })}
         </ul>
         {workouts.minutes > 0 && <div className="water-bottles">{workouts.minutes} min logged</div>}
+        {workoutGoals}
       </section>
 
       <section className="water-card" aria-label="Meditation">

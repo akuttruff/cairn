@@ -305,6 +305,8 @@ export interface DayView extends DayTotals {
     lastLogId: string | null
     /** Sessions the active training schema has on this day, by title (see the Train tab). */
     planned: string[]
+    /** The ids of this day's workouts that a session of the plan logged; the rest were added by hand. */
+    fromPlan: string[]
   }
   meditation: {
     sessions: MeditationLog[]

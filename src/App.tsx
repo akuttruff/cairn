@@ -7,7 +7,8 @@ import SectionTabs from './components/SectionTabs.tsx'
 import Totals from './components/Totals.tsx'
 import WaterTracker from './components/WaterTracker.tsx'
 import AlcoholTracker from './components/AlcoholTracker.tsx'
-import WorkoutTracker from './components/WorkoutTracker.tsx'
+import ExtraWorkouts from './components/train/ExtraWorkouts.tsx'
+import WeekGoals from './components/train/WeekGoals.tsx'
 import MeditationTracker from './components/MeditationTracker.tsx'
 import DogWalkTracker from './components/DogWalkTracker.tsx'
 import BodyCard from './components/BodyCard.tsx'
@@ -180,7 +181,7 @@ export default function App() {
             <TrainToday date={day.date} training={training} onSelectDate={day.setDate} onLogged={trainLogged} onCoach={openCoach} />
             {view && (
               <>
-                <WorkoutTracker date={day.date} workouts={view.workouts} onLogged={() => { refresh(); void training.refresh() }} />
+                <ExtraWorkouts date={day.date} workouts={view.workouts} onLogged={() => { refresh(); void training.refresh() }} />
                 <MeditationTracker date={day.date} meditation={view.meditation} onLogged={refresh} />
                 <DogWalkTracker date={day.date} dog={view.dog} onLogged={refresh} />
               </>
@@ -195,7 +196,12 @@ export default function App() {
                 <button type="button" onClick={() => void trainWeek.refresh()}>Retry</button>
               </div>
             )}
-            {trainWeek.view && <RangeSummary view={trainWeek.view} onSelectDay={openTrainDay} part="train" />}
+            {trainWeek.view && (
+              <RangeSummary
+                view={trainWeek.view} onSelectDay={openTrainDay} part="train"
+                workoutGoals={view && <WeekGoals workouts={view.workouts} onSaved={() => { refresh(); void trainWeek.refresh() }} />}
+              />
+            )}
           </>
         ) : !nutrition && trainMode === 'library' ? (
           <Library training={training} />

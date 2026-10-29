@@ -809,7 +809,7 @@ describe('workouts', () => {
       sessions: [], minutes: 0, weekStart: startOfWeek(DAY), planIsCustom: false, kinds: DEFAULT_WORKOUT_KINDS,
       plan: { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 },
       weekByKind: { wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 0, pilates: 0 },
-      weekTotal: 0, weekGoal: 9, lastLogId: null, weekSessions: [], planned: [],
+      weekTotal: 0, weekGoal: 9, lastLogId: null, weekSessions: [], planned: [], fromPlan: [],
     })
   })
 

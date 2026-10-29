@@ -251,29 +251,9 @@ button:disabled { opacity: 0.45; cursor: default; }
 .bar.workout .bar-fill { background: var(--c-workout); }
 .bar.meditation .bar-fill { background: var(--c-meditation); }
 /* The week's workouts: one row per activity -- filled dots for what's done, empty ones for what's left, a + to log. */
-.wk-head-right { display: flex; align-items: center; gap: 6px; }
-.wk-edit { display: grid; place-items: center; width: 30px; height: 30px; margin-right: -6px; border: none; border-radius: 50%; background: none; color: var(--paper-dim); }
-.wk-list { list-style: none; margin: 8px 0 0; padding: 0; }
-.wk-row { display: flex; align-items: center; gap: 8px; min-height: 38px; font-size: 14px; }
 .wk-icon { color: var(--c-workout); flex: 0 0 auto; }
-.wk-name { color: var(--paper); min-width: 62px; }
-.wk-marks { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; flex: 1; min-width: 0; }
 /* A done session: the same dot as a planned one, filled. The button around it is a fair-sized target for a finger. */
-.pip-btn { display: grid; place-items: center; width: 22px; height: 26px; margin: 0 -5px; padding: 0; border: none; background: none; }
-.pip-btn .pip { width: 11px; height: 11px; }
 /* Today's: a faint halo, so today reads apart from the rest of the week without shouting. */
-.pip-btn.today .pip { box-shadow: 0 0 0 2.5px rgba(111, 196, 143, 0.28); }
-.pip-btn.open .pip { background: var(--paper); border-color: var(--paper); }
-.wk-add {
-  flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px; margin-right: -4px;
-  border-radius: 50%; border: 1px solid var(--line); background: none; color: var(--c-workout);
-}
-.wk-add:active { opacity: 0.7; }
-.wk-item.unplanned .wk-name, .wk-item.unplanned .wk-icon { opacity: 0.5; }
-.wk-item.met .plan-count { color: var(--c-workout); }
-.wk-confirm { display: flex; align-items: center; gap: 10px; margin: 0 0 6px 23px; padding: 6px 10px; border-radius: 8px; background: var(--line); font-size: 13px; color: var(--paper-dim); }
-.wk-confirm span { flex: 1; }
-.wk-remove { padding: 5px 10px; border-radius: 8px; border: 1px solid var(--rust); background: none; color: var(--rust); font-size: 13px; }
 /* The week, activity by activity: name, one pip per planned session (filled as done), count. */
 .plan-tag { margin-left: 6px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--c-workout); color: var(--c-workout); font-size: 10px; text-transform: none; letter-spacing: 0; }
 .plan-list { list-style: none; margin: 0; padding: 0; }
@@ -286,6 +266,15 @@ button:disabled { opacity: 0.45; cursor: default; }
 .pip.extra { border-style: dashed; }
 .plan-count { font-family: var(--mono); font-size: 12px; color: var(--paper-dim); font-variant-numeric: tabular-nums; }
 .plan-row.met .plan-count { color: var(--c-workout); }
+.extra-chips { margin: 8px 0 0; }
+.extra-chips .chip { display: inline-flex; align-items: center; gap: 4px; color: var(--paper-dim); }
+.extra-list { list-style: none; margin: 12px 0 0; padding: 0; }
+.extra-list li { display: flex; align-items: center; gap: 8px; min-height: 34px; font-size: 14px; }
+.extra-name { flex: 1; }
+.extra-remove { display: grid; place-items: center; width: 30px; height: 30px; border: none; border-radius: 50%; background: none; color: var(--paper-dim); }
+.week-goals { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.week-goals .link-btn { display: inline-flex; align-items: center; gap: 6px; }
+.week-goals-editor { margin-top: 12px; }
 .plan-editor { display: flex; flex-direction: column; gap: 6px; }
 .plan-edit-row { display: flex; align-items: center; gap: 10px; font-size: 14px; }
 .plan-edit-row .plan-name { flex: 1; }

@@ -388,6 +388,7 @@ export class Store {
       // The whole week's sessions, latest day first, so any of them can be seen and removed from any day.
       weekSessions: weekRows.map(workoutFromRow).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt),
       planned: this.training.plannedTitles(date),
+      fromPlan: this.training.planWorkoutIds(date),
     }
   }
 

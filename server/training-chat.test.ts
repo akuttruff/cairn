@@ -51,6 +51,7 @@ describe('one-off changes', () => {
     store.training.logSet({ date: SAT, itemId: 'back-squat', setIndex: 0, reps: 5, weight: 70 })
     expect(store.getDay(SAT).workouts.sessions).toHaveLength(1)
     expect(store.getDay(SAT).workouts.planned).toEqual(['Legs'])
+    expect(store.getDay(SAT).workouts.fromPlan).toEqual([store.getDay(SAT).workouts.sessions[0]!.id])
   })
 
   it('skips a session or a whole day, lightens weights, and stands one item in for another', () => {

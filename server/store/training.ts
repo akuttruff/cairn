@@ -403,6 +403,11 @@ export class TrainingStore {
     }))
   }
 
+  /** The workouts on a date that a session of the plan logged (the others were added by hand). */
+  planWorkoutIds(date: string): string[] {
+    return (this.s.allSessionsOn!.all(date) as unknown as SessionRow[]).flatMap((r) => (r.workout_log_id ? [r.workout_log_id] : []))
+  }
+
   /** The titles of what the active schema has on a date, for the Day view's link. */
   plannedTitles(date: string): string[] {
     const plan = this.activePlan()
