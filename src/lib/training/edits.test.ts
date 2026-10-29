@@ -19,6 +19,18 @@ describe('lasting changes', () => {
     expect(item(SAMPLE_SCHEMA, 'mobility')!.onlyWeeks).toBeUndefined() // the original is untouched
   })
 
+  it('keeps a replacement to the weeks the item had, even from an earlier week', () => {
+    // A WOD slot from week 2 changed "from week 1" stays out of week 1, where something else is planned.
+    const later = structuredClone(SAMPLE_SCHEMA)
+    later.days[0]!.sessions[0]!.items[1]!.onlyWeeks = [2, 4]
+    const { schema, errors } = reviseSchema(later, [{ op: 'replaceItem', itemId: 'mobility', item: { id: 'hip-flow', name: 'Hip flow', check: true }, fromWeek: 1 }], 1)
+    expect(errors).toEqual([])
+    expect(item(schema, 'mobility')).toBeUndefined()
+    expect(item(schema, 'hip-flow')).toMatchObject({ onlyWeeks: [2, 4] })
+    const moved = reviseSchema(later, [{ op: 'moveSession', sessionId: 'legs', toWeekday: 2, fromWeek: 1 }], 1).schema
+    expect(moved.days.find((d) => d.weekday === 2)!.sessions[0]!.items.find((i) => i.name === 'Hip mobility')).toMatchObject({ onlyWeeks: [2, 4] })
+  })
+
   it('gives a replacement a fresh id when it would clash', () => {
     const { schema } = reviseSchema(SAMPLE_SCHEMA, [{ op: 'replaceItem', itemId: 'mobility', item: { id: 'mobility', name: 'Hip flow', check: true }, fromWeek: 2 }], 1)
     expect(items(schema).map((i) => i.id)).toContain('mobility-w2')

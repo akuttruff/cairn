@@ -78,9 +78,11 @@ export function reviseSchema(schema: TrainingSchema, edits: RevisionEdit[], curr
         const at = findItem(e.itemId)
         if (!at) { errors.push(`replaceItem: no item "${e.itemId}"`); break }
         const old = at.session.items[at.index]!
-        const end = range(old, out)[1]
+        // The replacement covers the weeks the old one had from `from` on -- never weeks it wasn't in.
+        const [start, end] = range(old, out)
+        if (from > end) { errors.push(`replaceItem: "${e.itemId}" ends in week ${end}, before week ${from}`); break }
         const kept = endBefore(old, from)
-        const next = startAt({ ...e.item, id: e.item.id || old.id }, from, end)
+        const next = startAt({ ...e.item, id: e.item.id || old.id }, Math.max(from, start), end)
         at.session.items.splice(kept ? at.index + 1 : at.index, kept ? 0 : 1, next)
         break
       }
@@ -123,7 +125,7 @@ export function reviseSchema(schema: TrainingSchema, edits: RevisionEdit[], curr
         const moved: TrainingSession = {
           ...structuredClone(session),
           id: freshId(session.id, sessionIds, from),
-          items: session.items.filter((i) => range(i, out)[1] >= from).map((i) => startAt(i, from, range(i, out)[1])),
+          items: session.items.filter((i) => range(i, out)[1] >= from).map((i) => startAt(i, Math.max(from, range(i, out)[0]), range(i, out)[1])),
         }
         session.items = session.items.filter((i) => endBefore(i, from))
         if (!session.items.length) at.day.sessions.splice(at.index, 1)
