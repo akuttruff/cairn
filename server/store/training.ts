@@ -848,7 +848,7 @@ export class TrainingStore {
    * each other item and session got done; repeated weeks; WODs done. Only
    * days up to `today` count as planned.
    */
-  report(id: string, today = localDate(), since?: string): string {
+  report(id: string, today = localDate(), since?: string, withChat = true): string {
     const row = this.row(id)
     const { schema, repeats } = this.parse(row)
     const plan: ActivePlan = { id, schema, repeats, summary: this.summary(row), overrides: this.overrides(id) }
@@ -903,7 +903,7 @@ export class TrainingStore {
       lines.push('One-off changes made with the coach:', ...plan.overrides.map(({ edit }) => `  ${overrideText(edit)}`))
     }
     const said = (this.s.chatOf!.all(id) as unknown as ChatRow[]).filter((m) => m.role === 'user').slice(-20)
-    if (said.length) lines.push('What the person told the coach:', ...said.map((m) => `  ${localDate(new Date(m.created_at))}: ${m.text.slice(0, 300)}`))
+    if (withChat && said.length) lines.push('What the person told the coach:', ...said.map((m) => `  ${localDate(new Date(m.created_at))}: ${m.text.slice(0, 300)}`))
     return lines.join('\n')
   }
 }

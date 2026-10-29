@@ -426,7 +426,8 @@ export function coachContext(training: TrainingStore, plan: ActivePlan, today: s
     outline(plan.schema, new Map(lifts.map((l) => [l.id, l.pr]))),
     '',
     'How it has gone so far:',
-    training.report(plan.id, today),
+    // Without what was said to the coach: the conversation is at the end, and a new message here would change the middle of the prompt.
+    training.report(plan.id, today, undefined, false),
     '',
     `Today is ${shortDate(today)} ${today}${at ? `, week ${at.week} of ${plan.schema.weeks}${plan.schema.deloadWeeks.includes(at.week) ? ' (a deload week)' : ''}${plan.schema.testWeek === at.week ? ' (the test week)' : ''}` : ''}.`,
     `The past ${BEHIND_DAYS} days and the next ${AHEAD_DAYS}, with the ids edits use (past days show what was logged):`,
@@ -469,10 +470,48 @@ export interface CoachArgs {
   signal?: AbortSignal
   /** Told what the coach is doing while it answers: loading, reading the plan, thinking, writing, checking. */
   onStatus?: (status: CoachStatus) => void
+  /** The prompt being read ahead (warmCoach), to wait for before asking; and how far it has got. */
+  ready?: Promise<unknown>
+  readyProgress?: () => number | null
+}
+
+/**
+ * Everything the coach is sent before the person's new message: the plan
+ * and the conversation so far. The same text both times -- read ahead by
+ * warmCoach, then with the message after it -- so the model server reuses
+ * its reading of it and only reads the message.
+ */
+export function coachPrefix(training: TrainingStore, plan: ActivePlan, today: string, settings: Settings, history: CoachMessage[]): string {
+  const past = history.map((m) => {
+    // A long preview is cut short: what was proposed, not every line of it.
+    const lines = m.proposal ? [...m.proposal.preview.slice(0, 3), ...(m.proposal.preview.length > 3 ? [`…${m.proposal.preview.length - 3} more`] : [])] : []
+    const proposal = m.proposal ? ` [proposed: ${lines.map((l) => (l.length > 200 ? `${l.slice(0, 200)}…` : l)).join('; ')} -- ${m.status}]` : ''
+    // What actually happened, so a reply that claimed a change it didn't make isn't taken as done.
+    const note = m.role === 'assistant' && !m.proposal && m.note ? ` [no change was made: ${m.note}]` : ''
+    const shot = m.image ? ' [sent a screenshot]' : ''
+    return `${m.role === 'user' ? 'Person' : 'Coach'}: ${m.text}${shot}${proposal}${note}`
+  })
+  return [coachContext(training, plan, today, settings), '', 'The conversation so far:', ...past].join('\n')
+}
+
+/**
+ * Have the coach model read the prompt ahead, while the person is still
+ * typing: everything but their message, with no answer asked for. A
+ * minute of reading on a 27B is then mostly done by the time they send.
+ */
+export async function warmCoach({ training, settings, fetchImpl, today, signal, onProgress }: Pick<CoachArgs, 'training' | 'settings' | 'fetchImpl' | 'today' | 'signal'> & { onProgress?: (progress: number) => void }): Promise<void> {
+  const plan = training.activePlan()
+  if (!plan) return
+  // The prompt as it stands now, before anything awaits: a message sent meanwhile comes after it.
+  const input = coachPrefix(training, plan, today, settings, training.messages(plan.id).slice(-HISTORY))
+  const { model, reasoning } = await chooseModel(settings, fetchImpl, signal, settings.planChatModel, false)
+  const req: Record<string, unknown> = { model, system_prompt: SYSTEM, max_output_tokens: 1, input }
+  if (reasoning) req.reasoning = reasoning
+  await chatText(settings, req, fetchImpl, signal, (p) => { if (p.phase === 'reading' && p.progress !== null) onProgress?.(p.progress) })
 }
 
 /** One turn of the conversation: the person's message saved, the coach's reply (and any proposal) saved after it. */
-export async function coachReply({ training, settings, fetchImpl, text, image, today, signal: abort, onStatus }: CoachArgs): Promise<CoachMessage[]> {
+export async function coachReply({ training, settings, fetchImpl, text, image, today, signal: abort, onStatus, ready, readyProgress }: CoachArgs): Promise<CoachMessage[]> {
   const plan = training.activePlan()
   if (!plan) throw new Error('There\'s no active training schema to talk about. Import one first.')
   const history = training.messages(plan.id).slice(-HISTORY)
@@ -491,14 +530,13 @@ export async function coachReply({ training, settings, fetchImpl, text, image, t
     report({ phase: phase === 'retrying' && p.phase !== 'writing' ? 'retrying' : p.phase, progress: p.progress, tokens: p.tokens, model })
   }
   const stats = (): CoachStats | null => (last ? { model, seconds: Math.round((Date.now() - startedAt) / 100) / 10, ...last } : null)
-  const past = history.map((m) => {
-    const proposal = m.proposal ? ` [proposed: ${m.proposal.preview.join('; ')} -- ${m.status}]` : ''
-    // What actually happened, so a reply that claimed a change it didn't make isn't taken as done.
-    const note = m.role === 'assistant' && !m.proposal && m.note ? ` [no change was made: ${m.note}]` : ''
-    const shot = m.image ? ' [sent a screenshot]' : ''
-    return `${m.role === 'user' ? 'Person' : 'Coach'}: ${m.text}${shot}${proposal}${note}`
-  })
-  const input = [coachContext(training, plan, today, settings), '', 'The conversation so far:', ...past, `Person: ${text}${image ? ' [screenshot attached: read it to understand what they mean]' : ''}`].join('\n')
+  const input = `${coachPrefix(training, plan, today, settings, history)}\nPerson: ${text}${image ? ' [screenshot attached: read it to understand what they mean]' : ''}`
+  if (ready) {
+    // The prompt is already being read ahead (warmCoach): wait for it, so this one picks up where it got to.
+    const tick = setInterval(() => report({ progress: readyProgress?.() ?? null }), 500)
+    await ready.catch(() => {})
+    clearInterval(tick)
+  }
   const ask = async (body: string): Promise<string> => {
     // With a screenshot, the input is the text and the picture together, as the label reader sends one.
     const req: Record<string, unknown> = {

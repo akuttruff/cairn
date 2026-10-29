@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { Store } from './store.ts'
-import { applyProposal, checkEdits, coachContext, coachReply, previewEdits, undoProposal } from './training-chat.ts'
+import { applyProposal, checkEdits, coachContext, coachReply, previewEdits, undoProposal, warmCoach } from './training-chat.ts'
 import { SAMPLE_EQUIPMENT, SAMPLE_SCHEMA } from '../src/lib/training/sample.ts'
 import type { PlanEdit } from '../src/types.ts'
 
@@ -376,6 +376,17 @@ describe('the coach', () => {
     expect(store.training.day(WED).sessions[0]!.items[0]!.sets!.map((x) => x.weight)).toEqual([35, 35, 35])
     const press = plan().schema.days[1]!.sessions[0]!.items[0]!
     expect(press).toMatchObject({ id: 'strict-press', weeks: { 4: { sets: [{ test: 'ladder' }] } } }) // the same item; the test week stays
+  })
+
+  it('reads the prompt ahead with no answer asked for, the same text the next message is sent after', async () => {
+    const lm = lmStudio(['', 'Hi!'])
+    const settings = { ...store.getSettings(), planChatModel: 'mid/coach' }
+    const ready = warmCoach({ training: store.training, settings, fetchImpl: lm.fetchImpl, today: MON })
+    await coachReply({ training: store.training, settings, fetchImpl: lm.fetchImpl, text: 'Hi', today: MON, ready })
+    expect(lm.chats[0]!.max_output_tokens).toBe(1)
+    expect(lm.chats[0]!.system_prompt).toBe(lm.chats[1]!.system_prompt)
+    expect(String(lm.chats[1]!.input).startsWith(String(lm.chats[0]!.input))).toBe(true)
+    expect(String(lm.chats[1]!.input).slice(String(lm.chats[0]!.input).length)).toBe('\nPerson: Hi')
   })
 
   it('puts what changes least first in the prompt, and today and the days around it last', async () => {

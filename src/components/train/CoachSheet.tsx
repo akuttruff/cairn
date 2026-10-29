@@ -24,7 +24,7 @@ const SHOT_MAX_SIDE = 1600
 /** "qwen/qwen3.8-27b" -> "qwen3.8-27b": the model's own name, without who published it. */
 const shortModel = (m: string): string => m.split('/').pop() ?? m
 
-/** What the coach is doing, as a line: "Reading your plan 63% · 4s". */
+/** What the coach is doing, as a line: "Reading your prompt 63% · 4s". */
 function statusLine(s: CoachStatus | null, now: number): string {
   if (!s) return 'Starting…'
   const secs = Math.max(0, Math.round((now - s.startedAt) / 1000))
@@ -32,7 +32,7 @@ function statusLine(s: CoachStatus | null, now: number): string {
   const what = {
     loading: `Loading ${s.model ? shortModel(s.model) : 'the model'}${pct}`,
     // Read in full, then a quiet stretch before the first word: say so rather than sit at 100%.
-    reading: s.progress !== null && s.progress >= 1 ? 'Starting to answer…' : `Reading your plan${pct}`,
+    reading: s.progress !== null && s.progress >= 1 ? 'Starting to answer…' : `Reading your prompt${pct}`,
     thinking: `Thinking… ${s.tokens} tokens`,
     writing: `Writing… ${s.tokens} tokens`,
     checking: 'Checking the change against your plan…',
@@ -94,6 +94,8 @@ export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheet
       setThinking(r.busy)
       setStatus(r.status)
       if (r.busy) timer.current = setTimeout(poll, POLL_MS)
+      // Read ahead while a message is typed; a miss only means the first reply takes longer.
+      else api.warmCoach(localDate()).catch(() => {})
     }, (err: Error) => toast.error(err.message))
     return () => clearTimeout(timer.current)
     // poll is a fresh closure each render; opening is what starts it.

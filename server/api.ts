@@ -9,7 +9,7 @@ import { ResearchJobs, listLlms } from './research.ts'
 import { fingerprint, writeNotes } from './notes.ts'
 import { LABEL_MAX_BYTES, isImageDataUrl, readLabel } from './label.ts'
 import { generateSchema } from './training-gen.ts'
-import { applyProposal, coachReply, undoProposal } from './training-chat.ts'
+import { applyProposal, COACH_TIMEOUT_MS, coachReply, undoProposal, warmCoach } from './training-chat.ts'
 import type { SearchResult } from './foods.ts'
 import type { CoachStatus, GenerateStatus, RangeNotes, Serving } from '../src/types.ts'
 
@@ -94,6 +94,9 @@ export function createApi(options: ApiOptions = {}) {
   /** The coach is writing a reply: one at a time, like a person would. What it's doing, for the page to show. */
   let coaching = false
   let coachStatus: CoachStatus | null = null
+  /** The coach's prompt being read ahead, and how far it has got. */
+  let warming: Promise<void> | null = null
+  let warmProgress: number | null = null
   /** Write the next schema (or a rewrite of this one) in the background; the page polls GET /api/training/generate. */
   const startGenerating = (args: { note?: string; rewrite?: { instruction: string; fromWeek: number; messageId: string } }): void => {
     generating = { status: 'running', startedAt: Date.now(), draftId: null, error: null }
@@ -391,6 +394,7 @@ export function createApi(options: ApiOptions = {}) {
         const reply = coachReply({
           training: store.training, settings: store.getSettings(), fetchImpl, text: (said || 'What do you make of this?').slice(0, 2000), today: day,
           ...(typeof image === 'string' ? { image } : {}),
+          ...(warming && !image ? { ready: warming, readyProgress: () => warmProgress } : {}),
           onStatus: (s) => { coachStatus = s },
         })
         void reply
@@ -399,6 +403,18 @@ export function createApi(options: ApiOptions = {}) {
         // The question is saved before the first await, so it's in this answer.
         return json(res, 202, { messages: store.training.messages(plan.id), busy: true, status: coachStatus })
       }
+    }
+    // Opening the coach: the model reads the prompt ahead while the person types (see warmCoach).
+    if (p === '/api/training/chat/warm' && method === 'POST') {
+      const { today } = await readBody(req) as { today?: unknown }
+      if (!coaching && !warming && store.training.activeSchema()) {
+        const day = typeof today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(today) ? today : new Date().toISOString().slice(0, 10)
+        warmProgress = 0
+        warming = warmCoach({ training: store.training, settings: store.getSettings(), fetchImpl, today: day, signal: AbortSignal.timeout(COACH_TIMEOUT_MS), onProgress: (x) => { warmProgress = x } })
+          .catch(() => {})
+          .finally(() => { warming = null; warmProgress = null })
+      }
+      return json(res, 202, { warming: Boolean(warming) })
     }
     if ((m = /^\/api\/training\/chat\/([^/]+)\/(apply|decline|undo)$/.exec(p)) && method === 'POST') {
       const id = decodeURIComponent(m[1]!)
