@@ -381,7 +381,7 @@ export function createApi(options: ApiOptions = {}) {
         return json(res, 200, { messages: [] })
       }
       if (method === 'POST') {
-        const { message, today, image } = await readBody(req, LABEL_MAX_BYTES + 20_000) as { message?: unknown; today?: unknown; image?: unknown }
+        const { message, today, image, viewing } = await readBody(req, LABEL_MAX_BYTES + 20_000) as { message?: unknown; today?: unknown; image?: unknown; viewing?: unknown }
         if (image !== undefined && !isImageDataUrl(image)) throw new ValidationError('send a screenshot as a JPEG, PNG or WebP data URL')
         const said = typeof message === 'string' ? message.trim() : ''
         if (!said && !image) throw new ValidationError('say something to the coach')
@@ -394,6 +394,7 @@ export function createApi(options: ApiOptions = {}) {
         const reply = coachReply({
           training: store.training, settings: store.getSettings(), fetchImpl, text: (said || 'What do you make of this?').slice(0, 2000), today: day,
           ...(typeof image === 'string' ? { image } : {}),
+          ...(typeof viewing === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(viewing) ? { viewing } : {}),
           ...(warming && !image ? { ready: warming, readyProgress: () => warmProgress } : {}),
           onStatus: (s) => { coachStatus = s },
         })

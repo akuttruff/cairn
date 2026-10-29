@@ -91,6 +91,19 @@ describe('one-off changes', () => {
     ])
   })
 
+  it('refuses a stand-in on days the item isn\'t on, and says when it is', () => {
+    const { errors } = checkEdits(store.training, plan(), [{ op: 'swap', from: MON, to: MON, itemId: 'dead-hang', item: { id: 'x', name: 'Dead hang', check: true } }], MON, store.getSettings())
+    expect(errors.join()).toMatch(/"dead-hang" isn't on the plan from 2026-11-02 to 2026-11-02; it's next on Thu, Nov 5 2026-11-05/)
+  })
+
+  it('previews a new description, for one day or every week', () => {
+    const one = checkEdits(store.training, plan(), [{ op: 'swap', from: MON, to: MON, itemId: 'mobility', item: { id: 'mobility', name: 'Hip mobility', notes: '90/90 hip switches, 2 minutes.', check: true } }], MON, store.getSettings())
+    expect(previewEdits(store.training, plan(), one, MON)).toEqual(['Mon, Nov 2 · Hip mobility: now "90/90 hip switches, 2 minutes."'])
+    const all = checkEdits(store.training, plan(), [{ op: 'setNotes', itemId: 'mobility', notes: 'Couch stretch, a minute a side.' }], MON, store.getSettings())
+    expect(all.errors).toEqual([])
+    expect(previewEdits(store.training, plan(), all, MON)[0]).toBe('Mon, Nov 2, Nov 9, Nov 16, Nov 23 · Hip mobility: now "Couch stretch, a minute a side."')
+  })
+
   it('lets a newer stand-in for the same item and day replace an older one', () => {
     apply([{ op: 'swap', from: THU, to: THU, itemId: 'dead-hang', item: { id: 'hang-a', name: 'Dead hang', sets: { sets: [{ seconds: 20 }] } } }])
     apply([{ op: 'swap', from: THU, to: THU, itemId: 'dead-hang', item: { id: 'hang-b', name: 'Dead hang', sets: '3x15s' as never } }])
@@ -387,6 +400,12 @@ describe('the coach', () => {
     expect(lm.chats[0]!.system_prompt).toBe(lm.chats[1]!.system_prompt)
     expect(String(lm.chats[1]!.input).startsWith(String(lm.chats[0]!.input))).toBe(true)
     expect(String(lm.chats[1]!.input).slice(String(lm.chats[0]!.input).length)).toBe('\nPerson: Hi')
+  })
+
+  it('tells the coach which day was on screen, after the prompt it read ahead', async () => {
+    const lm = lmStudio(['Sure.'])
+    await coachReply({ training: store.training, settings: { ...store.getSettings(), planChatModel: 'mid/coach' }, fetchImpl: lm.fetchImpl, text: 'Change this session', today: MON, viewing: THU })
+    expect(String(lm.chats[0]!.input)).toMatch(/\nPerson \(looking at Thu, Nov 5 2026-11-05 in the app\): Change this session$/)
   })
 
   it('puts what changes least first in the prompt, and today and the days around it last', async () => {

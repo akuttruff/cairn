@@ -44,6 +44,8 @@ Lasting changes to the plan from a week on (fromWeek defaults to the current wee
   { "op": "setWeeks", "itemId": id, "weeks": { "<week>": sets, ... } }   NEW SETS OR WEIGHTS FOR AN ITEM: the way to change reps, sets or weights.
       Give only the weeks that change; the item's other weeks stay as they are. Past weeks can be corrected too.
       e.g. today 3x5 at 35 and building from there:  { "op": "setWeeks", "itemId": "overhead-squat-wed", "weeks": { "0": "3x5@35", "1": "4x5@40", "2": "4x5@45" } }
+  { "op": "setNotes", "itemId": id, "notes": "what to do, in a sentence or two" }   AN ITEM'S DESCRIPTION (shown under its name, "How to"), every week;
+      for only some days, "swap" in the same item with new notes
   { "op": "replaceItem", "itemId": id, "item": Item, "fromWeek"?: n }   a different exercise in its place (keep its "lift" as it was unless that changes too)
   { "op": "addItem", "sessionId": id, "item": Item, "fromWeek"?: n, "toWeek"?: n }
   { "op": "removeItem", "itemId": id, "fromWeek"?: n }
@@ -216,6 +218,18 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
       case 'swap': {
         if (!range(e.from, e.to)) return
         if (!itemIds.has(e.itemId)) { errors.push(`${w}: there's no item "${e.itemId}"`); return }
+        // A stand-in on days the item isn't on changes nothing: say where it is.
+        // On the plan that day, or already stood in for there (a newer stand-in replaces that one).
+        const on = (d: string): boolean => training.planOf(plan, d).some((s) => s.items.some((x) => x.id === e.itemId))
+          || plan.overrides.some((o) => o.edit.op === 'swap' && o.edit.itemId === e.itemId && d >= o.edit.from && d <= o.edit.to)
+        let hit = false
+        for (let d = e.from; d <= e.to && !hit; d = addDays(d, 1)) hit = on(d)
+        if (!hit) {
+          let next: string | null = null
+          for (let d = today; d <= end && !next; d = addDays(d, 1)) if (on(d)) next = d
+          errors.push(`${w}: "${e.itemId}" isn't on the plan from ${e.from} to ${e.to}${next ? `; it's next on ${shortDate(next)} ${next}` : ''}`)
+          return
+        }
         const raw = e.item && typeof e.item === 'object' ? { ...e.item } : e.item
         if (raw && typeof raw === 'object' && (!raw.id || itemIds.has(raw.id))) raw.id = `${e.itemId}-swap-${e.from}`.slice(0, 40)
         const { item, errors: bad } = cleanItemIn(raw, plan.schema, ctx)
@@ -299,7 +313,7 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
     // From the earliest week a lasting change starts (this week unless it says), four weeks on.
     const current = weekOf(plan.schema, today, plan.repeats)?.week ?? plan.schema.firstWeek
     // New sets start at the first week they change; the rest from their week, this one unless they say.
-    const week = Math.min(...checked.revisions.map((r) => (r.op === 'setWeeks' ? Math.min(...Object.keys(r.weeks).map(Number)) : r.fromWeek ?? current)))
+    const week = Math.min(...checked.revisions.map((r) => (r.op === 'setWeeks' ? Math.min(...Object.keys(r.weeks).map(Number)) : r.op === 'setNotes' ? current : r.fromWeek ?? current)))
     const index = weekSequence(plan.schema, plan.repeats).indexOf(week)
     const from = index >= 0 ? addDays(plan.schema.startDate, index * 7) : today
     span(from, addDays(from, 27))
@@ -337,14 +351,18 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
       }
       const removed = old.items.filter((i) => !s.items.some((x) => x.id === i.id))
       const fresh = s.items.filter((i) => !old.items.some((x) => x.id === i.id))
+      // A new description reads as what it now says; sets that changed as before → after.
+      const described = (n: { name: string; notes: string }): string => `${n.name}: now "${n.notes.length > 160 ? `${n.notes.slice(0, 160)}…` : n.notes || 'no description'}"`
       for (const i of s.items) {
         const o = old.items.find((x) => x.id === i.id)
         if (o && o.text !== i.text) lines.push(`${shortDate(d)} · ${i.name}: ${o.text} → ${i.text}`)
+        else if (o && o.notes !== i.notes) lines.push(`${shortDate(d)} · ${described(i)}`)
       }
       // A removed item and a new one in the same session read as one swapped for the other.
       removed.forEach((r, k) => {
         const n = fresh[k]
-        lines.push(n ? `${shortDate(d)} · ${r.name} ${r.text} → ${n.name} ${n.text}` : `${shortDate(d)} · no ${r.name}`)
+        if (n && r.name === n.name && r.text === n.text) lines.push(`${shortDate(d)} · ${r.notes !== n.notes ? described(n) : `${n.name} (the same)`}`)
+        else lines.push(n ? `${shortDate(d)} · ${r.name} ${r.text} → ${n.name} ${n.text}` : `${shortDate(d)} · no ${r.name}`)
       })
       fresh.slice(removed.length).forEach((n) => lines.push(`${shortDate(d)} · + ${n.name} ${n.text}`))
     }
@@ -464,6 +482,8 @@ export interface CoachArgs {
   settings: Settings
   fetchImpl: typeof fetch
   text: string
+  /** The day the person had on screen when they asked, when it isn't today. */
+  viewing?: string
   /** A screenshot to clarify the message, as a JPEG/PNG/WebP data URL. */
   image?: string
   today: string
@@ -511,7 +531,7 @@ export async function warmCoach({ training, settings, fetchImpl, today, signal, 
 }
 
 /** One turn of the conversation: the person's message saved, the coach's reply (and any proposal) saved after it. */
-export async function coachReply({ training, settings, fetchImpl, text, image, today, signal: abort, onStatus, ready, readyProgress }: CoachArgs): Promise<CoachMessage[]> {
+export async function coachReply({ training, settings, fetchImpl, text, image, viewing, today, signal: abort, onStatus, ready, readyProgress }: CoachArgs): Promise<CoachMessage[]> {
   const plan = training.activePlan()
   if (!plan) throw new Error('There\'s no active training schema to talk about. Import one first.')
   const history = training.messages(plan.id).slice(-HISTORY)
@@ -530,7 +550,8 @@ export async function coachReply({ training, settings, fetchImpl, text, image, t
     report({ phase: phase === 'retrying' && p.phase !== 'writing' ? 'retrying' : p.phase, progress: p.progress, tokens: p.tokens, model })
   }
   const stats = (): CoachStats | null => (last ? { model, seconds: Math.round((Date.now() - startedAt) / 100) / 10, ...last } : null)
-  const input = `${coachPrefix(training, plan, today, settings, history)}\nPerson: ${text}${image ? ' [screenshot attached: read it to understand what they mean]' : ''}`
+  const looking = viewing && viewing !== today && isDateString(viewing) ? ` (looking at ${shortDate(viewing)} ${viewing} in the app)` : ''
+  const input = `${coachPrefix(training, plan, today, settings, history)}\nPerson${looking}: ${text}${image ? ' [screenshot attached: read it to understand what they mean]' : ''}`
   if (ready) {
     // The prompt is already being read ahead (warmCoach): wait for it, so this one picks up where it got to.
     const tick = setInterval(() => report({ progress: readyProgress?.() ?? null }), 500)

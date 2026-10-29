@@ -12,6 +12,8 @@ interface CoachSheetProps {
   open: boolean
   /** Asked as the coach opens. */
   ask?: { text: string; n: number } | null
+  /** The day on screen behind the sheet: the coach is told, so "this session" means that day's. */
+  viewing?: string
   onClose: () => void
   /** A change was applied or undone: the plan on screen fetches afresh. */
   onChanged: (day?: TrainingDay) => void
@@ -62,7 +64,7 @@ const STARTERS = [
  * it's going, get feedback, or ask for a change. A change comes back as a
  * card spelling out what it would do, applied only on Apply, and undoable.
  */
-export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheetProps) {
+export default function CoachSheet({ open, ask, viewing, onClose, onChanged }: CoachSheetProps) {
   const [messages, setMessages] = useState<CoachMessage[]>([])
   const [draft, setDraft] = useState('')
   const [thinking, setThinking] = useState(false)
@@ -137,7 +139,7 @@ export default function CoachSheet({ open, ask, onClose, onChanged }: CoachSheet
     if (image) setSentShots((s) => ({ ...s, [pendingId]: image }))
     setMessages((m) => [...m, { id: pendingId, role: 'user', text: message, proposal: null, status: null, note: null, stats: null, image: Boolean(image), createdAt: Date.now() }])
     try {
-      const r = await api.askCoach(message, localDate(), image ?? undefined)
+      const r = await api.askCoach(message, localDate(), image ?? undefined, viewing)
       // The server's id for the message just sent, so its screenshot keeps showing from the copy here.
       const mine = image ? [...r.messages].reverse().find((m) => m.role === 'user' && m.image) : undefined
       if (mine && image) setSentShots((s) => ({ ...s, [mine.id]: image }))

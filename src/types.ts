@@ -844,6 +844,8 @@ export type PlanEdit =
   | { op: 'renameSession'; sessionId: string; title: string; fromWeek?: number; toWeek?: number }
   /** New sets for some weeks of an item (the short way, "3x5@35", or a prescription); its other weeks stay as they are. */
   | { op: 'setWeeks'; itemId: string; weeks: Record<string, Prescription | string | null> }
+  /** An item's description, every week: what it is and how it's done. Empty takes it away. */
+  | { op: 'setNotes'; itemId: string; notes: string }
   | { op: 'rewrite'; instruction: string; fromWeek: number }
   | { op: 'removeWorkout'; workoutId: string }
   | { op: 'unlogSession'; date: string; sessionId: string }
@@ -858,7 +860,7 @@ export const OVERRIDE_OPS = ['move', 'skip', 'load', 'swap', 'equipment'] as con
 export const RECORD_OPS = ['removeWorkout', 'unlogSession', 'logSession'] as const
 /** Changes to the WOD bank (kept in the schema) and to where the gear is (a setting). */
 export const BANK_OPS = ['addWod', 'hideWod', 'showWod', 'setPlaces'] as const
-export const REVISION_OPS = ['replaceItem', 'addItem', 'removeItem', 'addSession', 'removeSession', 'moveSession', 'setOptional', 'renameSession', 'setWeeks'] as const
+export const REVISION_OPS = ['replaceItem', 'addItem', 'removeItem', 'addSession', 'removeSession', 'moveSession', 'setOptional', 'renameSession', 'setWeeks', 'setNotes'] as const
 
 export interface PlanProposal {
   edits: PlanEdit[]

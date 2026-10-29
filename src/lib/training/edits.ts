@@ -164,6 +164,17 @@ export function reviseSchema(schema: TrainingSchema, edits: RevisionEdit[], curr
         for (let w = from; w <= until; w++) session.weekTitles[w] = title
         break
       }
+      case 'setNotes': {
+        // A description, not what's trained: it holds for every week, like a name.
+        const at = findItem(e.itemId)
+        if (!at) { errors.push(`setNotes: no item "${e.itemId}"`); break }
+        if (typeof e.notes !== 'string') { errors.push('setNotes: notes is the new description, as text'); break }
+        const item = at.session.items[at.index]!
+        const notes = e.notes.trim().slice(0, 1500)
+        if (notes) item.notes = notes
+        else delete item.notes
+        break
+      }
       case 'setWeeks': {
         // Some weeks' sets changed in place: the item's every week is written out week by week,
         // then the given weeks replace theirs. Same item, same id, so its logged sets stay with it.

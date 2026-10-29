@@ -389,7 +389,7 @@ export class TrainingStore {
   }
 
   /** A day's planned items in words, for the coach and for previews: "Back squat: 5×5 @ 95". */
-  planOf(plan: ActivePlan, date: string): { id: string; title: string; kind: string; week: number; optional: boolean; items: { id: string; name: string; text: string; optional: boolean }[] }[] {
+  planOf(plan: ActivePlan, date: string): { id: string; title: string; kind: string; week: number; optional: boolean; items: { id: string; name: string; text: string; notes: string; optional: boolean }[] }[] {
     const lifts = this.liftMap()
     return this.sessionsFor(plan, date).map(({ session, week }) => ({
       id: session.id, title: session.title, kind: session.kind, week, optional: Boolean(session.optional),
@@ -398,7 +398,7 @@ export class TrainingStore {
         if (hasSets(item)) text = describe(this.plan(item, week, plan.schema, lifts, this.factorOn(plan, date, item.lift)) ?? [])
         else if (item.minutes) text = `${item.minutes[String(week)]} min`
         else if (item.wod) text = `WOD up to ${item.wod.maxMinutes} min`
-        return { id: item.id, name: item.name, text, optional: Boolean(item.optional) }
+        return { id: item.id, name: item.name, text, notes: item.notes ?? '', optional: Boolean(item.optional) }
       }),
     }))
   }

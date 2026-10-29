@@ -239,6 +239,7 @@ export default function App() {
       <CoachSheet
         open={coachOpen}
         ask={coachAsk}
+        viewing={day.date}
         onClose={() => { setCoachOpen(false); setCoachAsk(null) }}
         // Applied or undone: the plan, the week and the day's workout dots all fetch afresh.
         onChanged={() => { void training.refresh(); trainLogged() }}

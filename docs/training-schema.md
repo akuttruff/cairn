@@ -181,6 +181,7 @@ They show on the day as "Adjusted" lines, each with an undo.
 A newer `swap` for the same item and day replaces an older one, so asking again corrects a stand-in rather than stacking on it.
 
 **Lasting changes** apply from a week on: `replaceItem`, `addItem`, `removeItem`, `addSession`, `removeSession`, `moveSession` and `renameSession`.
+- **`setNotes`** changes an item's description (`{ "itemId", "notes" }`) for every week; for just some days, the coach swaps in the same item with new notes.
 - **`setWeeks`** is how sets and weights change: `{ "itemId", "weeks": { "0": "3x5@35", "1": "4x5@40" } }` gives those weeks new sets, and the item's other weeks stay as they were (a progression is written out week by week first). It keeps the item and its id, so logged sets stay with it.
 - Weeks already trained are never rewritten. A changed item keeps its earlier weeks, and what replaces it is a new item with a new id, so logged sets stay with the item they were logged against.
 - Each lasting change saves the schema's previous body, and undo restores it. Changes are undone newest first.
