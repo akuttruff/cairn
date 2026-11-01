@@ -266,12 +266,6 @@ button:disabled { opacity: 0.45; cursor: default; }
 .pip.extra { border-style: dashed; }
 .plan-count { font-family: var(--mono); font-size: 12px; color: var(--paper-dim); font-variant-numeric: tabular-nums; }
 .plan-row.met .plan-count { color: var(--c-workout); }
-.extra-chips { margin: 8px 0 0; }
-.extra-chips .chip { display: inline-flex; align-items: center; gap: 4px; color: var(--paper-dim); }
-.extra-list { list-style: none; margin: 12px 0 0; padding: 0; }
-.extra-list li { display: flex; align-items: center; gap: 8px; min-height: 34px; font-size: 14px; }
-.extra-name { flex: 1; }
-.extra-remove { display: grid; place-items: center; width: 30px; height: 30px; border: none; border-radius: 50%; background: none; color: var(--paper-dim); }
 .week-goals { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
 .week-goals .link-btn { display: inline-flex; align-items: center; gap: 6px; }
 .week-goals-editor { margin-top: 12px; }

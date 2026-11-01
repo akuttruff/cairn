@@ -201,7 +201,7 @@ describe('the record', () => {
     store.training.logSet({ date: MON, itemId: 'back-squat', setIndex: 0, reps: 5, weight: 70 })
     const ctx = coachContext(store.training, plan(), WED, store.getSettings())
     expect(ctx).toMatch(/session legs "Legs" \[weightlifting\] -- partly done/)
-    expect(ctx).toMatch(/logged workout \[workout [\w-]+\] yoga -- added by hand with the \+ button/)
+    expect(ctx).toMatch(/logged workout \[workout [\w-]+\] yoga -- added by hand/)
     expect(ctx).toMatch(/logged workout \[workout [\w-]+\] weightlifting "Legs" -- from session legs/)
     expect(ctx).toMatch(/Wed, Nov 4 2026-11-04 \(TODAY\)/)
   })
@@ -474,4 +474,86 @@ it('upgrades a database from before the coach', () => {
   expect(upgraded.getSettings().planChatModel).toBe('')
   expect(upgraded.training.list()[0]!.rewriteFrom).toBeNull()
   expect(upgraded.training.messages(upgraded.training.list()[0]!.id)).toEqual([])
+})
+
+describe('extra sessions', () => {
+  const pilates = (date: string): PlanEdit => ({
+    op: 'extra', from: date, to: date,
+    session: { id: 'pilates', title: 'Pilates', kind: 'pilates', items: [{ id: 'pilates', name: 'Pilates', minutes: 20 as unknown as Record<string, number> }] },
+  })
+
+  it('puts the Pilates done today on the plan and ticks it off, in one proposal, the way the coach sends it', () => {
+    const planned = titles(WED)
+    const edits: PlanEdit[] = [pilates(WED), { op: 'logSession', date: WED, sessionId: 'pilates' }]
+    const checked = checkEdits(store.training, plan(), edits, WED, store.getSettings())
+    expect(checked.errors).toEqual([])
+    expect(previewEdits(store.training, plan(), checked, WED)).toEqual(['Wed, Nov 4: tick off Pilates', 'Wed, Nov 4: + Pilates (Pilates)'])
+
+    const id = store.training.addMessage(plan().id, 'assistant', 'Added your Pilates and ticked it off.', { edits, preview: [] })
+    applyProposal(store.training, id, WED, store.getSettings(), () => {})
+    expect(titles(WED)).toEqual([...planned, 'Pilates'])
+    const session = store.training.day(WED).sessions.find((s) => s.id === 'pilates')!
+    expect(session).toMatchObject({ kind: 'pilates', done: true, items: [{ type: 'minutes', minutes: 20, done: true }] })
+    expect(store.training.day(WED).adjustments.map((a) => a.text)).toContain('Pilates added')
+    // On the Workouts card, as a session of the plan.
+    const workouts = store.getDay(WED).workouts
+    const logged = workouts.sessions.find((w) => w.kind === 'pilates')!
+    expect(logged.note).toBe('Pilates')
+    expect(workouts.fromPlan).toContain(logged.id)
+
+    undoProposal(store.training, id)
+    expect(titles(WED)).toEqual(planned)
+    expect(store.getDay(WED).workouts.sessions.some((w) => w.kind === 'pilates')).toBe(false)
+  })
+
+  it('spans days at each day\'s week, shows in the week strip, and says until when', () => {
+    const NEXT_MON = '2026-11-09'
+    apply([{ op: 'extra', from: SAT, to: NEXT_MON, session: { id: 'ride', title: 'Easy ride', kind: 'cycling', items: [{ id: 'easy-ride', name: 'Easy ride', minutes: { 1: 30 } }] } }])
+    for (const d of [SAT, '2026-11-08', NEXT_MON]) {
+      expect(store.training.day(d).sessions.find((s) => s.title === 'Easy ride')!.items[0]).toMatchObject({ type: 'minutes', minutes: 30 })
+    }
+    // "ride" is the plan's Thursday session, so the extra's id was cleared with its first day.
+    expect(store.training.day(SAT).sessions.find((s) => s.title === 'Easy ride')!.id).toBe(`ride-${SAT}`)
+    expect(store.training.day(SAT).strip.find((d) => d.date === SAT)!.sessions.map((s) => s.title)).toContain('Easy ride')
+    expect(store.training.day(SAT).adjustments.map((a) => a.text)).toContain('Easy ride added until Mon, Nov 9')
+    expect(titles(THU)).not.toContain('Easy ride')
+  })
+
+  it('checks an extra the way the plan checks its sessions', () => {
+    const check = (session: unknown) => checkEdits(store.training, plan(), [{ op: 'extra', from: MON, to: MON, session } as PlanEdit], MON, store.getSettings())
+    // Sets the short way are read, not stored raw.
+    const short = check({ id: 'pushups', title: 'Push-ups', kind: 'wod', items: [{ id: 'pushups', name: 'Push-ups', sets: '3x10' }] })
+    expect(short.errors).toEqual([])
+    store.training.addOverrides(plan().id, short.overrides, null)
+    expect(store.training.day(MON).sessions.find((s) => s.id === 'pushups')!.items[0]!.sets!.map((s) => s.reps)).toEqual([10, 10, 10])
+
+    expect(check({ id: 'x', title: 'Flying', kind: 'flying', items: [{ id: 'x', name: 'Flying', check: true }] }).errors[0]).toMatch(/kind must be one of/)
+    expect(check({ id: 'x', title: 'Workout', kind: 'wod', items: [{ id: 'x', name: 'Burpees', check: true }] }).errors[0]).toMatch(/says nothing/)
+    expect(check({ id: 'x', title: 'Burpees', kind: 'wod', items: [{ id: 'x', name: 'Burpees', reps: 10 }] }).errors[0]).toMatch(/isn't a field of an item/)
+    expect(check('Pilates').errors[0]).toMatch(/session must be/)
+  })
+
+  it('keeps clear of the plan\'s ids, so ticking one never ticks the other', () => {
+    const checked = checkEdits(store.training, plan(), [
+      { op: 'extra', from: MON, to: MON, session: { id: 'legs', title: 'Front squat', kind: 'weightlifting', items: [{ id: 'back-squat', name: 'Front squat', sets: { sets: [{ reps: 5 }] } }] } },
+    ], MON, store.getSettings())
+    expect(checked.errors).toEqual([])
+    const session = checked.overrides[0]!.op === 'extra' ? checked.overrides[0]!.session : null
+    expect([session!.id, session!.items[0]!.id]).toEqual([`legs-${MON}`, `back-squat-${MON}`])
+    store.training.addOverrides(plan().id, checked.overrides, null)
+    store.training.logSet({ date: MON, itemId: 'back-squat', setIndex: 0, reps: 5, weight: 70 })
+    const day = store.training.day(MON)
+    expect(day.sessions.find((s) => s.id === `legs-${MON}`)!.items[0]!.sets![0]!.log).toBeNull()
+    expect(day.sessions.find((s) => s.id === 'legs')!.items[0]!.sets![0]!.log).toMatchObject({ weight: 70 })
+  })
+
+  it('skips an extra like any session, and moves one only by adding it on the other day', () => {
+    apply([pilates(WED)])
+    const move = checkEdits(store.training, plan(), [{ op: 'move', sessionId: 'pilates', from: WED, to: THU }], WED, store.getSettings())
+    expect(move.errors[0]).toMatch(/is an extra session/)
+    apply([{ op: 'skip', date: WED, sessionId: 'pilates' }])
+    expect(titles(WED)).not.toContain('Pilates')
+    // A tick for a session that isn't there, added or not, is still refused.
+    expect(checkEdits(store.training, plan(), [{ op: 'logSession', date: THU, sessionId: 'pilates' }], THU, store.getSettings()).errors[0]).toMatch(/no session "pilates" on/)
+  })
 })

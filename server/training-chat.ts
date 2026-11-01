@@ -2,10 +2,10 @@ import { chatText, chooseModel, extractJson } from './research.ts'
 import { describeGear, shortDate } from './store/training.ts'
 import type { ActivePlan, TrainingStore } from './store/training.ts'
 import { BANK_OPS, OVERRIDE_OPS, RECORD_OPS, REVISION_OPS } from '../src/types.ts'
-import type { CoachMessage, CoachStats, CoachStatus, Equipment, Place, PlanEdit, PlanProposal, Settings, TrainingSchema } from '../src/types.ts'
+import type { CoachMessage, CoachStats, CoachStatus, Equipment, Place, PlanEdit, PlanProposal, Settings, TrainingSchema, TrainingSession } from '../src/types.ts'
 import type { ChatProgress } from './research.ts'
 import { addDays, daysBetween, isDateString } from '../src/lib/nutrition.ts'
-import { cleanEquipment, cleanItemIn, cleanSchema } from '../src/lib/training/schema.ts'
+import { cleanEquipment, cleanItemIn, cleanSchema, cleanSessionIn, isObj } from '../src/lib/training/schema.ts'
 import { isRevision, reviseSchema } from '../src/lib/training/edits.ts'
 import type { OverrideEdit, RevisionEdit } from '../src/lib/training/edits.ts'
 import { weekOf, weekSequence } from '../src/lib/training/resolve.ts'
@@ -40,6 +40,9 @@ One-off changes for some days (the plan itself stays as it is):
   { "op": "load", "from": date, "to": date, "factor": 0.5-1.2, "lifts"?: [lift ids] }   lighter or heavier weights
   { "op": "swap", "from": date, "to": date, "itemId": id, "item": Item }   a stand-in for an item over some days
   { "op": "equipment", "from": date, "to": date, "equipment": { "gear": [...], "dumbbells": [lb], "kettlebells": [lb] } }   traveling
+  { "op": "extra", "from": date, "to": date, "session": { "id", "title", "kind", "items": [Item] } }   a session on those days only, on top of the plan:
+      the way to put something that isn't on the plan onto a day -- a class, a ride, a walk (from = to = that day). Minutes can be one number:
+      e.g. { "op": "extra", "from": "2026-11-04", "to": "2026-11-04", "session": { "id": "pilates", "title": "Pilates", "kind": "pilates", "items": [{ "id": "pilates", "name": "Pilates", "minutes": 20 }] } }
 Lasting changes to the plan from a week on (fromWeek defaults to the current week; an earlier week corrects what has already happened):
   { "op": "setWeeks", "itemId": id, "weeks": { "<week>": sets, ... } }   NEW SETS OR WEIGHTS FOR AN ITEM: the way to change reps, sets or weights.
       Give only the weeks that change; the item's other weeks stay as they are. Past weeks can be corrected too.
@@ -50,7 +53,7 @@ Lasting changes to the plan from a week on (fromWeek defaults to the current wee
   { "op": "addItem", "sessionId": id, "item": Item, "fromWeek"?: n, "toWeek"?: n }
   { "op": "removeItem", "itemId": id, "fromWeek"?: n }
   { "op": "addSession", "weekday": 1-7 (7 = Sunday), "session": { "id", "title", "kind", "items": [Item] }, "fromWeek"?: n, "toWeek"?: n }
-      toWeek ends an addition: toWeek = fromWeek adds it for that one week only (a session done once); without it, it runs to the end of the plan.
+      toWeek ends an addition: toWeek = fromWeek adds it for that one week only; without it, it runs to the end of the plan. For one day, use "extra".
       A session's title says what's in it, the way the plan's do ("Back squat + deadlift", "Strict press") -- never "Strength session" or "Workout".
   { "op": "removeSession", "sessionId": id, "fromWeek"?: n }
   { "op": "moveSession", "sessionId": id, "toWeekday": 1-7, "fromWeek"?: n }
@@ -145,6 +148,16 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
   const where = (i: number, e: PlanEdit): string => `edit ${i + 1} (${e.op})`
   const itemIds = new Set(plan.schema.days.flatMap((d) => d.sessions.flatMap((s) => s.items.map((i) => i.id))))
   const current = weekOf(plan.schema, today, plan.repeats)?.week ?? plan.schema.firstWeek
+  const ticks: { w: string; record: RecordEdit }[] = []
+  // An extra session's ids stay clear of the plan's and of other extras', so logging one never ticks off another.
+  const extras = (list: OverrideEdit[]): TrainingSession[] => list.flatMap((o) => (o.op === 'extra' ? [o.session] : []))
+  const sessionIds = new Set(plan.schema.days.flatMap((d) => d.sessions.map((s) => s.id)))
+  const takenItemIds = new Set(itemIds)
+  for (const s of extras(plan.overrides.map((o) => o.edit))) {
+    sessionIds.add(s.id)
+    for (const x of s.items) takenItemIds.add(x.id)
+  }
+  const weeks = Array.from({ length: plan.schema.weeks - plan.schema.firstWeek + 1 }, (_, k) => String(plan.schema.firstWeek + k))
 
   edits.forEach((e, i) => {
     const w = where(i, e)
@@ -184,8 +197,10 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
     }
     if (e.op === 'unlogSession' || e.op === 'logSession') {
       if (!inPlan(e.date)) { errors.push(`${w}: date must be within the plan, ${plan.schema.startDate} to ${end}`); return }
-      if (!training.planOf(plan, e.date).some((s) => s.id === e.sessionId)) { errors.push(`${w}: there's no session "${e.sessionId}" on ${e.date}`); return }
-      out.records.push({ op: e.op, date: e.date, sessionId: e.sessionId })
+      // Whether the session is there is asked once every edit is in: one added in the same edits can be ticked off.
+      const record = { op: e.op, date: e.date, sessionId: e.sessionId }
+      ticks.push({ w, record })
+      out.records.push(record)
       return
     }
     const range = (from: unknown, to: unknown): boolean => {
@@ -198,6 +213,10 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
       case 'move': {
         if (!inPlan(e.from) || !inPlan(e.to) || e.from === e.to) { errors.push(`${w}: from and to must be two different days within the plan`); return }
         if (!training.planOf(plan, e.from).some((s) => s.id === e.sessionId)) { errors.push(`${w}: there's no session "${e.sessionId}" on ${e.from}`); return }
+        if (sessionIds.has(e.sessionId) && !plan.schema.days.some((d) => d.sessions.some((s) => s.id === e.sessionId))) {
+          errors.push(`${w}: "${e.sessionId}" is an extra session: skip it on ${e.from} and add it as an extra on ${e.to}`)
+          return
+        }
         out.overrides.push({ op: 'move', sessionId: e.sessionId, from: e.from, to: e.to })
         return
       }
@@ -242,8 +261,47 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
         out.overrides.push({ op: 'equipment', from: e.from, to: e.to, equipment: cleanEquipment(e.equipment) })
         return
       }
+      case 'extra': {
+        if (!range(e.from, e.to)) return
+        if (!isObj(e.session)) { errors.push(`${w}: session must be { "id", "title", "kind", "items": [Item] }`); return }
+        const raw: Record<string, unknown> = { ...e.session }
+        const title = typeof raw.title === 'string' ? raw.title.trim() : ''
+        if (GENERIC_TITLE.test(title)) { errors.push(`${w}: title "${title}" says nothing -- name the session by what's in it, e.g. "Pilates" or "Easy ride"`); return }
+        // Ids clear of the plan's, the way a stand-in's are: the date makes them so.
+        const clear = (id: unknown, taken: Set<string>, fallback: string): string => {
+          const base = typeof id === 'string' && id ? id : fallback
+          return (taken.has(base) ? `${base}-${e.from}` : base).slice(0, 40)
+        }
+        raw.id = clear(raw.id, sessionIds, title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'extra')
+        if (Array.isArray(raw.items)) {
+          raw.items = raw.items.map((rawItem) => {
+            if (!isObj(rawItem)) return rawItem
+            const item: Record<string, unknown> = { ...rawItem, id: clear(rawItem.id, takenItemIds, String(raw.id)) }
+            // A one-off's minutes are the same whatever week its day falls in.
+            const m = item.minutes
+            const one = typeof m === 'number' ? m : isObj(m) && Object.keys(m).length === 1 ? Object.values(m)[0] : undefined
+            if (one !== undefined) item.minutes = Object.fromEntries(weeks.map((wk) => [wk, one]))
+            return item
+          })
+        }
+        const { session, errors: bad } = cleanSessionIn(raw, plan.schema, ctx)
+        if (!session) { errors.push(...bad.map((b) => `${w}: ${b}`)); return }
+        sessionIds.add(session.id)
+        for (const x of session.items) takenItemIds.add(x.id)
+        out.overrides.push({ op: 'extra', from: e.from, to: e.to, session })
+        return
+      }
     }
   })
+  // The ticks, against the plan as these edits leave it.
+  if (ticks.length) {
+    const after = withPending(plan, out.overrides)
+    for (const { w, record } of ticks) {
+      if (record.op === 'removeWorkout' || training.planOf(after, record.date).some((s) => s.id === record.sessionId)) continue
+      errors.push(`${w}: there's no session "${record.sessionId}" on ${record.date}`)
+      out.records = out.records.filter((r) => r !== record)
+    }
+  }
   // With new places, the schema (its WOD slots, new WODs) is checked against them.
   const gear: Equipment = out.places ? cleanEquipment({ places: out.places }) : ctx.equipment
   if (out.revisions.length || out.bank.length) {
@@ -267,6 +325,12 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
   return out
 }
 
+/** The plan with these one-off changes laid on too, as if applied: what a tick in the same edits is checked against. */
+function withPending(plan: ActivePlan, overrides: OverrideEdit[]): ActivePlan {
+  if (!overrides.length) return plan
+  return { ...plan, overrides: [...plan.overrides, ...overrides.map((edit, i) => ({ id: `pending-${i}`, edit, messageId: null }))] }
+}
+
 type DayPlan = ReturnType<TrainingStore['planOf']>
 
 /**
@@ -284,7 +348,7 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
       const what = `${w?.kind ?? 'a'} workout${w?.note ? ` "${w.note}"` : ''}`
       return `${shortDate(date)}: remove the ${what} from the Workouts card${w?.session ? ', and untick its session' : ''}`
     }
-    const title = training.planOf(plan, e.date).find((s) => s.id === e.sessionId)?.title ?? e.sessionId
+    const title = training.planOf(withPending(plan, checked.overrides), e.date).find((s) => s.id === e.sessionId)?.title ?? e.sessionId
     return `${shortDate(e.date)}: ${e.op === 'logSession' ? 'tick off' : 'untick'} ${title}`
   })
   // The bank and the places say what they do directly too.
@@ -416,7 +480,7 @@ export function coachContext(training: TrainingStore, plan: ActivePlan, today: s
     }
     // What's on the Workouts card that day: these are what its counts are made of, plan or not.
     for (const w of record?.workouts ?? []) {
-      ahead.push(`  logged workout [workout ${w.id}] ${w.kind}${w.note ? ` "${w.note}"` : ''} -- ${w.session ? `from session ${w.session}` : 'added by hand with the + button'}`)
+      ahead.push(`  logged workout [workout ${w.id}] ${w.kind}${w.note ? ` "${w.note}"` : ''} -- ${w.session ? `from session ${w.session}` : 'added by hand'}`)
     }
   }
   const changes = plan.overrides.map((o) => `  ${o.edit.op} ${JSON.stringify(o.edit)}`)
@@ -463,7 +527,9 @@ const SYSTEM = [
   'The gear can be split between rooms: to keep WODs to one room, set the places (setPlaces) -- slot focus tags won\'t do it.',
   'To change which WODs come up, add, hide or bring back WODs in the bank.',
   'A named benchmark WOD (Cindy, Fran, Helen, Grace...) keeps its standard prescription: check the bank list for it first, and write it exactly as the benchmark is if it isn\'t there.',
-  'The plan is what is scheduled; the record is what was logged (ticked sets, and workouts on the Workouts card, some added by hand with +).',
+  'The plan is what is scheduled; the record is what was logged (ticked sets, and workouts on the Workouts card).',
+  'When they did, or will do, something that is not on the plan (a class, a ride, a walk), put it on that day with "extra"; if it is already done,',
+  'tick it off in the same edits with logSession, using the id you gave the session. Something that should happen every week is a lasting change (addSession).',
   'The Workouts card counts logged workouts, so when a count looks wrong, look at the logged workouts listed for those days and fix the record',
   '(removeWorkout, unlogSession, logSession) -- not the plan. Read dates carefully: the day marked TODAY is today; check which day the person means.',
   'Past days can be changed too (skip, swap, move, or a lasting change from an earlier week) so the plan matches what really happened; never say you can\'t change the past.',

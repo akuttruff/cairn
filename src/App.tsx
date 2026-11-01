@@ -7,7 +7,6 @@ import SectionTabs from './components/SectionTabs.tsx'
 import Totals from './components/Totals.tsx'
 import WaterTracker from './components/WaterTracker.tsx'
 import AlcoholTracker from './components/AlcoholTracker.tsx'
-import ExtraWorkouts from './components/train/ExtraWorkouts.tsx'
 import WeekGoals from './components/train/WeekGoals.tsx'
 import MeditationTracker from './components/MeditationTracker.tsx'
 import DogWalkTracker from './components/DogWalkTracker.tsx'
@@ -181,7 +180,6 @@ export default function App() {
             <TrainToday date={day.date} training={training} onSelectDate={day.setDate} onLogged={trainLogged} onCoach={openCoach} />
             {view && (
               <>
-                <ExtraWorkouts date={day.date} workouts={view.workouts} onLogged={() => { refresh(); void training.refresh() }} />
                 <MeditationTracker date={day.date} meditation={view.meditation} onLogged={refresh} />
                 <DogWalkTracker date={day.date} dog={view.dog} onLogged={refresh} />
               </>

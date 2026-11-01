@@ -1,6 +1,6 @@
 import type {
   DayView, Entry, Food, Goals, LabelReading, Meal, MealPreset, MealPresetItem, NewEntry, Nutrients, PublicSettings, RangeNotes, RangeView, Serving,
-  AlcoholKind, AlcoholLog, AppIcon, ChartKey, CoachMessage, CoachStatus, Drink, Equipment, GenerateStatus, Lift, ProgressSeries, SchemaOverview, SchemaSummary, TrainingDay, WaterLog, LmModelOption, MeditationLog, DogWalkLog, WorkoutKind, WorkoutKindDef, WorkoutLog, WorkoutPlan,
+  AlcoholKind, AlcoholLog, AppIcon, ChartKey, CoachMessage, CoachStatus, Drink, Equipment, GenerateStatus, Lift, ProgressSeries, SchemaOverview, SchemaSummary, TrainingDay, WaterLog, LmModelOption, MeditationLog, DogWalkLog, WorkoutKindDef, WorkoutPlan,
 } from '../types.ts'
 import { noReply, reachFetch } from './reach.ts'
 
@@ -78,9 +78,6 @@ export const api = {
   deleteWater: (id: string) => request<{ ok: true }>('DELETE', `/api/water/${encodeURIComponent(id)}`),
   addAlcohol: (date: string, kind: AlcoholKind) => request<AlcoholLog>('POST', '/api/alcohol', { date, kind }),
   deleteAlcohol: (id: string) => request<{ ok: true }>('DELETE', `/api/alcohol/${encodeURIComponent(id)}`),
-  addWorkout: (w: { date: string; kind: WorkoutKind; minutes?: number | null; note?: string }) =>
-    request<WorkoutLog>('POST', '/api/workouts', w),
-  deleteWorkout: (id: string) => request<{ ok: true }>('DELETE', `/api/workouts/${encodeURIComponent(id)}`),
   /** Give one week (by its Sunday) its own plan, or put it back on the default. */
   setWeekPlan: (weekStart: string, plan: WorkoutPlan) =>
     request<{ weekStart: string; plan: WorkoutPlan; custom: boolean }>('PUT', `/api/workout-plan/${encodeURIComponent(weekStart)}`, { plan }),

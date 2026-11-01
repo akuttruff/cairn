@@ -28,7 +28,7 @@ export interface SchemaContext {
 }
 
 type Obj = Record<string, unknown>
-const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
+export const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
 const isInt = (v: unknown, min: number, max: number): v is number => Number.isInteger(v) && (v as number) >= min && (v as number) <= max
 const isNum = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max
 const text = (v: unknown, max: number): string | undefined => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined)
@@ -427,6 +427,26 @@ export function cleanItemIn(raw: unknown, schema: TrainingSchema, ctx: SchemaCon
   const mine = errors.filter((e) => e.startsWith(where)).map((e) => e.replace(where, 'item'))
   if (mine.length || !clean) return { item: null, errors: mine.length ? mine : errors }
   return { item: clean.days[0]!.sessions[0]!.items.at(-1)!, errors: [] }
+}
+
+/**
+ * One session checked as a schema would check it -- an extra one the coach
+ * puts on some days, say -- by putting it into a copy of the schema it would
+ * join. Its ids must already be clear of the schema's own.
+ */
+export function cleanSessionIn(raw: unknown, schema: TrainingSchema, ctx: SchemaContext): { session: TrainingSession | null; errors: string[] } {
+  const copy = structuredClone(schema)
+  const host = copy.days[0]
+  if (!host) return { session: null, errors: ['the schema has no day to check the session in'] }
+  // A day keeps six sessions at most: room is made for this one.
+  host.sessions = [...host.sessions.slice(0, 5), raw as TrainingSession]
+  const where = `days[0].sessions[${host.sessions.length - 1}]`
+  const { schema: clean, errors } = cleanSchema(copy, ctx)
+  const mine = errors.filter((e) => e.startsWith(where)).map((e) => e.replace(where, 'session'))
+  const id = isObj(raw) ? raw.id : undefined
+  const session = clean?.days[0]?.sessions.find((s) => s.id === id)
+  if (mine.length || !session) return { session: null, errors: mine.length ? mine : errors }
+  return { session, errors: [] }
 }
 
 /** One group of sets in the short way: "3x5@35", "5 @ 40", "3×5 @ 70%", "4x10", "2x30s", "max", "ladder". */

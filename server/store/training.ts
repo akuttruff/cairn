@@ -56,6 +56,7 @@ export function overrideText(e: OverrideEdit): string {
     case 'load': return `weights at ${Math.round(e.factor * 100)}%${e.lifts?.length ? ` for ${e.lifts.join(', ')}` : ''}, ${e.from} to ${e.to}`
     case 'swap': return `${e.item.name} in place of item ${e.itemId}, ${e.from} to ${e.to}`
     case 'equipment': return `traveling gear ${e.from} to ${e.to}: ${describeGear(e.equipment)}`
+    case 'extra': return `extra session ${e.session.id} (${e.session.title}), ${e.from} to ${e.to}`
   }
 }
 interface SetRow { id: string; date: string; schema_id: string; item_id: string; set_index: number; reps: number | null; weight: number | null; seconds: number | null; created_at?: number }
@@ -334,7 +335,8 @@ export class TrainingStore {
   /**
    * What's planned on a date once the coach's changes are laid over the
    * schema: skipped sessions out, sessions moved here in (at the week they
-   * came from), stand-ins in place of the items they replace.
+   * came from), extra sessions added (at the date's week), stand-ins in
+   * place of the items they replace.
    */
   private sessionsFor(plan: ActivePlan, date: string): Planned[] {
     const { schema, repeats, overrides } = plan
@@ -352,6 +354,11 @@ export class TrainingStore {
           // First on its new day: it's the reason the day changed.
           if (moved && !list.some((p) => p.session.id === edit.sessionId)) list.unshift({ ...moved, movedFrom: edit.from })
         }
+      }
+      if (edit.op === 'extra' && date >= edit.from && date <= edit.to) {
+        const at = weekOf(schema, date, repeats)
+        const items = at ? edit.session.items.filter((i) => itemOn(i, at.week, schema)) : []
+        if (at && items.length && !list.some((p) => p.session.id === edit.session.id)) list.push({ session: { ...edit.session, items }, week: at.week })
       }
     }
     const swaps = this.swapsOn(plan, date)
@@ -435,6 +442,7 @@ export class TrainingStore {
         out.push({ id, text: what })
       }
       if (covers && edit.op === 'equipment') out.push({ id, text: `Gear until ${shortDate(edit.to)}: ${describeGear(edit.equipment)}` })
+      if (covers && edit.op === 'extra') out.push({ id, text: edit.from === edit.to ? `${edit.session.title} added` : `${edit.session.title} added until ${shortDate(edit.to)}` })
     }
     return out
   }

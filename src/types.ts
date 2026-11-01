@@ -824,7 +824,7 @@ export interface WodView {
 // --- the coach: talking about the plan, and changing it ------------------------
 
 /**
- * A change the coach can propose. The first five are one-off, dated changes
+ * A change the coach can propose. The first six are one-off, dated changes
  * laid over the schema; the next six change the schema itself from a week on;
  * `rewrite` has the training model write the rest of the schema afresh.
  */
@@ -834,6 +834,8 @@ export type PlanEdit =
   | { op: 'load'; from: string; to: string; factor: number; lifts?: string[] }
   | { op: 'swap'; from: string; to: string; itemId: string; item: TrainingItem }
   | { op: 'equipment'; from: string; to: string; equipment: Equipment }
+  /** A session on those days only, on top of the plan: a class, a ride, something done that wasn't planned. */
+  | { op: 'extra'; from: string; to: string; session: TrainingSession }
   | { op: 'replaceItem'; itemId: string; item: TrainingItem; fromWeek?: number }
   | { op: 'addItem'; sessionId: string; item: TrainingItem; fromWeek?: number; toWeek?: number }
   | { op: 'removeItem'; itemId: string; fromWeek?: number }
@@ -855,7 +857,7 @@ export type PlanEdit =
   | { op: 'showWod'; wodId: string }
   | { op: 'setPlaces'; places: Place[] }
 
-export const OVERRIDE_OPS = ['move', 'skip', 'load', 'swap', 'equipment'] as const
+export const OVERRIDE_OPS = ['move', 'skip', 'load', 'swap', 'equipment', 'extra'] as const
 /** Changes to what was logged, not to the plan: a workout removed, a session unticked or ticked off. */
 export const RECORD_OPS = ['removeWorkout', 'unlogSession', 'logSession'] as const
 /** Changes to the WOD bank (kept in the schema) and to where the gear is (a setting). */

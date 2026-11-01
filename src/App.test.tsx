@@ -941,32 +941,6 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
   })
 
-  it('logs a workout that is not on the plan from a chip, and lists the hand-added ones to take back', async () => {
-    const user = userEvent.setup()
-    const calls = stubApi({
-      [`GET /api/day/${TODAY}`]: day([], {
-        workouts: {
-          ...WORKOUTS_DAY, minutes: 30, weekTotal: 2, lastLogId: 'w1', fromPlan: ['w0'],
-          sessions: [{ id: 'w1', date: TODAY, kind: 'pilates', minutes: 30, createdAt: 3 }, { id: 'w0', date: TODAY, kind: 'weightlifting', minutes: null, createdAt: 1 }],
-        },
-      }),
-      'POST /api/workouts': { id: 'w2', date: TODAY, kind: 'cycling', minutes: null, createdAt: 4 },
-      'DELETE /api/workouts/w1': { ok: true },
-    })
-    render(<App />)
-    await goTo('Train')
-    expect(screen.queryByRole('region', { name: 'Workouts' })).not.toBeInTheDocument() // the week's tally is on Week
-    const card = await screen.findByRole('region', { name: 'Not on the plan' })
-    await user.click(within(card).getByRole('button', { name: 'Log Cycling' }))
-    await waitFor(() => expect(calls.some((c) => c.url === '/api/workouts')).toBe(true))
-    expect(calls.find((c) => c.url === '/api/workouts')!.body).toEqual({ date: TODAY, kind: 'cycling', minutes: null })
-    // Only the one added by hand is listed; the plan's own lifting session isn't.
-    const list = within(card).getByRole('list', { name: 'Added by hand' })
-    expect(within(list).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Pilates · 30 min'])
-    await user.click(within(list).getByRole('button', { name: 'Remove Pilates' }))
-    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === '/api/workouts/w1')).toBe(true))
-  })
-
   it("adjusts this week's workout goals from Week, for this week only, and puts them back on the default", async () => {
     const user = userEvent.setup()
     const calls = stubApi({
@@ -2339,7 +2313,8 @@ describe('App', () => {
       await goTo('Train')
       expect(await screen.findByRole('region', { name: 'Legs' })).toBeInTheDocument()
       expect(calls.some((c) => c.url === `/api/training?date=${TODAY}`)).toBe(true)
-      expect(screen.getByRole('region', { name: 'Not on the plan' })).toBeInTheDocument()
+      // Off-plan workouts go through the coach now, as extra sessions on the plan; no hand-add card.
+      expect(screen.queryByRole('region', { name: 'Not on the plan' })).not.toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Train' })).toHaveAttribute('aria-current', 'page')
     })
 
