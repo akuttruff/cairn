@@ -279,7 +279,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .plan-save { padding: 8px 12px; border-radius: 10px; border: none; background: var(--c-workout); color: var(--bg); font-size: 13px; font-weight: 600; }
 .meditation-add { border-color: var(--c-meditation); color: var(--c-meditation); padding: 11px 6px; font-size: 13px; gap: 4px; white-space: nowrap; min-width: 0; }
 
-/* Week/month: one box per day, Sunday-first columns. A week is one row; a month, a small calendar. */
+/* Week/month: one box per day, Monday-first columns. A week is one row; a month, a small calendar. */
 .day-boxes { --box: var(--c-workout); display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin: 4px 0 2px; }
 .day-boxes.meditation { --box: var(--c-meditation); }
 .day-boxes.dog { --box: var(--c-dog); }

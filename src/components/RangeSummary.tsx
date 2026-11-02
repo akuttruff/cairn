@@ -222,7 +222,7 @@ function RangeChart({ series, view, today, selected, onPick }: RangeChartProps) 
           })}
         </div>
       </div>
-      {/* Which day is which, under every chart: weekday and date for a week; each week's Sunday for a month. */}
+      {/* Which day is which, under every chart: weekday and date for a week; each week's Monday for a month. */}
       <div className="range-days" style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }} aria-hidden="true">
         {days.map((d) => (
           <span key={d.date} className={d.date === today ? 'today' : ''}>
@@ -238,9 +238,9 @@ function RangeChart({ series, view, today, selected, onPick }: RangeChartProps) 
 
 type BoxState = 'full' | 'half' | 'empty'
 
-/** Sunday = 0 ... Saturday = 6, for lining a month up under weekday columns (weeks start on Sunday). */
-const weekdayIndex = (date: string): number => new Date(`${date}T00:00:00`).getDay()
-const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+/** Monday = 0 ... Sunday = 6, for lining a month up under weekday columns (weeks start on Monday). */
+const weekdayIndex = (date: string): number => (new Date(`${date}T00:00:00`).getDay() + 6) % 7
+const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
 interface DayBoxesProps {
   /** Also the CSS class that colours it. */
@@ -251,21 +251,18 @@ interface DayBoxesProps {
   /** What the day had, for its label: "2 sits, 50 min". */
   describe: (d: DaySummary) => string
   onSelectDay: (date: string) => void
-  /** Monday-first columns, for Train's Monday-to-Sunday weeks. */
-  mondayFirst?: boolean
 }
 
 /**
- * One box per day, in Sunday-first weekday columns (Monday-first in Train) -- a week is one row, a
- * month a little calendar. A box is filled for a day that did it, half
- * filled for a day partway there (one sit of two), and empty otherwise;
- * days still ahead are drawn faint, so an unfilled future isn't read as a
- * miss. Tap a box to open that day.
+ * One box per day, in Monday-first columns -- a week is one row, a month a little
+ * calendar. A box is filled for a day that did it, half filled for a day partway
+ * there (one sit of two), and empty otherwise; days still ahead are drawn faint,
+ * so an unfilled future isn't read as a miss. Tap a box to open that day.
  */
-function DayBoxes({ kind, days, today, state, describe, onSelectDay, mondayFirst = false }: DayBoxesProps) {
+function DayBoxes({ kind, days, today, state, describe, onSelectDay }: DayBoxesProps) {
   const first = days.length ? weekdayIndex(days[0]!.date) : 0
-  const lead = mondayFirst ? (first + 6) % 7 : first
-  const heads = mondayFirst ? [...WEEKDAYS.slice(1), WEEKDAYS[0]!] : WEEKDAYS
+  const lead = first
+  const heads = WEEKDAYS
   return (
     <div className={`day-boxes ${kind}`}>
       {heads.map((w, i) => <span key={i} className="day-boxes-weekday" aria-hidden="true">{w}</span>)}
@@ -410,7 +407,6 @@ export default function RangeSummary({ view, onSelectDay, part = 'nutrition', wo
           </span>
         </div>
         <DayBoxes
-          mondayFirst={part === 'train'}
           kind="workout"
           days={days}
           today={today}
@@ -450,7 +446,6 @@ export default function RangeSummary({ view, onSelectDay, part = 'nutrition', wo
           </span>
         </div>
         <DayBoxes
-          mondayFirst={part === 'train'}
           kind="meditation"
           days={days}
           today={today}
@@ -476,7 +471,6 @@ export default function RangeSummary({ view, onSelectDay, part = 'nutrition', wo
           </span>
         </div>
         <DayBoxes
-          mondayFirst={part === 'train'}
           kind="dog"
           days={days}
           today={today}
