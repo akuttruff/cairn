@@ -3,8 +3,8 @@ import {
   addDays, addMonths, alcoholCalories, alcoholCaloriesLogged, dogWalksMet, scoreDogWalks, calorieMismatch, daysBetween, emptyNutrients, endOfMonth, goalDirection, goalLabel,
   goalMet, goalRangeFor, goalStatus,
   impliedCalories,
-  isDateString, localDate, macroCalories, meditationMet, progress, rangeStatus, resolveGoals, scale, scoreDays, scoreMeditation,
-  scoreWater, startOfMonth, startOfWeek, streakThrough, sumDay, sumNutrients,
+  isDateString, localDate, macroCalories, mondayOf, meditationMet, progress, rangeStatus, resolveGoals, scale, scoreDays, scoreMeditation,
+  scoreWater, startOfMonth, streakThrough, sumDay, sumNutrients,
 } from './nutrition.ts'
 import type { DaySummary, Entry, Goals, NutrientKey, Nutrients } from '../types.ts'
 
@@ -356,17 +356,17 @@ describe('dates', () => {
     expect(isDateString('../../etc')).toBe(false)
   })
 
-  it('finds the Sunday starting the week of any day in it', () => {
-    expect(startOfWeek('2026-09-26')).toBe('2026-09-20') // a Saturday: the last day of its week
-    expect(startOfWeek('2026-09-20')).toBe('2026-09-20') // already a Sunday
-    expect(startOfWeek('2026-09-21')).toBe('2026-09-20') // a Monday -- the Sunday just before
-    expect(startOfWeek('2026-10-01')).toBe('2026-09-27') // crosses a month
-  })
-
   it('finds the first and last day of the month', () => {
     expect(startOfMonth('2026-09-26')).toBe('2026-09-01')
     expect(endOfMonth('2026-09-26')).toBe('2026-09-30')
     expect(endOfMonth('2028-02-14')).toBe('2028-02-29') // leap year
+  })
+
+  it('finds the Monday starting the training week of any day in it', () => {
+    expect(mondayOf('2026-09-21')).toBe('2026-09-21') // already a Monday
+    expect(mondayOf('2026-09-26')).toBe('2026-09-21') // a Saturday
+    expect(mondayOf('2026-09-20')).toBe('2026-09-14') // a Sunday: previous week's Monday
+    expect(mondayOf('2026-10-01')).toBe('2026-09-28') // crosses a month
   })
 
   it('steps by whole months, clamping the day instead of overflowing', () => {

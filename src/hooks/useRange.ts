@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api.ts'
-import { addDays, addMonths, endOfMonth, localDate, startOfMonth, startOfWeek } from '../lib/nutrition.ts'
+import { addDays, addMonths, endOfMonth, localDate, mondayOf, startOfMonth } from '../lib/nutrition.ts'
 import { monthLabel, weekLabel } from '../lib/format.ts'
 import type { RangeView } from '../types.ts'
 
@@ -15,7 +15,7 @@ interface Bounds {
 /** The week or month containing `anchor`, and how to name it. */
 function boundsFor(mode: RangeMode, anchor: string): Bounds {
   if (mode === 'week') {
-    const start = startOfWeek(anchor)
+    const start = mondayOf(anchor)
     const end = addDays(start, 6)
     return { start, end, label: weekLabel(start, end) }
   }

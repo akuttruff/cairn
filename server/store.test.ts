@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { Store, ValidationError } from './store.ts'
-import { DEFAULT_GOALS, addDays, startOfWeek } from '../src/lib/nutrition.ts'
+import { DEFAULT_GOALS, addDays, mondayOf } from '../src/lib/nutrition.ts'
 import { DEFAULT_WORKOUT_KINDS } from '../src/types.ts'
 import type { NewEntry, Nutrients } from '../src/types.ts'
 
@@ -711,7 +711,7 @@ describe('alcohol', () => {
     })
 
     it("counts the week's drinks by kind, not just in total", () => {
-      const weekStart = startOfWeek(DAY)
+      const weekStart = mondayOf(DAY)
       store.addAlcohol(weekStart, 'wine')
       store.addAlcohol(weekStart, 'wine')
       store.addAlcohol(addDays(weekStart, 2), 'liquor')
@@ -721,7 +721,7 @@ describe('alcohol', () => {
     })
 
     it("totals the calendar week (Monday-start) a day falls in, not just that day", () => {
-      const weekStart = startOfWeek(DAY)
+      const weekStart = mondayOf(DAY)
       store.addAlcohol(weekStart, 'beer') // earlier in the same week
       store.addAlcohol(DAY, 'wine')
       store.addAlcohol(addDays(weekStart, 6), 'liquor') // later in the same week
@@ -806,7 +806,7 @@ describe('water', () => {
 describe('workouts', () => {
   it('starts empty, against the weekly goal', () => {
     expect(store.getDay(DAY).workouts).toEqual({
-      sessions: [], minutes: 0, weekStart: startOfWeek(DAY), planIsCustom: false, kinds: DEFAULT_WORKOUT_KINDS,
+      sessions: [], minutes: 0, weekStart: mondayOf(DAY), planIsCustom: false, kinds: DEFAULT_WORKOUT_KINDS,
       plan: { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 },
       weekByKind: { wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 0, pilates: 0 },
       weekTotal: 0, weekGoal: 9, lastLogId: null, weekSessions: [], planned: [], fromPlan: [],
@@ -824,7 +824,7 @@ describe('workouts', () => {
   })
 
   it('counts the calendar week (Monday-start) toward the weekly goal', () => {
-    const monday = startOfWeek(DAY)
+    const monday = mondayOf(DAY)
     store.addWorkout({ date: monday, kind: 'yoga' })
     store.addWorkout({ date: addDays(monday, 6), kind: 'run' }) // Sunday, same week
     store.addWorkout({ date: addDays(monday, 7), kind: 'run' }) // next Monday
@@ -896,7 +896,7 @@ describe('workouts', () => {
 
 describe('the week\'s workout sessions', () => {
   it('lists every session in the week, latest day first, from any day of it', () => {
-    const sunday = startOfWeek(DAY)
+    const sunday = mondayOf(DAY)
     const mon = store.addWorkout({ date: addDays(sunday, 1), kind: 'weightlifting' })
     const tue1 = store.addWorkout({ date: addDays(sunday, 2), kind: 'wod' })
     const tue2 = store.addWorkout({ date: addDays(sunday, 2), kind: 'yoga' })
@@ -956,19 +956,20 @@ describe('meditation', () => {
     expect(() => store.setGoals({ workoutPlan: { jousting: 1 } as never })).toThrow(/unknown workout kind/)
   })
 
-  it('counts weeks Sunday to Saturday: a Saturday closes the week, the next day starts a fresh one', () => {
-    const sat = '2026-09-26'
-    const sun = '2026-09-27'
-    store.addWorkout({ date: '2026-09-20', kind: 'yoga' }) // the Sunday that opens Saturday's week
-    store.addWorkout({ date: sat, kind: 'yoga' })
-    store.addAlcohol(sat, 'wine')
-    expect(store.getDay(sat).workouts).toMatchObject({ weekStart: '2026-09-20', weekTotal: 2 })
-    expect(store.getDay(sat).alcohol.weekTotal).toBe(1)
-    expect(store.getDay(sun).workouts).toMatchObject({ weekStart: sun, weekTotal: 0 })
-    expect(store.getDay(sun).alcohol.weekTotal).toBe(0)
+  it('counts weeks Monday to Sunday: a Sunday closes the week, the next day starts a fresh one', () => {
+    const sun = '2026-09-27' // a Sunday (week end)
+    const mon = '2026-09-28' // a Monday (new week)
+    store.addWorkout({ date: '2026-09-21', kind: 'yoga' }) // the Monday that opens Sunday's week
+    store.addWorkout({ date: sun, kind: 'yoga' })
+    store.addAlcohol(sun, 'wine')
+    expect(store.getDay(sun).workouts).toMatchObject({ weekStart: '2026-09-21', weekTotal: 2 })
+    expect(store.getDay(sun).alcohol.weekTotal).toBe(1)
+    expect(store.getDay(mon).workouts).toMatchObject({ weekStart: mon, weekTotal: 0 })
+    expect(store.getDay(mon).alcohol.weekTotal).toBe(0)
   })
 
-  it('moves a week plan stored by its Monday (before weeks started on Sunday) to that Sunday', () => {
+  it('keeps week plans keyed by Monday (current system)', () => {
+    // This test verifies that week plans are now keyed by Monday (the current system).
     const db = openRaw()
     try {
       db.prepare('INSERT INTO workout_plans (week_start, plan) VALUES (?, ?)').run('2026-09-21', JSON.stringify({ yoga: 6 }))
@@ -977,11 +978,11 @@ describe('meditation', () => {
       db.close()
     }
     const upgraded = new Store({ dir })
-    expect(upgraded.getDay('2026-09-23').workouts).toMatchObject({ weekStart: '2026-09-20', planIsCustom: true, weekGoal: 6 })
+    expect(upgraded.getDay('2026-09-23').workouts).toMatchObject({ weekStart: '2026-09-21', planIsCustom: true, weekGoal: 6 })
   })
 
   it("gives one week its own plan, leaving the default and every other week alone, and can put it back", () => {
-    const week = startOfWeek(DAY)
+    const week = mondayOf(DAY)
     const nextWeek = addDays(week, 7)
     store.addWorkout({ date: DAY, kind: 'yoga' })
     store.addWorkout({ date: DAY, kind: 'run' })
@@ -997,7 +998,7 @@ describe('meditation', () => {
     store.clearWeekPlan(week)
     w = store.getDay(DAY).workouts
     expect(w).toMatchObject({ planIsCustom: false, weekGoal: 9 })
-    expect(() => store.setWeekPlan(addDays(week, 1), { yoga: 1 })).toThrow(/must be a Sunday/)
+    expect(() => store.setWeekPlan(addDays(week, 1), { yoga: 1 })).toThrow(/must be a Monday/)
   })
 
   it('upgrades a database from before workouts and meditation, keeping the goals already set', () => {
@@ -1019,7 +1020,7 @@ describe('meditation', () => {
     const upgraded = new Store({ dir })
     expect(upgraded.getGoals()).toMatchObject({ protein: 140, meditationMinutes: 50 })
     expect(upgraded.getGoals().workoutPlan).toEqual({ wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1 })
-    upgraded.setWeekPlan(startOfWeek(DAY), { yoga: 1 }) // the per-week table is back too
+    upgraded.setWeekPlan(mondayOf(DAY), { yoga: 1 }) // the per-week table is back too
     upgraded.addMeditation({ date: DAY, minutes: 10 })
     expect(upgraded.getDay(DAY).meditation.minutes).toBe(10)
   })
@@ -1174,9 +1175,9 @@ describe('ranges', () => {
       goalByKind: { wod: 1, weightlifting: 1, run: 0, cycling: 0, yoga: 2, pilates: 0 }, goal: 4,
     })
     // A whole week gets its plan exactly, its own plan if it has one.
-    const sunday = startOfWeek(D1)
-    store.setWeekPlan(sunday, { yoga: 3, pilates: 2 })
-    expect(store.getRange(sunday, addDays(sunday, 6)).workouts.goalByKind).toEqual({ wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 3, pilates: 2 })
+    const monday = mondayOf(D1)
+    store.setWeekPlan(monday, { yoga: 3, pilates: 2 })
+    expect(store.getRange(monday, addDays(monday, 6)).workouts.goalByKind).toEqual({ wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 3, pilates: 2 })
     expect(range.days.map((d) => d.workouts)).toEqual([2, 0, 1])
     // D2's two sits met the 50-minute goal, D3 didn't; D1 had none and is left out. D2-D3 is a two-day run.
     expect(range.meditation).toEqual({ total: 55, average: 18.3, days: 2, met: 1, of: 2, streak: 2 })

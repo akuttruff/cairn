@@ -5,7 +5,7 @@ import type {
   TrainingDay, TrainingItem, TrainingSchema, TrainingSession, WorkoutLog,
 } from '../../src/types.ts'
 import type { OverrideEdit } from '../../src/lib/training/edits.ts'
-import { addDays, isDateString, localDate } from '../../src/lib/nutrition.ts'
+import { addDays, isDateString, localDate, mondayOf } from '../../src/lib/nutrition.ts'
 import { cleanSchema } from '../../src/lib/training/schema.ts'
 import { findWod, pickWods, viewWod } from '../../src/lib/training/bank.ts'
 import {
@@ -524,7 +524,7 @@ export class TrainingStore {
 
   /** Monday to Sunday around the date: what each day has, and whether it's done. */
   private strip(plan: ActivePlan, date: string): TrainingDay['strip'] {
-    const monday = addDays(date, 1 - weekdayOf(date))
+    const monday = mondayOf(date)
     const sunday = addDays(monday, 6)
     const logged = new Map<string, Set<string>>()
     for (const r of this.s.setsBetween!.all(plan.id, monday, sunday) as unknown as SetRow[]) {

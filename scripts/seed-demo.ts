@@ -3,8 +3,7 @@ import path from 'node:path'
 import { Store } from '../server/store.ts'
 import { fingerprint } from '../server/notes.ts'
 import { checkEdits, previewEdits } from '../server/training-chat.ts'
-import { addDays, localDate } from '../src/lib/nutrition.ts'
-import { weekdayOf } from '../src/lib/training/resolve.ts'
+import { addDays, localDate, mondayOf } from '../src/lib/nutrition.ts'
 import { DEFAULT_WORKOUT_KINDS } from '../src/types.ts'
 import type { CoachStats, Meal, Nutrients, PlanEdit, TrainingSchema } from '../src/types.ts'
 
@@ -73,7 +72,7 @@ for (let back = 0; back < 14; back++) for (const ounces of WATER[back % WATER.le
 
 // A training plan, made up for the demo: eight weeks, now in its third, with the sets done so far logged
 // (logging a session's sets is what fills its workout dot).
-const monday = addDays(today, 1 - weekdayOf(today))
+const monday = mondayOf(today)
 const start = addDays(monday, -14)
 const minutes = (list: number[]): Record<string, number> => Object.fromEntries(list.map((m, i) => [String(i + 1), m]))
 const PLAN: TrainingSchema = {

@@ -7,7 +7,7 @@ interface SectionTabsProps {
 }
 
 const SECTIONS: { value: Section; label: string; Icon: typeof Salad }[] = [
-  { value: 'nutrition', label: 'Nutrition', Icon: Salad },
+  { value: 'nutrition', label: 'Habits', Icon: Salad },
   { value: 'train', label: 'Train', Icon: Dumbbell },
 ]
 

@@ -32,7 +32,7 @@ interface HeaderProps {
  * Same nav shell for all three views: only what "previous", "next" and the
  * label mean changes. Two rows, not one -- the date nav, the settings
  * button and three tab labels don't all fit one line on a phone. The two
- * sections (Nutrition and Train) are the bottom bar's; these tabs are the
+ * sections (Habits and Train) are the bottom bar's; these tabs are the
  * views within the one on screen.
  */
 export default function Header({ section, mode, onModeChange, unit, label, isCurrent, onPrev, onNext, onJumpToCurrent, onSettings, title }: HeaderProps) {
@@ -65,7 +65,7 @@ export default function Header({ section, mode, onModeChange, unit, label, isCur
           <Settings size={19} aria-hidden="true" />
         </button>
       </header>
-      <div className="mode-tabs" role="tablist" aria-label={section === 'nutrition' ? 'Nutrition view' : 'Train view'}>
+      <div className="mode-tabs" role="tablist" aria-label={section === 'nutrition' ? 'Habits view' : 'Train view'}>
         {MODES[section].map((m) => (
           <button
             key={m.value}

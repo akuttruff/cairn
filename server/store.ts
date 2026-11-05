@@ -9,8 +9,8 @@ import type {
   RangeView, Settings, WaterLog, WorkoutKind, WorkoutLog, WorkoutPlan,
 } from '../src/types.ts'
 import {
-  addDays, alcoholCalories, DEFAULT_GOALS, daysBetween, isDateString, localDate, resolveGoals, round1, scale,
-  scoreDays, scoreDogWalks, scoreMeditation, scoreWater, startOfWeek, streakThrough, sumDay,
+  addDays, alcoholCalories, DEFAULT_GOALS, daysBetween, isDateString, localDate, mondayOf, resolveGoals, round1, scale,
+  scoreDays, scoreDogWalks, scoreMeditation, scoreWater, streakThrough, sumDay,
 } from '../src/lib/nutrition.ts'
 import { LOOKUP_TTL_MS, normalizeQuery } from './research.ts'
 import type { ResearchResult } from './research.ts'
@@ -270,7 +270,7 @@ export class Store {
     const plans = new Map<string, WorkoutPlan>()
     const goalShare = zeroByKind(kindIds)
     for (const d of days) {
-      const week = startOfWeek(d.date)
+      const week = mondayOf(d.date)
       if (!plans.has(week)) plans.set(week, this.planForWeek(week).plan)
       for (const k of kindIds) goalShare[k] += (plans.get(week)![k] ?? 0) / 7
     }
@@ -372,10 +372,10 @@ export class Store {
     return out
   }
 
-  /** This day's sessions, plus its calendar week (Sunday-start): each kind's count against that week's plan. */
+  /** This day's sessions, plus its calendar week (Monday-start): each kind's count against that week's plan. */
   private getWorkouts(date: string): DayView['workouts'] {
     const sessions = (this.stmts.selectWorkoutsByDate.all(date) as unknown as WorkoutLogRow[]).map(workoutFromRow)
-    const weekStart = startOfWeek(date)
+    const weekStart = mondayOf(date)
     const weekRows = this.stmts.selectWorkoutsBetween.all(weekStart, addDays(weekStart, 6)) as unknown as WorkoutLogRow[]
     const kinds = this.getSettings().workoutKinds
     const weekByKind = zeroByKind(kinds.map((k) => k.id))
@@ -404,9 +404,9 @@ export class Store {
     return this.getSettings().workoutKinds.map((k) => k.id)
   }
 
-  /** Give one week (by its Sunday) its own plan; other weeks keep theirs, or the default. */
+  /** Give one week (by its Monday) its own plan; other weeks keep theirs, or the default. */
   setWeekPlan(weekStart: string, plan: unknown): WorkoutPlan {
-    if (!isDateString(weekStart) || startOfWeek(weekStart) !== weekStart) throw new ValidationError('weekStart must be a Sunday, YYYY-MM-DD')
+    if (!isDateString(weekStart) || mondayOf(weekStart) !== weekStart) throw new ValidationError('weekStart must be a Monday, YYYY-MM-DD')
     const clean = cleanPlan(plan, this.kindIds())
     this.stmts.upsertWeekPlan.run(weekStart, JSON.stringify(clean))
     return clean
@@ -506,12 +506,12 @@ export class Store {
     return { ounces, goal, tea, lastLogId: rows[0]?.id ?? null }
   }
 
-  /** This day's drinks, plus the calendar week's (Sunday-start, today included) against its own goal. */
+  /** This day's drinks, plus the calendar week's (Monday-start, today included) against its own goal. */
   private getAlcohol(date: string, weekGoal: number): DayView['alcohol'] {
     const rows = this.stmts.selectAlcoholByDate.all(date) as unknown as AlcoholLogRow[]
     const byKind = Object.fromEntries(ALCOHOL_KINDS.map((k) => [k, 0])) as Record<AlcoholKind, number>
     for (const r of rows) if (r.kind in byKind) byKind[r.kind as AlcoholKind]++
-    const weekStart = startOfWeek(date)
+    const weekStart = mondayOf(date)
     const weekEnd = addDays(weekStart, 6)
     const weekRows = this.stmts.selectAlcoholBetween.all(weekStart, weekEnd) as unknown as AlcoholLogRow[]
     return {

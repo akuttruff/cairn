@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api.ts'
-import { addDays } from '../lib/nutrition.ts'
-import { weekdayOf } from '../lib/training/resolve.ts'
+import { addDays, mondayOf } from '../lib/nutrition.ts'
 import type { RangeView } from '../types.ts'
-
-/** The Monday of a date's training week: Train counts weeks Monday to Sunday, as schemas do. */
-export const mondayOf = (date: string): string => addDays(date, 1 - weekdayOf(date))
 
 /** Workouts, meditation and dog walks over the Monday-to-Sunday week around `date`, fetched while Train's Week is on screen. */
 export default function useTrainWeek(date: string, active: boolean): { view: RangeView | null; error: string | null; refresh: () => Promise<void> } {

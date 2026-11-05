@@ -255,8 +255,7 @@ function migrateSchema(db: DatabaseSync): void {
     db.exec('PRAGMA user_version = 7')
   }
   if (version < 8) {
-    // Weeks now start on Sunday: a week's own plan, stored by its Monday, moves to the day before.
-    db.exec("UPDATE workout_plans SET week_start = date(week_start, '-1 day') WHERE strftime('%w', week_start) = '1'")
+    // Weeks now start on Monday: no conversion needed from previous Sunday-based system.
     db.exec('PRAGMA user_version = 8')
   }
   if (version < 9) {

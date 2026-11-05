@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { addDays, startOfWeek } from '../lib/nutrition'
+import { addDays, mondayOf } from '../lib/nutrition'
 import type { RangeView, ResolvedGoals } from '../types'
 import RangeSummary from './RangeSummary'
 
@@ -74,7 +74,7 @@ const onSelectDay = (_date: string) => {} // No-op for tests
 
 describe('RangeSummary Monday-first alignment', () => {
   it('renders workout DayBoxes with M T W T F S S headers', () => {
-    const monday = startOfWeek(TODAY)
+    const monday = mondayOf(TODAY)
     const view = makeRangeView(monday, 7)
     render(<RangeSummary view={view} part="train" onSelectDay={onSelectDay} />)
 
@@ -88,7 +88,7 @@ describe('RangeSummary Monday-first alignment', () => {
   })
 
   it('renders meditation DayBoxes with M T W T F S S headers', () => {
-    const monday = startOfWeek(TODAY)
+    const monday = mondayOf(TODAY)
     const view = makeRangeView(monday, 7)
     render(<RangeSummary view={view} part="train" onSelectDay={onSelectDay} />)
 
@@ -102,7 +102,7 @@ describe('RangeSummary Monday-first alignment', () => {
   })
 
   it('renders dog walk DayBoxes with M T W T F S S headers', () => {
-    const monday = startOfWeek(TODAY)
+    const monday = mondayOf(TODAY)
     const view = makeRangeView(monday, 7)
     render(<RangeSummary view={view} part="train" onSelectDay={onSelectDay} />)
 
@@ -116,7 +116,7 @@ describe('RangeSummary Monday-first alignment', () => {
   })
 
   it('renders range-days with Monday-first weekday letters and dates for week view', () => {
-    const monday = startOfWeek(TODAY)
+    const monday = mondayOf(TODAY)
     const view = makeRangeView(monday, 7)
     render(<RangeSummary view={view} part="train" onSelectDay={onSelectDay} />)
 
@@ -133,7 +133,7 @@ describe('RangeSummary Monday-first alignment', () => {
   })
 
   it('renders range-days labels showing only Mondays for month view', () => {
-    const monday = startOfWeek(TODAY)
+    const monday = mondayOf(TODAY)
     const view = makeRangeView(monday, 31)
     render(<RangeSummary view={view} part="nutrition" onSelectDay={onSelectDay} />)
 
@@ -158,7 +158,7 @@ describe('RangeSummary Monday-first alignment', () => {
   })
 
   it('renders week rules (range-week-rule) only at Monday starts in month view', () => {
-    const monday = startOfWeek(TODAY)
+    const monday = mondayOf(TODAY)
     const view = makeRangeView(monday, 31)
     render(<RangeSummary view={view} part="nutrition" onSelectDay={onSelectDay} />)
 
@@ -233,7 +233,7 @@ describe('RangeSummary Monday-first alignment', () => {
     // This test verifies that DayBoxes render with Monday-first headers.
     // If WEEKDAYS reverted to ['S','M','T','W','T','F','S'], this would fail.
     
-    const monday = startOfWeek(TODAY)
+    const monday = mondayOf(TODAY)
     const view = makeRangeView(monday, 7)
     render(<RangeSummary view={view} part="train" onSelectDay={onSelectDay} />)
 

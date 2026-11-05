@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import App from './App.tsx'
 import { chime } from './lib/chime.ts'
-import { addDays, localDate, startOfWeek } from './lib/nutrition.ts'
+import { addDays, localDate, mondayOf } from './lib/nutrition.ts'
 import { DEFAULT_WORKOUT_KINDS } from './types.ts'
 import type { DayView, Entry, Food, Goals, RangeView, TrainingDay } from './types.ts'
 
@@ -23,7 +23,7 @@ const PLAN = { wod: 2, weightlifting: 2, run: 0, cycling: 0, yoga: 4, pilates: 1
 const NO_KINDS = { wod: 0, weightlifting: 0, run: 0, cycling: 0, yoga: 0, pilates: 0 }
 /** A day's workouts: nothing today, nothing yet this week, on the default plan. */
 const WORKOUTS_DAY = {
-  sessions: [], minutes: 0, weekStart: startOfWeek(TODAY), kinds: DEFAULT_WORKOUT_KINDS, plan: PLAN, planIsCustom: false, weekByKind: NO_KINDS,
+  sessions: [], minutes: 0, weekStart: mondayOf(TODAY), kinds: DEFAULT_WORKOUT_KINDS, plan: PLAN, planIsCustom: false, weekByKind: NO_KINDS,
   weekTotal: 0, weekGoal: 9, lastLogId: null, planned: [], weekSessions: [], fromPlan: [],
 }
 /** What Settings edits and /api/goals returns -- separate shape from GOALS above (a resolved, per-day view). */
@@ -63,7 +63,7 @@ const ZERO = { calories: 0, protein: 0, fat: 0, carbs: 0, fiber: 0 }
 /** A week starting `start` (default: the Monday on or before today), mostly untouched. */
 const NO_SCORE = { calories: { met: 0, of: 0 }, protein: { met: 0, of: 0 }, fat: { met: 0, of: 0 }, fiber: { met: 0, of: 0 } }
 
-const range = (over: Partial<RangeView> = {}, start = startOfWeek(TODAY)): RangeView => ({
+const range = (over: Partial<RangeView> = {}, start = mondayOf(TODAY)): RangeView => ({
   start, end: addDays(start, 6), goals: GOALS, scorecard: NO_SCORE, charts: ['calories', 'protein', 'fiber', 'water'], totalDays: 7, loggedDays: 0, averagedDays: 7,
   totals: ZERO, averages: ZERO,
   water: { total: 0, average: 0, met: 0, of: 0 }, alcohol: { total: 0, average: 0, calories: 0, byKind: { beer: 0, wine: 0, liquor: 0 } },
@@ -102,7 +102,7 @@ function stubApi(routes: Record<string, unknown>) {
 }
 
 /** Go to a section from the bottom bar, and optionally one of its views. */
-async function goTo(section: 'Nutrition' | 'Train', view?: string): Promise<void> {
+async function goTo(section: 'Habits' | 'Train', view?: string): Promise<void> {
   const user = userEvent.setup()
   await user.click(await screen.findByRole('button', { name: section }))
   if (view) await user.click(await screen.findByRole('tab', { name: view }))
@@ -946,8 +946,8 @@ describe('App', () => {
     const calls = stubApi({
       [`GET /api/day/${TODAY}`]: day([], { workouts: { ...WORKOUTS_DAY, plan: { ...PLAN }, planIsCustom: true } }),
       'GET /api/range': range(),
-      'PUT /api/workout-plan/': { weekStart: startOfWeek(TODAY), plan: { ...PLAN, yoga: 3, cycling: 1 }, custom: true },
-      'DELETE /api/workout-plan/': { weekStart: startOfWeek(TODAY), plan: PLAN, custom: false },
+      'PUT /api/workout-plan/': { weekStart: mondayOf(TODAY), plan: { ...PLAN, yoga: 3, cycling: 1 }, custom: true },
+      'DELETE /api/workout-plan/': { weekStart: mondayOf(TODAY), plan: PLAN, custom: false },
     })
     render(<App />)
     await goTo('Train', 'Week')
@@ -960,11 +960,11 @@ describe('App', () => {
     await user.click(within(card).getByRole('button', { name: 'Save for this week' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.url.startsWith('/api/workout-plan/'))).toBe(true))
     const put = calls.find((c) => c.method === 'PUT' && c.url.startsWith('/api/workout-plan/'))!
-    expect(put.url).toBe(`/api/workout-plan/${startOfWeek(TODAY)}`)
+    expect(put.url).toBe(`/api/workout-plan/${mondayOf(TODAY)}`)
     expect(put.body).toEqual({ plan: { ...PLAN, yoga: 3, cycling: 1 } })
     await user.click(within(card).getByRole('button', { name: 'Adjust this week' }))
     await user.click(within(card).getByRole('button', { name: 'Use the default' }))
-    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === `/api/workout-plan/${startOfWeek(TODAY)}`)).toBe(true))
+    await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url === `/api/workout-plan/${mondayOf(TODAY)}`)).toBe(true))
   })
 
   it('logs meditation a sit at a time against the daily goal, and undoes the last', async () => {
@@ -977,7 +977,6 @@ describe('App', () => {
       'DELETE /api/meditation/m1': { ok: true },
     })
     render(<App />)
-    await goTo('Train')
     const card = await screen.findByRole('region', { name: 'Meditation' })
     expect(within(card).getByRole('progressbar', { name: 'Meditation' })).toHaveAttribute('aria-valuenow', '25')
     expect(within(card).getByText('/ 2 sits')).toBeInTheDocument() // two 25-minute sits make the 50-minute goal
@@ -999,7 +998,6 @@ describe('App', () => {
       'DELETE /api/dog-walks/d1': { ok: true },
     })
     render(<App />)
-    await goTo('Train')
     const card = await screen.findByRole('region', { name: 'Dog walks' })
     expect(within(card).getByRole('progressbar', { name: 'Dog walks' })).toHaveAttribute('aria-valuenow', '1')
     expect(within(card).getByText('/ 2 walks')).toBeInTheDocument()
@@ -1014,7 +1012,6 @@ describe('App', () => {
   it('names the walk by its length from Settings', async () => {
     stubApi({ [`GET /api/day/${TODAY}`]: day([], { dog: { walks: [], miles: 0, goal: 2, walkMiles: 1.5, lastLogId: null } }) })
     render(<App />)
-    await goTo('Train')
     const card = await screen.findByRole('region', { name: 'Dog walks' })
     expect(within(card).getByRole('button', { name: /\+ 1\.5-mile walk/ })).toBeInTheDocument()
     expect(within(card).getByText('No walks yet today')).toBeInTheDocument()
@@ -1921,7 +1918,7 @@ describe('App', () => {
 
     it('charts calories, protein and fiber per day -- not whether a day was logged', async () => {
       const user = userEvent.setup()
-      const start = startOfWeek(addDays(TODAY, -7)) // last week: every day in it is finished
+      const start = mondayOf(addDays(TODAY, -7)) // last week: every day in it is finished
       stubApi({
         'GET /api/day/': day([]), // any day: the tap at the end opens last week's
         'GET /api/range': range({
@@ -1957,7 +1954,7 @@ describe('App', () => {
 
     it("leaves today open rather than calling it a miss, and draws nothing for the days ahead", async () => {
       const user = userEvent.setup()
-      const start = startOfWeek(TODAY)
+      const start = mondayOf(TODAY)
       const base = range()
       stubApi({
         [`GET /api/day/${TODAY}`]: day([]),
@@ -2005,7 +2002,7 @@ describe('App', () => {
 
     it('scores water by the days it was logged on, and charts it per day', async () => {
       const user = userEvent.setup()
-      const start = startOfWeek(addDays(TODAY, -7)) // last week: every day in it is finished
+      const start = mondayOf(addDays(TODAY, -7)) // last week: every day in it is finished
       const base = range({}, start)
       stubApi({
         [`GET /api/day/${TODAY}`]: day([]),
@@ -2029,7 +2026,7 @@ describe('App', () => {
     it('shows a box per day: filled for a workout or both sits, half for one sit, empty for none', async () => {
       const user = userEvent.setup()
       // Last week, so no day in it is still ahead, whatever today is.
-      const start = startOfWeek(addDays(TODAY, -7))
+      const start = mondayOf(addDays(TODAY, -7))
       const base = range({}, start)
       const goals = { ...GOALS, meditationMinutes: 50 }
       const calls = stubApi({
@@ -2068,7 +2065,7 @@ describe('App', () => {
     })
 
     it("shows the dog's walks as day boxes: full for every walk, half for some, with the miles", async () => {
-      const start = startOfWeek(addDays(TODAY, -7))
+      const start = mondayOf(addDays(TODAY, -7))
       const base = range({}, start)
       stubApi({
         'GET /api/day/': day([]),
@@ -2088,7 +2085,7 @@ describe('App', () => {
     })
 
     it('draws the days still ahead faintly, never as misses', async () => {
-      const start = startOfWeek(addDays(TODAY, 7)) // next week: every day is ahead
+      const start = mondayOf(addDays(TODAY, 7)) // next week: every day is ahead
       stubApi({ [`GET /api/day/${TODAY}`]: day([]), 'GET /api/range': range({}, start) })
       render(<App />)
       await goTo('Train', 'Week')
@@ -2140,7 +2137,7 @@ describe('App', () => {
       const user = userEvent.setup()
       // The week's first day -- always in range, unlike "yesterday", which
       // would fall in the *previous* week on a Monday.
-      const target = startOfWeek(TODAY)
+      const target = mondayOf(TODAY)
       const calls = stubApi({
         [`GET /api/day/${TODAY}`]: day([]),
         [`GET /api/day/${target}`]: day([], { date: target }),
@@ -2302,13 +2299,14 @@ describe('App', () => {
       await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.url === '/api/training/schemas/d1/activate')).toBe(true))
     })
 
-    it("opens on Nutrition, with no training on its day; Train has the day's sessions and workouts", async () => {
+    it("opens on Habits, with Meditation and Dog walks; Train has the day's sessions and workouts", async () => {
       const calls = stubApi({ [`GET /api/day/${TODAY}`]: day([], { workouts: { ...WORKOUTS_DAY, planned: ['Legs', 'Yoga'] } }), 'GET /api/training': training() })
       render(<App />)
-      expect(await screen.findByRole('button', { name: 'Nutrition' })).toHaveAttribute('aria-current', 'page')
+      expect(await screen.findByRole('button', { name: 'Habits' })).toHaveAttribute('aria-current', 'page')
       await screen.findByRole('region', { name: 'Water' })
       expect(screen.queryByRole('region', { name: 'Workouts' })).not.toBeInTheDocument()
-      expect(screen.queryByRole('region', { name: 'Meditation' })).not.toBeInTheDocument()
+      expect(await screen.findByRole('region', { name: 'Meditation' })).toBeInTheDocument()
+      expect(await screen.findByRole('region', { name: 'Dog walks' })).toBeInTheDocument()
       expect(screen.queryByText(/Legs \+ Yoga/)).not.toBeInTheDocument()
       await goTo('Train')
       expect(await screen.findByRole('region', { name: 'Legs' })).toBeInTheDocument()

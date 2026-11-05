@@ -7,9 +7,9 @@ import SectionTabs from './components/SectionTabs.tsx'
 import Totals from './components/Totals.tsx'
 import WaterTracker from './components/WaterTracker.tsx'
 import AlcoholTracker from './components/AlcoholTracker.tsx'
-import WeekGoals from './components/train/WeekGoals.tsx'
 import MeditationTracker from './components/MeditationTracker.tsx'
 import DogWalkTracker from './components/DogWalkTracker.tsx'
+import WeekGoals from './components/train/WeekGoals.tsx'
 import BodyCard from './components/BodyCard.tsx'
 import MealList from './components/MealList.tsx'
 import RangeSummary from './components/RangeSummary.tsx'
@@ -23,8 +23,8 @@ import Unreachable from './components/Unreachable.tsx'
 import useDay from './hooks/useDay.ts'
 import useRange from './hooks/useRange.ts'
 import useTraining from './hooks/useTraining.ts'
-import useTrainWeek, { mondayOf } from './hooks/useTrainWeek.ts'
-import { addDays, alcoholCaloriesLogged, localDate, mealForHour } from './lib/nutrition.ts'
+import useTrainWeek from './hooks/useTrainWeek.ts'
+import { addDays, alcoholCaloriesLogged, localDate, mealForHour, mondayOf } from './lib/nutrition.ts'
 import { dayLabel } from './lib/format.ts'
 import { api } from './lib/api.ts'
 import type { Entry, Meal } from './types.ts'
@@ -45,6 +45,7 @@ export default function App() {
     setCoachAsk(text ? { text, n: Date.now() } : null)
     setCoachOpen(true)
   }
+  /** Two sections: Nutrition and Train; the app opens on Nutrition's day. */
   const mode = section === 'nutrition' ? nutritionMode : trainMode
   // Both kept mounted (not just the active one) so switching Week -> Month
   // -> Week back doesn't lose either one's navigated position -- each only
@@ -147,6 +148,8 @@ export default function App() {
                 <Totals totals={view.totals} missing={view.missing} goals={view.goals} alcoholCalories={alcoholCaloriesLogged(view.entries)} />
                 <WaterTracker date={day.date} water={view.water} onLogged={refresh} />
                 <AlcoholTracker date={day.date} alcohol={view.alcohol} onLogged={refresh} />
+                <MeditationTracker date={day.date} meditation={view.meditation} onLogged={refresh} />
+                <DogWalkTracker date={day.date} dog={view.dog} onLogged={refresh} />
                 <MealList
                   entries={view.entries}
                   onOpen={(e) => { setEditing(e); open('entry') }}
@@ -176,15 +179,7 @@ export default function App() {
             )}
           </>
         ) : !nutrition && trainMode === 'today' ? (
-          <>
-            <TrainToday date={day.date} training={training} onSelectDate={day.setDate} onLogged={trainLogged} onCoach={openCoach} />
-            {view && (
-              <>
-                <MeditationTracker date={day.date} meditation={view.meditation} onLogged={refresh} />
-                <DogWalkTracker date={day.date} dog={view.dog} onLogged={refresh} />
-              </>
-            )}
-          </>
+          <TrainToday date={day.date} training={training} onSelectDate={day.setDate} onLogged={trainLogged} onCoach={openCoach} />
         ) : !nutrition && trainMode === 'week' ? (
           <>
             <TrainWeek training={training} onSelectDay={openTrainDay} />
