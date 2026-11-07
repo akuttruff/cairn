@@ -7,7 +7,7 @@ import path from 'node:path'
 import { PassThrough } from 'node:stream'
 import type { IncomingMessage } from 'node:http'
 import api, { createApi, readBody } from './api.ts'
-import type { DayView, Entry, GenerateStatus, SchemaSummary, TrainingDay } from '../src/types.ts'
+import type { DayView, Entry, Food, GenerateStatus, SchemaSummary, TrainingDay } from '../src/types.ts'
 import { SAMPLE_EQUIPMENT, SAMPLE_SCHEMA } from '../src/lib/training/sample.ts'
 
 let server: Server
@@ -119,6 +119,17 @@ describe('search', () => {
   it('proxies the food databases', async () => {
     const res = await call('GET', '/api/search?q=banana')
     expect((res.body.usda as { name: string }[])[0]!.name).toBe('Bananas, raw')
+  })
+
+  it('shows the saved, corrected copy of a food in place of the database result', async () => {
+    const first = (await call('GET', '/api/search?q=banana')).body.usda as Food[]
+    const fixed = { ...first[0]!, per100g: { ...first[0]!.per100g!, fiber: 3.1 } }
+    await call('POST', '/api/foods', fixed)
+    const again = (await call('GET', '/api/search?q=banana')).body.usda as Food[]
+    expect(again[0]!.id).toBe(fixed.id)
+    expect(again[0]!.per100g!.fiber).toBe(3.1)
+    await call('DELETE', `/api/foods/${encodeURIComponent(fixed.id)}`)
+    expect(((await call('GET', '/api/search?q=banana')).body.usda as Food[])[0]!.per100g!.fiber).toBe(first[0]!.per100g!.fiber)
   })
 
   it('asks for at least two characters', async () => {

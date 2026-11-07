@@ -233,7 +233,8 @@ export function createApi(options: ApiOptions = {}) {
       const found = await searchFoods(q, store.getSettings().usdaApiKey, searchCache, fetchImpl)
       // Shown in the sheet and otherwise lost: keep a trace of what failed and when.
       for (const e of found.errors) console.log(`[macros] ${new Date().toISOString()} search ${e.source} failed for "${q}": ${e.message}`)
-      return json(res, 200, found)
+      // A fresh object: the cached result stays the databases' own answer.
+      return json(res, 200, { ...found, usda: store.withSavedCopies(found.usda), off: store.withSavedCopies(found.off) })
     }
 
     if ((m = /^\/api\/portions\/(\d+)$/.exec(p)) && method === 'GET') {

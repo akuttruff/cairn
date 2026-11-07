@@ -769,6 +769,19 @@ export class Store {
     return out
   }
 
+  /**
+   * Database results with any food already in My foods swapped for the saved
+   * copy, so a correction (fiber filled in, a wrong value fixed) shows on a
+   * repeat search -- and isn't overwritten by re-saving the database's
+   * numbers from it. Online lookups get the same from syncCachedLookups.
+   */
+  withSavedCopies(foods: Food[]): Food[] {
+    return foods.map((f) => {
+      const row = this.stmts.selectFood.get(f.id) as unknown as FoodRow | undefined
+      return row ? this.loadFood(row) : f
+    })
+  }
+
   saveFood(input: Food): Food {
     const food: Food = {
       id: typeof input.id === 'string' && input.id ? input.id.slice(0, 200) : `custom:${randomUUID()}`,
