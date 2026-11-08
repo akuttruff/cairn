@@ -850,6 +850,16 @@ export type PlanEdit =
   | { op: 'setNotes'; itemId: string; notes: string }
   /** An item's name, every week: a label, like its description. */
   | { op: 'renameItem'; itemId: string; name: string }
+  /** Which activity a session logs as, every week. */
+  | { op: 'setKind'; sessionId: string; kind: string }
+  /** A session's items in a new order, every week: every item of the session, each once. */
+  | { op: 'orderItems'; sessionId: string; itemIds: string[] }
+  /** The plan's own settings: its name, goals, deload weeks and test week (null for none). */
+  | { op: 'setPlan'; name?: string; goals?: string; deloadWeeks?: number[]; testWeek?: number | null }
+  /** A lift the plan tracks: a new one, or a new name or weight step for one it has. */
+  | { op: 'setLift'; liftId: string; name?: string; increment?: number }
+  /** Take back a one-off change already in place. */
+  | { op: 'dropChange'; changeId: string }
   | { op: 'rewrite'; instruction: string; fromWeek: number }
   | { op: 'removeWorkout'; workoutId: string }
   | { op: 'unlogSession'; date: string; sessionId: string }
@@ -862,9 +872,11 @@ export type PlanEdit =
 export const OVERRIDE_OPS = ['move', 'skip', 'load', 'swap', 'equipment', 'extra'] as const
 /** Changes to what was logged, not to the plan: a workout removed, a session unticked or ticked off. */
 export const RECORD_OPS = ['removeWorkout', 'unlogSession', 'logSession'] as const
+/** One-off changes already in place, taken back. */
+export const DROP_OPS = ['dropChange'] as const
 /** Changes to the WOD bank (kept in the schema) and to where the gear is (a setting). */
 export const BANK_OPS = ['addWod', 'hideWod', 'showWod', 'setPlaces'] as const
-export const REVISION_OPS = ['replaceItem', 'addItem', 'removeItem', 'addSession', 'removeSession', 'moveSession', 'setOptional', 'renameSession', 'setWeeks', 'setNotes', 'renameItem'] as const
+export const REVISION_OPS = ['replaceItem', 'addItem', 'removeItem', 'addSession', 'removeSession', 'moveSession', 'setOptional', 'renameSession', 'setWeeks', 'setNotes', 'renameItem', 'setKind', 'orderItems', 'setPlan', 'setLift'] as const
 
 export interface PlanProposal {
   edits: PlanEdit[]

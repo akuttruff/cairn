@@ -574,3 +574,67 @@ describe('extra sessions', () => {
     expect(checkEdits(store.training, plan(), [{ op: 'logSession', date: THU, sessionId: 'pilates' }], THU, store.getSettings()).errors[0]).toMatch(/no session "pilates" on/)
   })
 })
+
+describe('the rest of the plan', () => {
+  const propose = (edits: PlanEdit[], today = MON) => {
+    const checked = checkEdits(store.training, plan(), edits, today, store.getSettings())
+    expect(checked.errors).toEqual([])
+    const id = store.training.addMessage(plan().id, 'assistant', 'Here.', { edits, preview: [] })
+    return { preview: previewEdits(store.training, plan(), checked, today), apply: () => applyProposal(store.training, id, today, store.getSettings(), () => {}), undo: () => undoProposal(store.training, id) }
+  }
+
+  it("changes which activity a session logs as, every week", () => {
+    const p = propose([{ op: 'setKind', sessionId: 'ride', kind: 'weightlifting' }])
+    expect(p.preview).toEqual(['Zone 2: logs as weightlifting (was cycling)'])
+    p.apply()
+    expect(store.training.day(THU).sessions[0]!.kind).toBe('weightlifting')
+    expect(checkEdits(store.training, plan(), [{ op: 'setKind', sessionId: 'ride', kind: 'juggling' }], MON, store.getSettings()).errors.join()).toMatch(/kind must be one of/)
+  })
+
+  it("puts a session's items in a new order, and refuses a list that adds or drops one", () => {
+    const p = propose([{ op: 'orderItems', sessionId: 'legs', itemIds: ['mobility', 'back-squat'] }])
+    expect(p.preview).toEqual(['Legs: Hip mobility, Back squat, in that order'])
+    p.apply()
+    expect(store.training.day(MON).sessions[0]!.items.map((i) => i.id)).toEqual(['mobility', 'back-squat'])
+    expect(checkEdits(store.training, plan(), [{ op: 'orderItems', sessionId: 'legs', itemIds: ['mobility'] }], MON, store.getSettings()).errors.join()).toMatch(/lists every item of "legs" once/)
+  })
+
+  it("changes the plan's name, goals and deload week, and keeps the test week within the plan", () => {
+    const p = propose([{ op: 'setPlan', name: 'Winter block', goals: 'Squat 120 by March.', deloadWeeks: [2] }])
+    expect(p.preview.slice(0, 3)).toEqual(['Plan name: Sample block → Winter block', 'Goals: now "Squat 120 by March."', 'Deloads: week 3 → week 2'])
+    p.apply()
+    expect(plan().schema).toMatchObject({ name: 'Winter block', goals: 'Squat 120 by March.', deloadWeeks: [2] })
+    p.undo()
+    expect(plan().schema).toMatchObject({ name: 'Sample block', deloadWeeks: [3] })
+    expect(checkEdits(store.training, plan(), [{ op: 'setPlan', testWeek: 9 }], MON, store.getSettings()).errors.join()).toMatch(/testWeek: must be a week number from 1 to 4/)
+    expect(checkEdits(store.training, plan(), [{ op: 'setPlan', testWeek: null }], MON, store.getSettings()).errors).toEqual([])
+  })
+
+  it('adds a lift that an item in the same edits uses, and changes a weight step', () => {
+    const p = propose([
+      { op: 'addItem', sessionId: 'legs', item: { id: 'front-squat', name: 'Front squat', lift: 'front-squat', sets: '3x3@60' as never } },
+      { op: 'setLift', liftId: 'front-squat', name: 'Front squat', increment: 5 },
+      { op: 'setLift', liftId: 'press', increment: 1.25 },
+    ])
+    expect(p.preview.slice(0, 2)).toEqual(['+ Lift: Front squat (5 lb steps)', 'Strict press: 2.5 lb steps → 1.25'])
+    p.apply()
+    expect(plan().schema.lifts).toEqual([{ id: 'squat', name: 'Back squat', increment: 5 }, { id: 'press', name: 'Strict press', increment: 1.25 }, { id: 'front-squat', name: 'Front squat', increment: 5 }])
+    expect(checkEdits(store.training, plan(), [{ op: 'setLift', liftId: 'press', increment: 3 }], MON, store.getSettings()).errors.join()).toMatch(/increment must be 1, 1.25, 2.5, 5 or 10/)
+    expect(checkEdits(store.training, plan(), [{ op: 'setLift', liftId: 'clean', name: 'Clean' }], MON, store.getSettings()).errors).toEqual(['setLift: a new lift "clean" needs a name and an increment'])
+  })
+
+  it('takes back a one-off change, and undoing that puts it back', () => {
+    apply([{ op: 'skip', date: WED, sessionId: 'press-day' }])
+    expect(titles(WED)).toEqual(['WOD'])
+    const changeId = plan().overrides[0]!.id
+    expect(coachContext(store.training, plan(), MON, store.getSettings())).toContain(`[change ${changeId}] skip`)
+    const p = propose([{ op: 'dropChange', changeId }])
+    expect(p.preview).toEqual(['Taken back: skip (Wed, Nov 4)', 'Wed, Nov 4: + Press (Strict press)'])
+    p.apply()
+    expect(titles(WED)).toEqual(['Press', 'WOD'])
+    p.undo()
+    expect(titles(WED)).toEqual(['WOD'])
+    expect(plan().overrides.map((o) => o.id)).toEqual([changeId])
+    expect(checkEdits(store.training, plan(), [{ op: 'dropChange', changeId: 'nope' }], MON, store.getSettings()).errors.join()).toMatch(/there's no one-off change "nope"/)
+  })
+})

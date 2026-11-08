@@ -76,6 +76,8 @@ export interface TrainingDeps {
 
 /** Kept with the day snapshots, under a key no date can be: the gear before the coach set its places. */
 const EQUIPMENT_SNAPSHOT = '#equipment'
+/** A one-off change the coach took back, kept under this prefix and its id. */
+const OVERRIDE_SNAPSHOT = '#override:'
 
 /** A day's record as it stood: what a record change by the coach is undone to. */
 interface RecordSnapshot { sets: SetRow[]; sessions: SessionRow[]; workouts: WorkoutRow[] }
@@ -647,14 +649,24 @@ export class TrainingStore {
 
   addOverrides(schemaId: string, edits: OverrideEdit[], messageId: string | null): void {
     const now = Date.now()
-    edits.forEach((e, i) => {
-      const [from, to] = e.op === 'skip' ? [e.date, e.date] : e.op === 'move' ? [e.from < e.to ? e.from : e.to, e.from < e.to ? e.to : e.from] : [e.from, e.to]
-      this.s.insertOverride!.run(randomUUID(), schemaId, e.op, JSON.stringify(e), from, to, messageId, now + i)
-    })
+    edits.forEach((e, i) => this.insertOverride(randomUUID(), schemaId, e, messageId, now + i))
+  }
+
+  private insertOverride(id: string, schemaId: string, e: OverrideEdit, messageId: string | null, createdAt: number): void {
+    const [from, to] = e.op === 'skip' ? [e.date, e.date] : e.op === 'move' ? [e.from < e.to ? e.from : e.to, e.from < e.to ? e.to : e.from] : [e.from, e.to]
+    this.s.insertOverride!.run(id, schemaId, e.op, JSON.stringify(e), from, to, messageId, createdAt)
   }
 
   removeOverride(id: string): void {
     if (this.s.deleteOverride!.run(id).changes === 0) throw new ValidationError('no such change')
+  }
+
+  /** Take back a one-off change for the coach, keeping it so undoing the message puts it back. */
+  dropOverride(schemaId: string, id: string, messageId: string | null): void {
+    const row = (this.s.overridesOf!.all(schemaId) as unknown as (OverrideRow & { created_at: number })[]).find((r) => r.id === id)
+    if (!row) throw new ValidationError('no such change')
+    if (messageId) this.s.insertSnapshot!.run(messageId, `${OVERRIDE_SNAPSHOT}${id}`, JSON.stringify(row))
+    this.removeOverride(id)
   }
 
   /** Give a schema a new body, keeping the old one to undo to. */
@@ -800,6 +812,11 @@ export class TrainingStore {
   restoreRecord(messageId: string): void {
     for (const { date, body } of this.s.snapshotsOf!.all(messageId) as unknown as { date: string; body: string }[]) {
       if (date === EQUIPMENT_SNAPSHOT) { this.deps.setEquipment(JSON.parse(body) as Equipment); continue }
+      if (date.startsWith(OVERRIDE_SNAPSHOT)) {
+        const row = JSON.parse(body) as OverrideRow & { created_at: number }
+        this.insertOverride(row.id, row.schema_id, JSON.parse(row.body) as OverrideEdit, row.message_id, row.created_at)
+        continue
+      }
       const snap = JSON.parse(body) as RecordSnapshot
       this.s.deleteSetsOn!.run(date)
       this.s.deleteSessionsOn!.run(date)

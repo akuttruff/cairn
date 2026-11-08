@@ -67,6 +67,23 @@ export function reviseSchema(schema: TrainingSchema, edits: RevisionEdit[], curr
     return copy
   }
 
+  // Lifts first, so an item in the same edits can name a new one. The step is checked with the whole schema.
+  for (const e of edits) {
+    if (e.op !== 'setLift') continue
+    const id = typeof e.liftId === 'string' ? e.liftId.trim() : ''
+    if (!/^[a-z0-9][a-z0-9-]{0,39}$/.test(id)) { errors.push('setLift: liftId is a short lowercase id, e.g. "front-squat"'); continue }
+    const name = typeof e.name === 'string' ? e.name.trim().slice(0, 60) : ''
+    const lift = out.lifts.find((l) => l.id === id)
+    if (lift) {
+      if (!name && e.increment === undefined) { errors.push(`setLift: give "${id}" a new name or increment`); continue }
+      if (name) lift.name = name
+      if (e.increment !== undefined) lift.increment = e.increment
+    } else {
+      if (!name || e.increment === undefined) { errors.push(`setLift: a new lift "${id}" needs a name and an increment`); continue }
+      out.lifts.push({ id, name, increment: e.increment })
+    }
+  }
+
   for (const e of edits) {
     const from = Math.max(('fromWeek' in e ? e.fromWeek : undefined) ?? currentWeek, out.firstWeek)
     if (from > out.weeks) { errors.push(`${e.op}: fromWeek ${from} is after the schema's last week (${out.weeks})`); continue }
@@ -184,6 +201,54 @@ export function reviseSchema(schema: TrainingSchema, edits: RevisionEdit[], curr
         at.session.items[at.index]!.name = name
         break
       }
+      case 'setKind': {
+        const at = findSession(e.sessionId)
+        if (!at) { errors.push(`setKind: no session "${e.sessionId}"`); break }
+        if (typeof e.kind !== 'string' || !e.kind.trim()) { errors.push('setKind: kind is one of the activities'); break }
+        at.day.sessions[at.index]!.kind = e.kind.trim()
+        break
+      }
+      case 'orderItems': {
+        // Every item, each once: an order, not a way to add or drop one.
+        const at = findSession(e.sessionId)
+        if (!at) { errors.push(`orderItems: no session "${e.sessionId}"`); break }
+        const session = at.day.sessions[at.index]!
+        const ids = Array.isArray(e.itemIds) ? e.itemIds : []
+        const have = session.items.map((i) => i.id)
+        if (ids.length !== have.length || new Set(ids).size !== ids.length || !ids.every((id) => have.includes(id))) {
+          errors.push(`orderItems: itemIds lists every item of "${e.sessionId}" once, in the new order: ${have.join(', ')}`)
+          break
+        }
+        session.items = ids.map((id) => session.items.find((i) => i.id === id)!)
+        break
+      }
+      case 'setPlan': {
+        // Checked with the whole schema after: deload and test weeks within the plan, a test week with a test in it.
+        if (e.name !== undefined) {
+          const name = typeof e.name === 'string' ? e.name.trim().slice(0, 80) : ''
+          if (name) out.name = name
+          else errors.push('setPlan: name is the new name')
+        }
+        if (e.goals !== undefined) {
+          const goals = typeof e.goals === 'string' ? e.goals.trim() : ''
+          if (goals) out.goals = goals
+          else delete out.goals
+        }
+        if (e.deloadWeeks !== undefined) {
+          if (Array.isArray(e.deloadWeeks) && e.deloadWeeks.every((w) => Number.isInteger(w))) out.deloadWeeks = [...new Set(e.deloadWeeks)].sort((a, b) => a - b)
+          else errors.push('setPlan: deloadWeeks is a list of week numbers, [] for none')
+        }
+        if (e.testWeek === null) delete out.testWeek
+        else if (e.testWeek !== undefined) {
+          if (Number.isInteger(e.testWeek)) out.testWeek = e.testWeek
+          else errors.push('setPlan: testWeek is a week number, or null for none')
+        }
+        if (e.name === undefined && e.goals === undefined && e.deloadWeeks === undefined && e.testWeek === undefined) errors.push('setPlan: give at least one of name, goals, deloadWeeks, testWeek')
+        break
+      }
+      case 'setLift':
+        // Done first, above, so items in the same edits can use a new lift.
+        break
       case 'setWeeks': {
         // Some weeks' sets changed in place: the item's every week is written out week by week,
         // then the given weeks replace theirs. Same item, same id, so its logged sets stay with it.

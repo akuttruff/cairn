@@ -1,7 +1,7 @@
 import { chatText, chooseModel, extractJson } from './research.ts'
 import { describeGear, shortDate } from './store/training.ts'
 import type { ActivePlan, TrainingStore } from './store/training.ts'
-import { BANK_OPS, OVERRIDE_OPS, RECORD_OPS, REVISION_OPS } from '../src/types.ts'
+import { BANK_OPS, DROP_OPS, OVERRIDE_OPS, RECORD_OPS, REVISION_OPS } from '../src/types.ts'
 import type { CoachMessage, CoachStats, CoachStatus, Equipment, Place, PlanEdit, PlanProposal, Settings, TrainingSchema, TrainingSession } from '../src/types.ts'
 import type { ChatProgress } from './research.ts'
 import { addDays, daysBetween, isDateString } from '../src/lib/nutrition.ts'
@@ -53,6 +53,14 @@ Lasting changes to the plan from a week on (fromWeek defaults to the current wee
   { "op": "renameItem", "itemId": id, "name": "Bike intervals" }   AN ITEM'S NAME, every week (the same item, its logs kept).
       A session's title and its items' names are separate: a word to drop may be in either, so check both.
       Saying you'll change something is not changing it: the edits are the change.
+  { "op": "setKind", "sessionId": id, "kind": activity }   which activity a session logs as (one of the Activities), every week
+  { "op": "orderItems", "sessionId": id, "itemIds": [every item id of the session, in the new order] }   the order a session's items come in
+  { "op": "setPlan", "name"?: "...", "goals"?: "...", "deloadWeeks"?: [weeks], "testWeek"?: n | null }   the plan's name, goals, deload weeks, test week;
+      give only what changes. Goals are the whole new text (they replace the old).
+  { "op": "setLift", "liftId": id, "name"?: "Front squat", "increment"?: 1 | 1.25 | 2.5 | 5 | 10 }   a new lift to track (name and increment),
+      or a new name or weight step (lb) for one the plan has. A new lift can be used by items in the same edits.
+Taking back a one-off change already in place (listed under "One-off changes already in place" with its [change id]):
+  { "op": "dropChange", "changeId": id }   e.g. un-skip a day, end a stand-in, take an extra session off
   { "op": "replaceItem", "itemId": id, "item": Item, "fromWeek"?: n }   a different exercise in its place (keep its "lift" as it was unless that changes too)
   { "op": "addItem", "sessionId": id, "item": Item, "fromWeek"?: n, "toWeek"?: n }
   { "op": "removeItem", "itemId": id, "fromWeek"?: n }
@@ -134,17 +142,18 @@ function normalize(raw: unknown): PlanEdit[] {
 }
 
 type RecordEdit = Extract<PlanEdit, { op: (typeof RECORD_OPS)[number] }>
+type DropEdit = Extract<PlanEdit, { op: (typeof DROP_OPS)[number] }>
 
 /** Titles that say a session happens but not what's in it. */
 const GENERIC_TITLE = /^(?:(?:extra|new|another|bonus|make-?up|short|quick)\s+)?(?:strength|lifting|weights?|training|workout|session|exercise|conditioning|cardio)(?:\s+(?:session|workout|day|block))?$|^$/i
 type BankEdit = Extract<PlanEdit, { op: 'addWod' | 'hideWod' | 'showWod' }>
 
-interface Checked { places: Place[] | null; bank: BankEdit[]; records: RecordEdit[]; overrides: OverrideEdit[]; revisions: RevisionEdit[]; rewrite: Extract<PlanEdit, { op: 'rewrite' }> | null; revised: TrainingSchema | null; errors: string[] }
+interface Checked { places: Place[] | null; bank: BankEdit[]; records: RecordEdit[]; drops: DropEdit[]; overrides: OverrideEdit[]; revisions: RevisionEdit[]; rewrite: Extract<PlanEdit, { op: 'rewrite' }> | null; revised: TrainingSchema | null; errors: string[] }
 
 /** Every edit checked against the plan as it stands; readable errors for the model when anything's off. */
 export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: PlanEdit[], today: string, settings: Settings): Checked {
   const errors: string[] = []
-  const out: Checked = { places: null, bank: [], records: [], overrides: [], revisions: [], rewrite: null, revised: null, errors }
+  const out: Checked = { places: null, bank: [], records: [], drops: [], overrides: [], revisions: [], rewrite: null, revised: null, errors }
   const ctx = { kinds: settings.workoutKinds.map((k) => k.id), equipment: settings.equipment }
   const end = plan.summary.endDate
   // Any day of the plan, past ones too: the record should match what was actually done.
@@ -165,7 +174,7 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
 
   edits.forEach((e, i) => {
     const w = where(i, e)
-    const ops: string[] = [...OVERRIDE_OPS, ...REVISION_OPS, ...RECORD_OPS, ...BANK_OPS, 'rewrite']
+    const ops: string[] = [...OVERRIDE_OPS, ...REVISION_OPS, ...RECORD_OPS, ...DROP_OPS, ...BANK_OPS, 'rewrite']
     if (!e || typeof e.op !== 'string' || !ops.includes(e.op)) {
       errors.push(`edit ${i + 1}: op must be one of ${ops.join(', ')}`)
       return
@@ -185,6 +194,12 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
         return
       }
       out.revisions.push(e)
+      return
+    }
+    if (e.op === 'dropChange') {
+      if (!plan.overrides.some((o) => o.id === e.changeId)) errors.push(`${w}: there's no one-off change "${e.changeId}"; they're listed with their [change id]`)
+      else if (out.drops.some((d) => d.changeId === e.changeId)) errors.push(`${w}: "${e.changeId}" is already taken back in these edits`)
+      else out.drops.push({ op: 'dropChange', changeId: e.changeId })
       return
     }
     if (e.op === 'setPlaces') {
@@ -299,7 +314,7 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
   })
   // The ticks, against the plan as these edits leave it.
   if (ticks.length) {
-    const after = withPending(plan, out.overrides)
+    const after = withPending(plan, out.overrides, out.drops)
     for (const { w, record } of ticks) {
       if (record.op === 'removeWorkout' || training.planOf(after, record.date).some((s) => s.id === record.sessionId)) continue
       errors.push(`${w}: there's no session "${record.sessionId}" on ${record.date}`)
@@ -330,9 +345,10 @@ export function checkEdits(training: TrainingStore, plan: ActivePlan, edits: Pla
 }
 
 /** The plan with these one-off changes laid on too, as if applied: what a tick in the same edits is checked against. */
-function withPending(plan: ActivePlan, overrides: OverrideEdit[]): ActivePlan {
-  if (!overrides.length) return plan
-  return { ...plan, overrides: [...plan.overrides, ...overrides.map((edit, i) => ({ id: `pending-${i}`, edit, messageId: null }))] }
+function withPending(plan: ActivePlan, overrides: OverrideEdit[], drops: DropEdit[] = []): ActivePlan {
+  if (!overrides.length && !drops.length) return plan
+  const kept = plan.overrides.filter((o) => !drops.some((d) => d.changeId === o.id))
+  return { ...plan, overrides: [...kept, ...overrides.map((edit, i) => ({ id: `pending-${i}`, edit, messageId: null }))] }
 }
 
 type DayPlan = ReturnType<TrainingStore['planOf']>
@@ -352,7 +368,7 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
       const what = `${w?.kind ?? 'a'} workout${w?.note ? ` "${w.note}"` : ''}`
       return `${shortDate(date)}: remove the ${what} from the Workouts card${w?.session ? ', and untick its session' : ''}`
     }
-    const title = training.planOf(withPending(plan, checked.overrides), e.date).find((s) => s.id === e.sessionId)?.title ?? e.sessionId
+    const title = training.planOf(withPending(plan, checked.overrides, checked.drops), e.date).find((s) => s.id === e.sessionId)?.title ?? e.sessionId
     return `${shortDate(e.date)}: ${e.op === 'logSession' ? 'tick off' : 'untick'} ${title}`
   })
   // The bank and the places say what they do directly too.
@@ -368,10 +384,43 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
       return b.op === 'hideWod' ? `No more ${name} in the WOD picks` : `${name} back in the WOD picks`
     }),
   ]
-  const planChanged = checked.overrides.length > 0 || checked.revisions.length > 0
+  // The plan's own settings and its lifts say what they do directly; what they do to the days shows below.
+  const lift = (id: string): string => plan.schema.lifts.find((l) => l.id === id)?.name ?? id
+  const weeksOf = (ws: number[]): string => (ws.length ? `week${ws.length > 1 ? 's' : ''} ${ws.join(', ')}` : 'none')
+  const planLines = checked.revisions.flatMap((r): string[] => {
+    if (r.op === 'setPlan') {
+      return [
+        ...(r.name !== undefined && r.name.trim() !== plan.schema.name ? [`Plan name: ${plan.schema.name} → ${r.name.trim()}`] : []),
+        ...(r.goals !== undefined ? [`Goals: ${r.goals.trim() ? `now "${r.goals.trim().length > 160 ? `${r.goals.trim().slice(0, 160)}…` : r.goals.trim()}"` : 'none'}`] : []),
+        ...(r.deloadWeeks !== undefined ? [`Deloads: ${weeksOf(plan.schema.deloadWeeks)} → ${weeksOf([...new Set(r.deloadWeeks)].sort((a, b) => a - b))}`] : []),
+        ...(r.testWeek !== undefined && (r.testWeek ?? undefined) !== plan.schema.testWeek ? [`Test week: ${plan.schema.testWeek ?? 'none'} → ${r.testWeek ?? 'none'}`] : []),
+      ]
+    }
+    if (r.op === 'setLift') {
+      const had = plan.schema.lifts.find((l) => l.id === r.liftId)
+      if (!had) return [`+ Lift: ${r.name} (${r.increment} lb steps)`]
+      return [
+        ...(r.name && r.name.trim() !== had.name ? [`Lift renamed: ${had.name} → ${r.name.trim()}`] : []),
+        ...(r.increment !== undefined && r.increment !== had.increment ? [`${r.name?.trim() || lift(r.liftId)}: ${had.increment} lb steps → ${r.increment}`] : []),
+      ]
+    }
+    return []
+  })
+  const dropLines = checked.drops.map((d) => {
+    const o = plan.overrides.find((x) => x.id === d.changeId)!.edit
+    const when = o.op === 'skip' ? shortDate(o.date) : o.op === 'move' ? `${shortDate(o.from)} → ${shortDate(o.to)}` : o.from === o.to ? shortDate(o.from) : `${shortDate(o.from)}–${shortDate(o.to)}`
+    return `Taken back: ${o.op === 'extra' ? `the extra ${o.session.title}` : o.op === 'swap' ? `${o.item.name} in place of ${o.itemId}` : o.op} (${when})`
+  })
+  const planChanged = checked.overrides.length > 0 || checked.revisions.length > 0 || checked.drops.length > 0
   if (!planChanged) return [...bankLines, ...recordLines]
   const dates = new Set<string>()
   const span = (from: string, to: string): void => { for (let d = from; d <= to && dates.size < 120; d = addDays(d, 1)) dates.add(d) }
+  for (const d of checked.drops) {
+    const o = plan.overrides.find((x) => x.id === d.changeId)!.edit
+    if (o.op === 'move') { dates.add(o.from); dates.add(o.to) }
+    else if (o.op === 'skip') dates.add(o.date)
+    else span(o.from, o.to)
+  }
   for (const e of checked.overrides) {
     if (e.op === 'move') { dates.add(e.from); dates.add(e.to) }
     else if (e.op === 'skip') dates.add(e.date)
@@ -381,7 +430,7 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
     // From the earliest week a lasting change starts (this week unless it says), four weeks on.
     const current = weekOf(plan.schema, today, plan.repeats)?.week ?? plan.schema.firstWeek
     // New sets start at the first week they change; the rest from their week, this one unless they say.
-    const week = Math.min(...checked.revisions.map((r) => (r.op === 'setWeeks' ? Math.min(...Object.keys(r.weeks).map(Number)) : r.op === 'setNotes' || r.op === 'renameItem' ? current : r.fromWeek ?? current)))
+    const week = Math.min(...checked.revisions.map((r) => (r.op === 'setWeeks' ? Math.min(...Object.keys(r.weeks).map(Number)) : 'fromWeek' in r ? r.fromWeek ?? current : current)))
     const index = weekSequence(plan.schema, plan.repeats).indexOf(week)
     const from = index >= 0 ? addDays(plan.schema.startDate, index * 7) : today
     span(from, addDays(from, 27))
@@ -389,6 +438,7 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
   const sorted = [...dates].filter((d) => d <= plan.summary.endDate).sort()
   const before = new Map(sorted.map((d) => [d, training.planOf(plan, d)]))
   const after = training.trial(() => {
+    for (const d of checked.drops) training.removeOverride(d.changeId)
     if (checked.overrides.length) training.addOverrides(plan.id, checked.overrides, null)
     if (checked.revised) training.revise(plan.id, checked.revised, 'preview', null)
   }, () => {
@@ -413,6 +463,9 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
       if (!old) continue
       if (old.optional !== s.optional) (s.optional ? nowOptional : nowRequired).add(s.title)
       if (old.title !== s.title) renamed.add(`Renamed: ${old.title} → ${s.title}`)
+      if (old.kind !== s.kind) renamed.add(`${s.title}: logs as ${s.kind} (was ${old.kind})`)
+      const order = (list: { id: string }[], keep: { id: string }[]): string => list.filter((x) => keep.some((k) => k.id === x.id)).map((x) => x.id).join()
+      if (order(old.items, s.items) !== order(s.items, old.items)) renamed.add(`${s.title}: ${s.items.map((i) => i.name).join(', ')}, in that order`)
       for (const i of s.items) {
         const o = old.items.find((x) => x.id === i.id)
         if (o && o.optional !== i.optional) (i.optional ? nowOptional : nowRequired).add(i.name)
@@ -460,7 +513,7 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
     grouped.set(key, [...(grouped.get(key) ?? []), m[1]!])
   }
   const joinDates = (ds: string[]): string => (ds.length > 4 ? `From ${ds[0]} (${ds.length} days)` : ds.map((d, i) => (i === 0 ? d : d.replace(/^\w{3}, /, ''))).join(', '))
-  const unique = [...new Set([...bankLines, ...recordLines, ...[...grouped].map(([key, ds]) => `${joinDates(ds)}${key}`), ...plain])]
+  const unique = [...new Set([...planLines, ...dropLines, ...bankLines, ...recordLines, ...[...grouped].map(([key, ds]) => `${joinDates(ds)}${key}`), ...plain])]
   return unique.length > 14 ? [...unique.slice(0, 14), `…and ${unique.length - 14} more`] : unique
 }
 
@@ -488,7 +541,7 @@ export function coachContext(training: TrainingStore, plan: ActivePlan, today: s
       ahead.push(`  logged workout [workout ${w.id}] ${w.kind}${w.note ? ` "${w.note}"` : ''} -- ${w.session ? `from session ${w.session}` : 'added by hand'}`)
     }
   }
-  const changes = plan.overrides.map((o) => `  ${o.edit.op} ${JSON.stringify(o.edit)}`)
+  const changes = plan.overrides.map((o) => `  [change ${o.id}] ${o.edit.op} ${JSON.stringify(o.edit)}`)
   // What changes least comes first, and today's days last: the model server reuses its reading of
   // an unchanged beginning, so a turn only has to read what's new since the last one.
   return [
@@ -508,6 +561,7 @@ export function coachContext(training: TrainingStore, plan: ActivePlan, today: s
       ? `Equipment, by place (a WOD is only offered if one place has all it needs):\n${settings.equipment.places.map((p) => `  ${p.name}: ${describeGear({ ...p, places: undefined })}`).join('\n')}`
       : `Equipment (all in one place): ${describeGear(settings.equipment)}.`,
     `Lifts and PRs (lb): ${lifts.map((l) => `${l.id} ${l.pr ?? '?'}`).join(', ')}.`,
+    `The plan's lifts (id: name, weight step): ${plan.schema.lifts.map((l) => `${l.id}: ${l.name}, ${l.increment} lb`).join('; ') || 'none'}.`,
     '',
     'The whole plan in outline, week by week (w0, w1...), weights at today\'s PRs, sets in the short notation setWeeks takes:',
     outline(plan.schema, new Map(lifts.map((l) => [l.id, l.pr]))),
@@ -668,7 +722,7 @@ export async function coachReply({ training, settings, fetchImpl, text, image, v
   } else {
     phase = 'checking'
     report({ model })
-    const proposal: PlanProposal = { edits: checked.rewrite ? [checked.rewrite] : [...(checked.places ? [{ op: 'setPlaces' as const, places: checked.places }] : []), ...checked.overrides, ...checked.revisions, ...checked.bank, ...checked.records], preview: previewEdits(training, plan, checked, today) }
+    const proposal: PlanProposal = { edits: checked.rewrite ? [checked.rewrite] : [...(checked.places ? [{ op: 'setPlaces' as const, places: checked.places }] : []), ...checked.drops, ...checked.overrides, ...checked.revisions, ...checked.bank, ...checked.records], preview: previewEdits(training, plan, checked, today) }
     if (!proposal.preview.length) training.addMessage(plan.id, 'assistant', reply, null, 'That wouldn\'t change anything on the plan.', stats())
     else training.addMessage(plan.id, 'assistant', reply, proposal, null, stats())
   }
@@ -698,6 +752,7 @@ export function applyProposal(
   }
   // Places first: the revised schema was checked against them.
   if (checked.places) training.setEquipment(cleanEquipment({ places: checked.places }), messageId)
+  for (const d of checked.drops) training.dropOverride(plan.id, d.changeId, messageId)
   if (checked.overrides.length) training.addOverrides(plan.id, checked.overrides, messageId)
   if (checked.revised) training.revise(plan.id, checked.revised, 'coach', messageId)
   for (const r of checked.records) {
