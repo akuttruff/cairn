@@ -9,6 +9,7 @@ import SessionCard from './SessionCard.tsx'
 import LiftsCard from './LiftsCard.tsx'
 import ProgressCard from './ProgressCard.tsx'
 import SchemaCard from './SchemaCard.tsx'
+import AddOptional from './AddOptional.tsx'
 import type { TrainingDay, WorkoutKindDef } from '../../types.ts'
 
 /**
@@ -157,6 +158,7 @@ export function TrainToday({ date, training, onSelectDate, onLogged, onCoach }: 
       {day.sessions.map((s) => (
         <SessionCard key={s.id} date={date} session={s} kinds={kinds} onDay={onDay} onShuffle={() => training.setShuffle(training.shuffle + 1)} />
       ))}
+      {day.week !== null && <AddOptional date={date} kinds={kinds} onDay={onDay} />}
     </Settling>
   )
 }

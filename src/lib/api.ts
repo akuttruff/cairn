@@ -117,6 +117,8 @@ export const api = {
     request<{ messages: CoachMessage[]; day: TrainingDay }>('POST', `/api/training/chat/${encodeURIComponent(id)}/${action}`, { today }),
   clearCoach: () => request<{ messages: CoachMessage[] }>('DELETE', '/api/training/chat'),
   /** Take back one of the coach's one-off changes. */
+  addOptionalSession: (date: string, kind: string, minutes: number, every: boolean) =>
+    request<TrainingDay>('POST', '/api/training/sessions', { date, kind, minutes, every }),
   removeAdjustment: (id: string) => request<{ ok: true }>('DELETE', `/api/training/overrides/${encodeURIComponent(id)}`),
   /** Read a photographed nutrition label (a JPEG/PNG/WebP data URL) into the Manual tab's fields. Seconds, once the model is loaded. */
   readLabel: (image: string) => request<{ reading: LabelReading }>('POST', '/api/label', { image }),

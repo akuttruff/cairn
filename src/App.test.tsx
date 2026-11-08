@@ -2230,6 +2230,22 @@ describe('App', () => {
       await waitFor(() => expect(screen.getByRole('region', { name: 'Legs' }).closest('.settling')).toHaveAttribute('aria-busy', 'false'))
     })
 
+    it('adds an optional yoga session on this weekday every week', async () => {
+      const { calls, user } = await openTrain({
+        'GET /api/settings': { hasUsdaKey: false, workoutKinds: DEFAULT_WORKOUT_KINDS },
+        'GET /api/training': training(),
+        'POST /api/training/sessions': training(),
+      })
+      const card = await screen.findByRole('region', { name: 'Add an optional session' })
+      expect(within(card).queryByRole('button', { name: /^Add / })).not.toBeInTheDocument()
+      await user.click(within(card).getByRole('button', { name: 'Yoga' }))
+      await user.click(within(card).getByRole('button', { name: '30 min' }))
+      const weekday = new Date(`${TODAY}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })
+      await user.click(within(card).getByRole('button', { name: `Every ${weekday}` }))
+      await user.click(within(card).getByRole('button', { name: 'Add 30 min of yoga' }))
+      await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.url === '/api/training/sessions')?.body).toEqual({ date: TODAY, kind: 'yoga', minutes: 30, every: true }))
+    })
+
     it("shows the day's sessions set by set, and ticks a set with the planned numbers", async () => {
       const { calls, user } = await openTrain({ 'GET /api/training': training(), 'PUT /api/training/sets': { day: training(), newPr: null } })
       const legs = await screen.findByRole('region', { name: 'Legs' })

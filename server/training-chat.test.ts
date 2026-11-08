@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { Store } from './store.ts'
-import { applyProposal, checkEdits, coachContext, coachReply, previewEdits, undoProposal, warmCoach } from './training-chat.ts'
+import { addOptionalSession, applyProposal, checkEdits, coachContext, coachReply, previewEdits, undoProposal, warmCoach } from './training-chat.ts'
 import { SAMPLE_EQUIPMENT, SAMPLE_SCHEMA } from '../src/lib/training/sample.ts'
 import type { PlanEdit } from '../src/types.ts'
 
@@ -636,5 +636,31 @@ describe('the rest of the plan', () => {
     expect(titles(WED)).toEqual(['WOD'])
     expect(plan().overrides.map((o) => o.id)).toEqual([changeId])
     expect(checkEdits(store.training, plan(), [{ op: 'dropChange', changeId: 'nope' }], MON, store.getSettings()).errors.join()).toMatch(/there's no one-off change "nope"/)
+  })
+})
+
+describe('adding an optional session by hand', () => {
+  it('puts pilates on one day as a one-off the day can take back', () => {
+    addOptionalSession(store.training, store.getSettings(), { date: THU, kind: 'pilates', minutes: 20, every: false })
+    const added = store.training.day(THU).sessions.find((s) => s.kind === 'pilates')!
+    expect(added).toMatchObject({ title: 'Pilates', optional: true, items: [{ type: 'minutes', minutes: 20 }] })
+    expect(store.training.day('2026-11-12').sessions.some((s) => s.kind === 'pilates')).toBe(false)
+    const [adj] = store.training.day(THU).adjustments
+    expect(adj!.text).toBe('Pilates added')
+    store.training.removeOverride(adj!.id)
+    expect(store.training.day(THU).sessions.some((s) => s.kind === 'pilates')).toBe(false)
+  })
+
+  it('puts yoga on that weekday every week from that week on, beside what is planned', () => {
+    addOptionalSession(store.training, store.getSettings(), { date: '2026-11-12', kind: 'yoga', minutes: 30, every: true })
+    const yoga = (d: string) => store.training.day(d).sessions.find((s) => s.kind === 'yoga')
+    expect(yoga(THU)).toBeUndefined()
+    for (const d of ['2026-11-12', '2026-11-19', '2026-11-26']) expect(yoga(d)).toMatchObject({ title: 'Yoga', optional: true, items: [{ minutes: 30 }] })
+    expect(store.training.day('2026-11-12').sessions.map((s) => s.title)).toEqual(['Zone 2', 'Yoga'])
+  })
+
+  it('refuses an activity Settings does not have, and a day outside the plan', () => {
+    expect(() => addOptionalSession(store.training, store.getSettings(), { date: THU, kind: 'juggling', minutes: 20, every: false })).toThrow(/isn't one of the activities/)
+    expect(() => addOptionalSession(store.training, store.getSettings(), { date: '2027-01-04', kind: 'yoga', minutes: 20, every: true })).toThrow(/outside the plan/)
   })
 })

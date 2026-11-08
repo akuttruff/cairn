@@ -697,6 +697,10 @@ button:disabled { opacity: 0.45; cursor: default; }
   text-align: left;
 }
 .chip.on { border-color: var(--moss); color: var(--moss); }
+.add-optional .chips { margin-bottom: 10px; }
+.add-optional .chip { display: inline-flex; align-items: center; gap: 5px; }
+.add-optional .coach-apply { margin-top: 2px; }
+.add-optional .hint { margin-bottom: 0; }
 
 .preview {
   display: grid;

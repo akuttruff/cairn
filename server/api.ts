@@ -9,7 +9,7 @@ import { ResearchJobs, listLlms } from './research.ts'
 import { fingerprint, writeNotes } from './notes.ts'
 import { LABEL_MAX_BYTES, isImageDataUrl, readLabel } from './label.ts'
 import { generateSchema } from './training-gen.ts'
-import { applyProposal, COACH_TIMEOUT_MS, coachReply, undoProposal, warmCoach } from './training-chat.ts'
+import { addOptionalSession, applyProposal, COACH_TIMEOUT_MS, coachReply, undoProposal, warmCoach } from './training-chat.ts'
 import type { SearchResult } from './foods.ts'
 import type { CoachStatus, GenerateStatus, RangeNotes, Serving } from '../src/types.ts'
 
@@ -449,6 +449,15 @@ export function createApi(options: ApiOptions = {}) {
     if ((m = /^\/api\/training\/overrides\/([^/]+)$/.exec(p)) && method === 'DELETE') {
       store.training.removeOverride(decodeURIComponent(m[1]!))
       return json(res, 200, { ok: true })
+    }
+    if (p === '/api/training/sessions' && method === 'POST') {
+      const body = await readBody(req) as { date?: unknown; kind?: unknown; minutes?: unknown; every?: unknown }
+      try {
+        addOptionalSession(store.training, store.getSettings(), { date: body.date as string, kind: body.kind as string, minutes: body.minutes as number, every: body.every === true })
+      } catch (err) {
+        return json(res, 400, { error: (err as Error).message })
+      }
+      return json(res, 200, store.training.day(body.date as string))
     }
     if (p === '/api/training/sets' && method === 'PUT') return json(res, 200, store.training.logSet(await readBody(req) as never))
     if (p === '/api/training/wod' && method === 'PUT') return json(res, 200, store.training.setWod(await readBody(req) as never))

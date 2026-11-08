@@ -769,3 +769,36 @@ export function undoProposal(training: TrainingStore, messageId: string): void {
   training.undoMessage(messageId)
   training.setMessage(messageId, 'undone')
 }
+
+/** What the Today view's "Add" widget can put on a day: something gentle, nice to do, never needed for the day to count. */
+export interface OptionalSessionInput { date: string; kind: string; minutes: number; every: boolean }
+
+/**
+ * An optional session (yoga, pilates...) added by hand: on `date` only, as a
+ * one-off the day's change list can take back, or on that weekday every week
+ * from that week to the end of the plan. Checked the way the coach's edits
+ * are, so it can't leave the plan in a state the coach couldn't.
+ */
+export function addOptionalSession(training: TrainingStore, settings: Settings, input: OptionalSessionInput): void {
+  const plan = training.activePlan()
+  if (!plan) throw new Error('There\'s no active plan to add to.')
+  const { date, kind, every } = input
+  if (typeof date !== 'string' || !isDateString(date)) throw new Error('date is a day, YYYY-MM-DD')
+  const def = settings.workoutKinds.find((k) => k.id === kind)
+  if (!def) throw new Error(`"${kind}" isn't one of the activities in Settings`)
+  const minutes = Math.round(Number(input.minutes))
+  if (!Number.isFinite(minutes) || minutes < 5 || minutes > 180) throw new Error('minutes must be 5 to 180')
+  const at = weekOf(plan.schema, date, plan.repeats)
+  if (!at) throw new Error(`${date} is outside the plan`)
+  const id = def.id.replace(/[^a-z0-9-]/g, '-')
+  const item = { id, name: def.label, minutes: Object.fromEntries(Array.from({ length: plan.schema.weeks - at.week + 1 }, (_, k) => [String(at.week + k), minutes])) }
+  const session = { id, title: def.label, kind: def.id, optional: true, items: [item] } as TrainingSession
+  const weekday = ((new Date(`${date}T12:00:00Z`).getUTCDay() + 6) % 7) + 1
+  const edit: PlanEdit = every
+    ? { op: 'addSession', weekday, session, fromWeek: at.week }
+    : { op: 'extra', from: date, to: date, session }
+  const checked = checkEdits(training, plan, [edit], date, settings)
+  if (checked.errors.length) throw new Error(checked.errors[0]!.replace(/^edit 1 \(\w+\): /, ''))
+  if (checked.overrides.length) training.addOverrides(plan.id, checked.overrides, null)
+  if (checked.revised) training.revise(plan.id, checked.revised, 'added', null)
+}

@@ -62,7 +62,7 @@ The app has two sections, along the bottom: Nutrition, which it opens on, and Tr
 
 ### Train
 
-- **A training plan** you follow day by day. Each session is laid out set by set, with weights worked out from your PRs and rounded to each lift's plates. Tap a set to tick it off at the planned numbers, or note what you actually lifted. Deload and test weeks, a PR-attempt ladder, and "repeat this week" are built in.
+- **A training plan** you follow day by day. Each session is laid out set by set, with weights worked out from your PRs and rounded to each lift's plates. Tap a set to tick it off at the planned numbers, or note what you actually lifted. Deload and test weeks, a PR-attempt ladder, and "repeat this week" are built in. Add an optional yoga or pilates session to a day, or to that weekday every week, from the bottom of Today.
 - **PRs and progress.** Set a new PR and every weight in the plan follows. Charts show your top sets, estimated maxes, and baselines like dead hang time.
 - **A WOD bank** of about 100 workouts, offered three at a time to fit the day's slot and the equipment you have. A barbell becomes dumbbells and a jump rope becomes bike calories, and dumbbell weights match the pairs you own. If your gear is split between rooms, each WOD is kept to one room, and its card says which.
 - **A Library** of every WOD, as you'd do it with your gear and filtered by room, and every movement they use, with how it's done. Tap a movement in a WOD to read it.
