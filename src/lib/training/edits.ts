@@ -175,20 +175,41 @@ export function reviseSchema(schema: TrainingSchema, edits: RevisionEdit[], curr
         else delete item.notes
         break
       }
+      case 'renameItem': {
+        // A label, not what's trained: the same item under a new name, every week, so its logs stay with it.
+        const at = findItem(e.itemId)
+        if (!at) { errors.push(`renameItem: no item "${e.itemId}"`); break }
+        const name = typeof e.name === 'string' ? e.name.trim().slice(0, 80) : ''
+        if (!name) { errors.push('renameItem: name is the new name'); break }
+        at.session.items[at.index]!.name = name
+        break
+      }
       case 'setWeeks': {
         // Some weeks' sets changed in place: the item's every week is written out week by week,
         // then the given weeks replace theirs. Same item, same id, so its logged sets stay with it.
         const at = findItem(e.itemId)
         if (!at) { errors.push(`setWeeks: no item "${e.itemId}"`); break }
         const item = at.session.items[at.index]!
-        if (!hasSets(item)) { errors.push(`setWeeks: "${e.itemId}" has no sets to change (it's a WOD slot, minutes or a check)`); break }
         if (!e.weeks || typeof e.weeks !== 'object' || Array.isArray(e.weeks) || !Object.keys(e.weeks).length) {
-          errors.push('setWeeks: weeks maps week numbers to sets, e.g. { "0": "3x5@35", "1": "4x5@40" }')
+          errors.push(`setWeeks: weeks maps week numbers to ${item.minutes ? 'minutes, e.g. { "1": 25, "2": 25 }' : 'sets, e.g. { "0": "3x5@35", "1": "4x5@40" }'}`)
           break
         }
         const [lo, hi] = range(item, out)
         const outside = Object.keys(e.weeks).filter((w) => !/^\d+$/.test(w) || Number(w) < lo || Number(w) > hi)
         if (outside.length) { errors.push(`setWeeks: "${e.itemId}" runs weeks ${lo}-${hi}, so it can't take week ${outside.join(', ')}`); break }
+        if (item.minutes) {
+          // A timed item: the given weeks' minutes replace theirs (null takes a week away); "25 min" reads as 25.
+          const minutes = { ...item.minutes }
+          for (const [w, m] of Object.entries(e.weeks)) {
+            const n = typeof m === 'number' ? m : typeof m === 'string' ? Number.parseFloat(m) : NaN
+            if (m === null) delete minutes[w]
+            else if (Number.isFinite(n)) minutes[w] = n
+            else errors.push(`setWeeks: "${e.itemId}" is timed, so week ${w} takes minutes as a number, e.g. 25`)
+          }
+          item.minutes = minutes
+          break
+        }
+        if (!hasSets(item)) { errors.push(`setWeeks: "${e.itemId}" has no sets to change (it's a WOD slot or a check)`); break }
         const weeks: Record<string, Prescription | string> = {}
         for (let w = lo; w <= hi; w++) {
           const p = prescriptionFor(item, w, out)

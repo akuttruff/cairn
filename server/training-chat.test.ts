@@ -158,6 +158,23 @@ describe('naming and focus', () => {
     expect(titles('2026-11-11')[0]).toBe('Press')
   })
 
+  it('renames an item for every week, keeping it the same item, and says so', () => {
+    const checked = checkEdits(store.training, plan(), [{ op: 'renameItem', itemId: 'zone2', name: 'Easy ride' }], MON, store.getSettings())
+    expect(checked.errors).toEqual([])
+    expect(previewEdits(store.training, plan(), checked, MON)).toEqual(['Renamed: Zone 2 ride → Easy ride'])
+    store.training.revise(plan().id, checked.revised!, 'coach', null)
+    for (const d of [THU, '2026-11-12']) expect(store.training.day(d).sessions[0]!.items[0]).toMatchObject({ id: 'zone2', name: 'Easy ride' })
+    expect(checkEdits(store.training, plan(), [{ op: 'renameItem', itemId: 'zone2', name: ' ' }], MON, store.getSettings()).errors).toEqual(['renameItem: name is the new name'])
+  })
+
+  it('changes a timed item\'s minutes for some weeks', () => {
+    const checked = checkEdits(store.training, plan(), [{ op: 'setWeeks', itemId: 'zone2', weeks: { 2: 50, 3: '35 min' } }], MON, store.getSettings())
+    expect(checked.errors).toEqual([])
+    store.training.revise(plan().id, checked.revised!, 'coach', null)
+    expect(['2026-11-05', '2026-11-12', '2026-11-19'].map((d) => store.training.day(d).sessions[0]!.items[0]!.minutes)).toEqual([40, 50, 35])
+    expect(checkEdits(store.training, plan(), [{ op: 'setWeeks', itemId: 'zone2', weeks: { 2: 'long' } }], MON, store.getSettings()).errors.join()).toMatch(/is timed, so week 2 takes minutes as a number/)
+  })
+
 })
 
 describe('the record', () => {

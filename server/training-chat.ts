@@ -44,11 +44,15 @@ One-off changes for some days (the plan itself stays as it is):
       the way to put something that isn't on the plan onto a day -- a class, a ride, a walk (from = to = that day). Minutes can be one number:
       e.g. { "op": "extra", "from": "2026-11-04", "to": "2026-11-04", "session": { "id": "pilates", "title": "Pilates", "kind": "pilates", "items": [{ "id": "pilates", "name": "Pilates", "minutes": 20 }] } }
 Lasting changes to the plan from a week on (fromWeek defaults to the current week; an earlier week corrects what has already happened):
-  { "op": "setWeeks", "itemId": id, "weeks": { "<week>": sets, ... } }   NEW SETS OR WEIGHTS FOR AN ITEM: the way to change reps, sets or weights.
+  { "op": "setWeeks", "itemId": id, "weeks": { "<week>": sets, ... } }   NEW SETS, WEIGHTS OR MINUTES FOR AN ITEM: the way to change reps, sets, weights or how long.
       Give only the weeks that change; the item's other weeks stay as they are. Past weeks can be corrected too.
       e.g. today 3x5 at 35 and building from there:  { "op": "setWeeks", "itemId": "overhead-squat-wed", "weeks": { "0": "3x5@35", "1": "4x5@40", "2": "4x5@45" } }
+      A timed item (shown as "20 min") takes minutes as numbers: { "op": "setWeeks", "itemId": "wed-bike", "weeks": { "2": 25, "3": 25 } }
   { "op": "setNotes", "itemId": id, "notes": "what to do, in a sentence or two" }   AN ITEM'S DESCRIPTION (shown under its name, "How to"), every week;
       for only some days, "swap" in the same item with new notes
+  { "op": "renameItem", "itemId": id, "name": "Bike intervals" }   AN ITEM'S NAME, every week (the same item, its logs kept).
+      A session's title and its items' names are separate: a word to drop may be in either, so check both.
+      Saying you'll change something is not changing it: the edits are the change.
   { "op": "replaceItem", "itemId": id, "item": Item, "fromWeek"?: n }   a different exercise in its place (keep its "lift" as it was unless that changes too)
   { "op": "addItem", "sessionId": id, "item": Item, "fromWeek"?: n, "toWeek"?: n }
   { "op": "removeItem", "itemId": id, "fromWeek"?: n }
@@ -377,7 +381,7 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
     // From the earliest week a lasting change starts (this week unless it says), four weeks on.
     const current = weekOf(plan.schema, today, plan.repeats)?.week ?? plan.schema.firstWeek
     // New sets start at the first week they change; the rest from their week, this one unless they say.
-    const week = Math.min(...checked.revisions.map((r) => (r.op === 'setWeeks' ? Math.min(...Object.keys(r.weeks).map(Number)) : r.op === 'setNotes' ? current : r.fromWeek ?? current)))
+    const week = Math.min(...checked.revisions.map((r) => (r.op === 'setWeeks' ? Math.min(...Object.keys(r.weeks).map(Number)) : r.op === 'setNotes' || r.op === 'renameItem' ? current : r.fromWeek ?? current)))
     const index = weekSequence(plan.schema, plan.repeats).indexOf(week)
     const from = index >= 0 ? addDays(plan.schema.startDate, index * 7) : today
     span(from, addDays(from, 27))
@@ -419,6 +423,7 @@ export function previewEdits(training: TrainingStore, plan: ActivePlan, checked:
       const described = (n: { name: string; notes: string }): string => `${n.name}: now "${n.notes.length > 160 ? `${n.notes.slice(0, 160)}…` : n.notes || 'no description'}"`
       for (const i of s.items) {
         const o = old.items.find((x) => x.id === i.id)
+        if (o && o.name !== i.name) renamed.add(`Renamed: ${o.name} → ${i.name}`)
         if (o && o.text !== i.text) lines.push(`${shortDate(d)} · ${i.name}: ${o.text} → ${i.text}`)
         else if (o && o.notes !== i.notes) lines.push(`${shortDate(d)} · ${described(i)}`)
       }
