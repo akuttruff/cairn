@@ -321,6 +321,60 @@ export default function RangeSummary({ view, onSelectDay, part = 'nutrition', wo
   // Every kind that was planned or done in the range, in the usual order.
   const workoutKinds = workouts.kinds.map((k) => k.id).filter((k) => workouts.goalByKind[k] > 0 || workouts.byKind[k] > 0)
 
+  // Meditation and dog walks show on both sections: Train's week, and
+  // Nutrition's week and month (Train has no month).
+  const habits = (
+    <>
+      <section className="water-card" aria-label="Meditation">
+        <div className="water-head">
+          <span className="water-label">Meditation</span>
+          <span className="water-num">
+            {meditation.of ? `${meditation.met} of ${plural(meditation.of, 'day')}` : '—'}
+            <span className="water-goal"> · {goals.meditationMinutes} min goal</span>
+          </span>
+        </div>
+        <DayBoxes
+          kind="meditation"
+          days={days}
+          today={today}
+          state={meditationState}
+          describe={(d) => {
+            const sits = Math.round(d.meditationMinutes / SIT_MINUTES)
+            return d.meditationMinutes ? `${plural(sits, 'sit')}, ${d.meditationMinutes} min` : 'no meditation'
+          }}
+          onSelectDay={onSelectDay}
+        />
+        <div className="water-bottles">
+          {meditation.total} min total · {meditation.average} min avg/day
+          {meditation.streak > 1 && ` · ${meditation.streak}-day streak`}
+        </div>
+      </section>
+
+      <section className="water-card" aria-label="Dog walks">
+        <div className="water-head">
+          <span className="water-label">Dog walks</span>
+          <span className="water-num">
+            {dog.of ? `${dog.met} of ${plural(dog.of, 'day')}` : '—'}
+            <span className="water-goal"> · {plural(goals.dogWalks, 'walk')} a day</span>
+          </span>
+        </div>
+        <DayBoxes
+          kind="dog"
+          days={days}
+          today={today}
+          // Every walk is a full box; some but not all of them, half.
+          state={(d) => (dogWalksMet(d.dogWalks, d.goals.dogWalks) ? 'full' : d.dogWalks > 0 ? 'half' : 'empty')}
+          describe={(d) => (d.dogWalks ? `${plural(d.dogWalks, 'walk')}, ${milesLabel(d.dogMiles)}` : 'no walks')}
+          onSelectDay={onSelectDay}
+        />
+        <div className="water-bottles">
+          {plural(dog.walks, 'walk')} · {milesLabel(dog.miles)}
+          {dog.streak > 1 && ` · ${dog.streak}-day streak`}
+        </div>
+      </section>
+    </>
+  )
+
   return (
     <section className="range-summary" aria-label="Range summary">
       {part === 'nutrition' && (
@@ -437,53 +491,7 @@ export default function RangeSummary({ view, onSelectDay, part = 'nutrition', wo
         {workoutGoals}
       </section>
 
-      <section className="water-card" aria-label="Meditation">
-        <div className="water-head">
-          <span className="water-label">Meditation</span>
-          <span className="water-num">
-            {meditation.of ? `${meditation.met} of ${plural(meditation.of, 'day')}` : '—'}
-            <span className="water-goal"> · {goals.meditationMinutes} min goal</span>
-          </span>
-        </div>
-        <DayBoxes
-          kind="meditation"
-          days={days}
-          today={today}
-          state={meditationState}
-          describe={(d) => {
-            const sits = Math.round(d.meditationMinutes / SIT_MINUTES)
-            return d.meditationMinutes ? `${plural(sits, 'sit')}, ${d.meditationMinutes} min` : 'no meditation'
-          }}
-          onSelectDay={onSelectDay}
-        />
-        <div className="water-bottles">
-          {meditation.total} min total · {meditation.average} min avg/day
-          {meditation.streak > 1 && ` · ${meditation.streak}-day streak`}
-        </div>
-      </section>
-
-      <section className="water-card" aria-label="Dog walks">
-        <div className="water-head">
-          <span className="water-label">Dog walks</span>
-          <span className="water-num">
-            {dog.of ? `${dog.met} of ${plural(dog.of, 'day')}` : '—'}
-            <span className="water-goal"> · {plural(goals.dogWalks, 'walk')} a day</span>
-          </span>
-        </div>
-        <DayBoxes
-          kind="dog"
-          days={days}
-          today={today}
-          // Every walk is a full box; some but not all of them, half.
-          state={(d) => (dogWalksMet(d.dogWalks, d.goals.dogWalks) ? 'full' : d.dogWalks > 0 ? 'half' : 'empty')}
-          describe={(d) => (d.dogWalks ? `${plural(d.dogWalks, 'walk')}, ${milesLabel(d.dogMiles)}` : 'no walks')}
-          onSelectDay={onSelectDay}
-        />
-        <div className="water-bottles">
-          {plural(dog.walks, 'walk')} · {milesLabel(dog.miles)}
-          {dog.streak > 1 && ` · ${dog.streak}-day streak`}
-        </div>
-      </section>
+      {habits}
 
       <BodyRangeCard body={view.body} />
         </>
@@ -501,6 +509,8 @@ export default function RangeSummary({ view, onSelectDay, part = 'nutrition', wo
           <div className="water-bottles">{drankKinds.map((k) => `${alcohol.byKind[k]} ${k}`).join(', ')}</div>
         </section>
       )}
+
+      {part === 'nutrition' && habits}
     </section>
   )
 }

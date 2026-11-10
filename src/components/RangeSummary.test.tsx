@@ -101,6 +101,17 @@ describe('RangeSummary Monday-first alignment', () => {
     expect(meditationHeaderText).toEqual(['M', 'T', 'W', 'T', 'F', 'S', 'S'])
   })
 
+  it('shows meditation and dog walks on the Nutrition week and month too', () => {
+    const monday = mondayOf(TODAY)
+    for (const length of [7, 30]) {
+      const { unmount } = render(<RangeSummary view={makeRangeView(monday, length)} onSelectDay={onSelectDay} />)
+      expect(screen.getByLabelText('Meditation')).toBeInTheDocument()
+      expect(screen.getByLabelText('Dog walks')).toBeInTheDocument()
+      expect(screen.queryByLabelText('Workouts')).not.toBeInTheDocument()
+      unmount()
+    }
+  })
+
   it('renders dog walk DayBoxes with M T W T F S S headers', () => {
     const monday = mondayOf(TODAY)
     const view = makeRangeView(monday, 7)
