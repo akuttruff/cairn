@@ -3,6 +3,10 @@ import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
 import { registerAppShell } from './lib/appShell.ts'
 import { listenForChimeUnlock } from './lib/chime.ts'
+import { fitInstalledScreen } from './lib/screenFit.ts'
+
+// An installed iPhone app can be laid out short of the screen; see lib/screenFit.ts.
+fitInstalledScreen()
 
 // Taps keep the "done" chime allowed to play later; see lib/chime.ts.
 listenForChimeUnlock()

@@ -42,9 +42,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: default; }
 
 .app {
-  /* Pinned to the screen's edges, not 100dvh: in an installed iOS web app 100dvh can come up short, leaving dead space under the section bar. */
+  /* Pinned to the screen's edges, not 100dvh: in an installed iOS web app 100dvh can come up short, leaving dead space under the section bar.
+     --app-h (lib/screenFit.ts) takes over when even the fixed box stops short of the screen's bottom edge. */
   position: fixed;
   inset: 0;
+  height: var(--app-h, auto);
   display: flex;
   flex-direction: column;
   padding-top: env(safe-area-inset-top, 0px);
@@ -465,8 +467,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .fab {
   position: fixed;
   right: 18px;
-  /* Above the section bar (40px plus the sliver of safe area under it). */
-  bottom: calc(40px + 14px + max(0px, calc(env(safe-area-inset-bottom, 0px) - 24px)));
+  /* Above the section bar. */
+  bottom: calc(var(--tabs-h) + 14px);
   width: 58px;
   height: 58px;
   border-radius: 50%;
@@ -907,15 +909,20 @@ button:disabled { opacity: 0.45; cursor: default; }
 .set-edit input:focus, .lift-edit input:focus, .generate-note:focus { outline: none; border-color: var(--moss-dim); }
 
 /* --- Sections ----------------------------------------------------------------- */
-/* One slim row. As an installed app there's no browser toolbar below it, only the home indicator, which
-   the row shares: just a sliver of the safe area is kept, enough that the indicator doesn't touch the labels. */
+/* A roomy row along the screen's bottom edge. As an installed app there's no browser toolbar below it, only
+   the home indicator, which shares part of the row's space: enough is kept that it doesn't touch the labels. */
+:root {
+  --tabs-top: 8px;
+  --tabs-row: 44px;
+  --tabs-below: max(6px, calc(env(safe-area-inset-bottom, 0px) - 16px));
+  --tabs-h: calc(var(--tabs-top) + var(--tabs-row) + var(--tabs-below));
+}
 .section-tabs {
   flex: 0 0 auto; display: flex; border-top: 1px solid var(--line); background: var(--bg);
-  --tabs-below: max(0px, calc(env(safe-area-inset-bottom, 0px) - 24px));
-  padding-bottom: var(--tabs-below);
+  padding: var(--tabs-top) 0 var(--tabs-below);
 }
 .section-tab {
-  position: relative; flex: 1; height: 40px; display: flex; align-items: center; justify-content: center;
+  position: relative; flex: 1; height: var(--tabs-row); display: flex; align-items: center; justify-content: center;
   background: none; border: none; color: color-mix(in srgb, var(--paper-dim) 55%, transparent); font-size: 13px; font-weight: 600;
 }
 /* The section you're in: a moss pill around it, and a bar along the top edge. */
@@ -926,7 +933,7 @@ button:disabled { opacity: 0.45; cursor: default; }
 .section-tab.active { color: color-mix(in srgb, var(--moss) 65%, var(--paper)); }
 .section-tab.active .section-tab-pill { background: color-mix(in srgb, var(--moss) 26%, transparent); }
 .section-tab.active::before {
-  content: ""; position: absolute; top: -1px; left: 50%; width: 72px; height: 3px; margin-left: -36px;
+  content: ""; position: absolute; top: calc(-1px - var(--tabs-top)); left: 50%; width: 72px; height: 3px; margin-left: -36px;
   border-radius: 0 0 3px 3px; background: var(--moss);
 }
 .plan-teaser {
