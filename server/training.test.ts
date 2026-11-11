@@ -32,6 +32,36 @@ afterEach(() => {
 const session = (date: string, id: string) => store.training.day(date).sessions.find((s) => s.id === id)!
 const itemOf = (date: string, id: string) => store.training.day(date).sessions.flatMap((s) => s.items).find((i) => i.id === id)!
 
+describe('last time', () => {
+  const NEXT_MON = '2026-11-09'
+  const DELOAD_MON = '2026-11-16'
+  const WEEK4_MON = '2026-11-23'
+
+  it('shows what each set was the last time an item was done, not counting the day itself', () => {
+    expect(itemOf(MON, 'back-squat').last).toBeUndefined()
+    store.training.logSet({ date: MON, itemId: 'back-squat', setIndex: 0, reps: 5, weight: 70 })
+    store.training.logSet({ date: MON, itemId: 'back-squat', setIndex: 1, reps: 4, weight: 75 })
+    expect(itemOf(MON, 'back-squat').last).toBeUndefined()
+    expect(itemOf(NEXT_MON, 'back-squat').last).toEqual({
+      date: MON, sets: [{ reps: 5, weight: 70, seconds: null }, { reps: 4, weight: 75, seconds: null }],
+    })
+    // Today's own sets don't replace last week's.
+    store.training.logSet({ date: NEXT_MON, itemId: 'back-squat', setIndex: 0, reps: 5, weight: 80 })
+    expect(itemOf(NEXT_MON, 'back-squat').last!.date).toBe(MON)
+  })
+
+  it('tags a last time that fell in a deload week', () => {
+    store.training.logSet({ date: DELOAD_MON, itemId: 'back-squat', setIndex: 0, reps: 5, weight: 50 })
+    expect(itemOf(WEEK4_MON, 'back-squat').last).toMatchObject({ date: DELOAD_MON, deload: true })
+  })
+
+  it('keeps how long a timed item really took, and shows it next time', () => {
+    store.training.logSet({ date: THU, itemId: 'zone2', setIndex: 0, seconds: 35 * 60 })
+    expect(itemOf(THU, 'zone2')).toMatchObject({ done: true, minutes: 40, minutesDone: 35 })
+    expect(itemOf('2026-11-12', 'zone2').last).toEqual({ date: THU, sets: [{ reps: null, weight: null, seconds: 2100 }] })
+  })
+})
+
 describe('training schemas', () => {
   it('imports one and follows it, with its lifts', () => {
     const [only] = store.training.list()

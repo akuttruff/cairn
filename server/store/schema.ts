@@ -130,6 +130,7 @@ CREATE TABLE IF NOT EXISTS set_logs (
   reps REAL, weight REAL, seconds REAL, created_at INTEGER NOT NULL, UNIQUE (date, item_id, set_index)
 );
 CREATE INDEX IF NOT EXISTS idx_set_logs_schema ON set_logs(schema_id, date);
+CREATE INDEX IF NOT EXISTS idx_set_logs_item ON set_logs(item_id, date);
 -- A session's link to the workout log it filled in, and the WOD picked for it.
 CREATE TABLE IF NOT EXISTS session_logs (
   date TEXT NOT NULL, schema_id TEXT NOT NULL, session_id TEXT NOT NULL, workout_log_id TEXT, wod_id TEXT,

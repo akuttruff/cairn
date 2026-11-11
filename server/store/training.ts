@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { DatabaseSync, StatementSync } from 'node:sqlite'
 import type {
-  CoachMessage, CoachStats, Equipment, Lift, PlanProposal, ProgressSeries, ResolvedItem, ResolvedSession, SchemaOverview, SchemaStatus, SchemaSummary, SetLog, Settings,
+  CoachMessage, CoachStats, Equipment, LastTime, Lift, PlanProposal, ProgressSeries, ResolvedItem, ResolvedSession, SchemaOverview, SchemaStatus, SchemaSummary, SetLog, Settings,
   TrainingDay, TrainingItem, TrainingSchema, TrainingSession, WorkoutLog,
 } from '../../src/types.ts'
 import type { OverrideEdit } from '../../src/lib/training/edits.ts'
@@ -144,6 +144,9 @@ export class TrainingStore {
       upsertSet: db.prepare(
         'INSERT INTO set_logs (id,date,schema_id,item_id,set_index,reps,weight,seconds,created_at) VALUES (?,?,?,?,?,?,?,?,?) '
         + 'ON CONFLICT(date,item_id,set_index) DO UPDATE SET reps=excluded.reps, weight=excluded.weight, seconds=excluded.seconds, schema_id=excluded.schema_id',
+      ),
+      lastOf: db.prepare(
+        'SELECT * FROM set_logs WHERE item_id = ? AND date = (SELECT MAX(date) FROM set_logs WHERE item_id = ? AND date < ?) ORDER BY set_index',
       ),
       deleteSet: db.prepare('DELETE FROM set_logs WHERE date = ? AND item_id = ? AND set_index = ?'),
       deleteSetsOf: db.prepare('DELETE FROM set_logs WHERE date = ? AND item_id = ?'),
@@ -484,6 +487,18 @@ export class TrainingStore {
     const recent = (this.s.recentWods!.all(addDays(date, -WOD_RECENT_DAYS), date) as unknown as { wod_id: string }[]).map((r) => r.wod_id)
     const liftById = new Map(lifts.map((l) => [l.id, l]))
     const equipment = this.equipmentOn(plan, date)
+    const deloadOn = this.deloadCheck()
+    const last = (itemId: string): { last?: LastTime } => {
+      const rows = this.s.lastOf!.all(itemId, itemId, date) as unknown as SetRow[]
+      if (!rows.length) return {}
+      const on = rows[0]!.date
+      return {
+        last: {
+          date: on, ...(deloadOn(rows[0]!.schema_id, on) ? { deload: true } : {}),
+          sets: rows.map((r) => ({ reps: r.reps, weight: r.weight, seconds: r.seconds })),
+        },
+      }
+    }
 
     const sessions: ResolvedSession[] = this.sessionsFor(plan, date).map(({ session, week }) => {
       const items: ResolvedItem[] = session.items.map((item) => {
@@ -492,17 +507,20 @@ export class TrainingStore {
           const planned = this.plan(item, week, schema, liftById, this.factorOn(plan, date, item.lift)) ?? []
           const sets = planned.map((p, index) => ({ index, ...p, log: logs.get(`${item.id}:${index}`) ?? null }))
           const note = prescriptionFor(item, week, schema)?.note
-          return { ...base, type: 'sets' as const, sets, done: sets.length > 0 && sets.every((s) => s.log), ...(note ? { note } : {}) }
+          return { ...base, type: 'sets' as const, sets, done: sets.length > 0 && sets.every((s) => s.log), ...(note ? { note } : {}), ...last(item.id) }
         }
         const done = logs.has(`${item.id}:0`)
-        if (item.minutes) return { ...base, type: 'minutes' as const, minutes: item.minutes[String(week)], done }
+        if (item.minutes) {
+          const seconds = logs.get(`${item.id}:0`)?.seconds ?? null
+          return { ...base, type: 'minutes' as const, minutes: item.minutes[String(week)], done, ...(seconds !== null ? { minutesDone: Math.round(seconds / 60) } : {}), ...last(item.id) }
+        }
         if (item.wod) {
           const chosen = sessionRows.get(session.id)?.wod_id ?? null
           const picks = pickWods(item.wod, equipment, { recent, seed: `${date}:${shuffle}`, extra: schema.wods, hidden: schema.hiddenWods })
           const chosenWod = chosen ? findWod(chosen, schema.wods) : undefined
           const chosenView = chosenWod ? viewWod(chosenWod, equipment, item.wod.lowImpact) : null
           return {
-            ...base, type: 'wod' as const, done,
+            ...base, type: 'wod' as const, done, ...last(item.id),
             wod: { slot: item.wod, chosen, picks: chosenView ? [chosenView, ...picks.filter((p) => p.id !== chosen)] : picks },
           }
         }
@@ -517,6 +535,21 @@ export class TrainingStore {
     if (!at) return { ...empty, strip, adjustments, sessions }
     return {
       ...empty, week: at.week, repeat: at.repeat, deload: schema.deloadWeeks.includes(at.week), test: schema.testWeek === at.week, sessions, adjustments, strip,
+    }
+  }
+
+  /** Whether a date fell in a deload week of the schema it was logged under; schemas are parsed once per call. */
+  private deloadCheck(): (schemaId: string, date: string) => boolean {
+    const parsed = new Map<string, { schema: TrainingSchema; repeats: number[] } | null>()
+    return (schemaId, date) => {
+      if (!parsed.has(schemaId)) {
+        let p: { schema: TrainingSchema; repeats: number[] } | null = null
+        try { p = this.parse(this.row(schemaId)) } catch { /* removed since: no tag */ }
+        parsed.set(schemaId, p)
+      }
+      const p = parsed.get(schemaId)
+      const at = p ? weekOf(p.schema, date, p.repeats) : null
+      return Boolean(p && at && p.schema.deloadWeeks.includes(at.week))
     }
   }
 

@@ -726,8 +726,20 @@ export interface ResolvedItem {
   note?: string
   sets?: ResolvedSet[]
   minutes?: number
+  /** A minutes item: how long it actually took, when logged with a time. */
+  minutesDone?: number
   done: boolean
   wod?: { slot: WodSlot; chosen: string | null; picks: WodView[] }
+  /** What was logged for this item the last time it was done, before this day. */
+  last?: LastTime
+}
+
+/** The most recent earlier day an item was logged: each set as done (a minutes item's time is in seconds). */
+export interface LastTime {
+  date: string
+  /** That day fell in a deload week, so lighter numbers are expected. */
+  deload?: boolean
+  sets: { reps: number | null; weight: number | null; seconds: number | null }[]
 }
 
 export interface ResolvedSession {

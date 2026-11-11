@@ -3,7 +3,9 @@ import { Check, ChevronDown, ChevronUp, Pencil, Shuffle } from 'lucide-react'
 import { toast } from 'sonner'
 import { api } from '../../lib/api.ts'
 import { kindView } from '../../lib/workoutIcons.ts'
-import type { ResolvedItem, ResolvedSession, ResolvedSet, TrainingDay, WodView, WorkoutKindDef } from '../../types.ts'
+import { dayLabel } from '../../lib/format.ts'
+import { lastSets } from '../../lib/training/last.ts'
+import type { LastTime, ResolvedItem, ResolvedSession, ResolvedSet, TrainingDay, WodView, WorkoutKindDef } from '../../types.ts'
 
 interface SessionCardProps {
   date: string
@@ -31,6 +33,16 @@ function actual(set: ResolvedSet): string | null {
   if (sameReps && sameWeight && sameSeconds) return null
   if (log.seconds !== null) return `${log.seconds} s${log.weight !== null ? ` @ ${log.weight} lb` : ''}`
   return `${log.reps ?? set.reps} × ${log.weight ?? set.weight ?? 'bodyweight'}${log.weight !== null ? ' lb' : ''}`
+}
+
+/** "Last · Mon, Nov 3 — 5×65 · 5×70", with a deload tag when it was a light week. */
+function LastLine({ item, last, date }: { item: ResolvedItem; last: LastTime; date: string }) {
+  return (
+    <div className="plan-item-last">
+      Last · {dayLabel(last.date, date)} — {lastSets(item, last)}
+      {last.deload && <span className="badge">deload</span>}
+    </div>
+  )
 }
 
 export default function SessionCard({ date, session, kinds, onDay, onShuffle }: SessionCardProps) {
@@ -64,6 +76,9 @@ function Item({ date, item, onDay, onShuffle }: { date: string; item: ResolvedIt
       <div className="plan-item-head">
         <span className="plan-item-name">{item.name}{item.optional && <span className="badge">optional</span>}</span>
         {item.type === 'minutes' && item.minutes !== undefined && <span className="plan-item-meta">{item.minutes} min</span>}
+        {item.type === 'minutes' && item.minutesDone !== undefined && item.minutesDone !== item.minutes && (
+          <span className="set-did">did {item.minutesDone} min</span>
+        )}
         {item.notes && (
           <button type="button" className="link-btn accent" aria-expanded={showNotes} onClick={() => setShowNotes((v) => !v)}>
             How to {showNotes ? <ChevronUp size={13} aria-hidden="true" /> : <ChevronDown size={13} aria-hidden="true" />}
@@ -72,17 +87,72 @@ function Item({ date, item, onDay, onShuffle }: { date: string; item: ResolvedIt
       </div>
       {item.note && <div className="plan-item-note">{item.note}</div>}
       {showNotes && item.notes && <div className="plan-item-notes">{item.notes}</div>}
+      {item.last && <LastLine item={item} last={item.last} date={date} />}
       {item.type === 'sets' && (
         <ul className="set-list" aria-label={`${item.name} sets`}>
           {item.sets!.map((s) => <SetRow key={s.index} date={date} item={item} set={s} onDay={onDay} />)}
         </ul>
       )}
-      {(item.type === 'check' || item.type === 'minutes') && (
+      {item.type === 'check' && (
         <button type="button" className={`tick-btn${item.done ? ' on' : ''}`} aria-pressed={item.done} onClick={() => void toggle()}>
           <Check size={15} aria-hidden="true" /> {item.done ? 'Done' : 'Mark done'}
         </button>
       )}
+      {item.type === 'minutes' && <MinutesItem date={date} item={item} onDay={onDay} />}
       {item.type === 'wod' && <WodItem date={date} item={item} onDay={onDay} onShuffle={onShuffle} onToggle={toggle} />}
+    </div>
+  )
+}
+
+/**
+ * A timed item (a ride, a walk): ticking it logs the planned minutes, and
+ * the pencil takes how long it really was, so next week has it to compare.
+ */
+function MinutesItem({ date, item, onDay }: { date: string; item: ResolvedItem; onDay: (day: TrainingDay) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [mins, setMins] = useState('')
+
+  const log = async (minutes: number | null, done: boolean): Promise<void> => {
+    try {
+      onDay((await api.logSet({ date, itemId: item.id, setIndex: 0, seconds: minutes === null ? null : minutes * 60, done })).day)
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
+  const openEdit = (): void => {
+    setMins(String(item.minutesDone ?? item.minutes ?? ''))
+    setEditing(true)
+  }
+
+  const saveEdit = (): void => {
+    const n = mins.trim() === '' ? null : Number(mins)
+    if (n !== null && !(n > 0 && n <= 600)) { toast.error('Enter the minutes it took'); return }
+    setEditing(false)
+    void log(n, true)
+  }
+
+  if (editing) {
+    return (
+      <div className="set-edit">
+        <input type="text" inputMode="decimal" aria-label="Minutes" value={mins} onChange={(e) => setMins(e.target.value)} />
+        <span className="set-x">min</span>
+        <button type="button" className="link-btn accent" onClick={saveEdit}>Save</button>
+        <button type="button" className="link-btn" onClick={() => setEditing(false)}>Cancel</button>
+      </div>
+    )
+  }
+  return (
+    <div className="minutes-actions">
+      <button
+        type="button" className={`tick-btn${item.done ? ' on' : ''}`} aria-pressed={item.done}
+        onClick={() => void (item.done ? log(null, false) : log(item.minutes ?? null, true))}
+      >
+        <Check size={15} aria-hidden="true" /> {item.done ? 'Done' : 'Mark done'}
+      </button>
+      <button type="button" className="icon-btn set-pencil" aria-label={`How long ${item.name} took`} onClick={openEdit}>
+        <Pencil size={13} aria-hidden="true" />
+      </button>
     </div>
   )
 }
