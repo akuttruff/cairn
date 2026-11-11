@@ -42,11 +42,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: default; }
 
 .app {
-  /* Pinned to the screen's edges, not 100dvh: in an installed iOS web app 100dvh can come up short, leaving dead space under the section bar.
-     --app-h (lib/screenFit.ts) takes over when even the fixed box stops short of the screen's bottom edge. */
+  /* Pinned to the screen's edges, not 100dvh: in an installed iOS web app 100dvh can come up short, leaving dead space under the section bar. */
   position: fixed;
   inset: 0;
-  height: var(--app-h, auto);
   display: flex;
   flex-direction: column;
   padding-top: env(safe-area-inset-top, 0px);
