@@ -9,7 +9,7 @@
   --rust: #C97B5A;
   --amber: #6CB2E2;
   /* One colour per nutrient, used for bars and labels alike. */
-  --c-calories: #8FA382;
+  --c-calories: #B0CADB;
   --c-protein: #7FA6C4;
   --c-fat: #D9B26A;
   /* Not the rust of --rust: a carbs bar in its normal colour must never look like one that's gone over. */
@@ -17,7 +17,7 @@
   --c-fiber: #A58FC4;
   --c-water: #4FB8C9;
   --c-alcohol: #B8626F;
-  --c-workout: #6FC48F;
+  --c-workout: #6CB2E2;
   --c-meditation: #9AA5F0;
   --c-dog: #D49A6A;
   --radius: 12px;
