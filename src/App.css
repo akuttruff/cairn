@@ -1,13 +1,13 @@
 :root {
-  --bg: #1B1D1A;
-  --bg-raised: #23261F;
-  --paper: #EDE8DC;
-  --paper-dim: #B9B4A6;
-  --line: #34372E;
-  --moss: #8FA382;
-  --moss-dim: #5E6B57;
+  --bg: #2B2B2B;
+  --bg-raised: #3A3A3A;
+  --paper: #FFFFFF;
+  --paper-dim: #D4D4D4;
+  --line: #575757;
+  --moss: #B0CADB;
+  --moss-dim: #4F7187;
   --rust: #C97B5A;
-  --amber: #D9B26A;
+  --amber: #6CB2E2;
   /* One colour per nutrient, used for bars and labels alike. */
   --c-calories: #8FA382;
   --c-protein: #7FA6C4;
