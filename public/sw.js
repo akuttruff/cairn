@@ -8,8 +8,8 @@
 // one, so the cached shell is always a whole build; the page then hears
 // `app-updated` and reloads if it has only just opened (see lib/appShell.ts).
 const APP = 'cairn'
-// Bump to drop every cached page and icon at once (v3: the charcoal icons).
-const SHELL = `${APP}-shell-v3`
+// Bump to drop every cached page and icon at once (v4: the all-blue ring).
+const SHELL = `${APP}-shell-v4`
 const BUILD = `${APP}-build-`
 const EXTRAS = ['/manifest.webmanifest', '/icon.svg']
 
